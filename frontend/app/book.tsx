@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,8 +9,8 @@ import BottomNav from "@/src/components/BottomNav";
 import { colors } from "@/src/theme";
 import { BOOK_RULES } from "@/src/book-content";
 import { api } from "@/src/api";
-import { notify, openExternalUrl } from "@/src/utils/platform";
-import { AI_CHAT_URL } from "@/src/utils/aiChat";
+import { apriConPrompt, notify } from "@/src/utils/platform";
+import { AI_CHAT_URL, AI_CHAT_NAME } from "@/src/utils/aiChat";
 
 export default function Book() {
   const bottomNav = useBottomNav();
@@ -27,39 +27,27 @@ export default function Book() {
 
   const openAIStudio = async () => {
     try {
-      const { csv, count } = await api.aiStudioPrompt();
+      const { csv: filled, count } = await api.aiStudioPrompt();
       if (count === 0) {
-        notify("Nessuna partita selezionata", "Seleziona almeno una partita prima di usare il framework TypingMind.");
+        notify("Nessuna partita selezionata", "Seleziona almeno una partita prima di mandarla in analisi.");
         return;
       }
-      // 16/09/2026 — NIENTE PIU' INVOLUCRO.
-      // Qui il prompt del server veniva infilato dentro AISTUDIO_FRAMEWORK
-      // al posto di {{CSV}}: quel framework e' una consegna DIVERSA
-      // ("raccoglitore dati web, non fare EV matematico") e si aspettava
-      // una semplice tabella di quote. Ricevendo un prompt completo, il
-      // modello si trovava due consegne opposte e seguiva la prima.
-      // Il testo che arriva da /aistudio-prompt e' gia' completo di ruolo,
-      // processo, formato di output e disclaimer: va incollato cosi' com'e'.
-      const filled = csv;
-      // CRITICAL: open window BEFORE async clipboard call to avoid popup blocker
-      let newWin: Window | null = null;
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        newWin = window.open(AI_CHAT_URL, "_blank", "noopener,noreferrer");
-      }
-      // Then copy to clipboard
-      try {
-        if (Platform.OS === "web" && typeof navigator !== "undefined") {
-          await (navigator as any).clipboard.writeText(filled);
-        }
-      } catch {}
-      if (Platform.OS !== "web") {
-        openExternalUrl(AI_CHAT_URL);
-      }
-      if (Platform.OS === "web" && !newWin) {
-        notify("Popup bloccato", "Abilita i popup per questo sito e riprova, oppure apri manualmente " + AI_CHAT_URL + " e incolla con Ctrl+V.");
+      // 16/09/2026 — NIENTE PIU' INVOLUCRO: il testo di /aistudio-prompt e' gia'
+      // completo di ruolo, processo e formato, e avvolgerlo in un secondo
+      // framework dava al modello due consegne opposte.
+      // 19/09/2026 — copia e apertura passano da apriConPrompt: dentro il guscio
+      // Android `window.open` non apre una scheda e restituisce null, e il
+      // codice di prima lo leggeva come "popup bloccato".
+      const { copiato, aperto } = await apriConPrompt(AI_CHAT_URL, filled);
+      if (!copiato) {
+        notify("Prompt non copiato", `Ho aperto ${AI_CHAT_NAME}, ma il telefono non mi ha lasciato scrivere negli appunti. Riprova toccando di nuovo il tasto.`);
         return;
       }
-      notify("Prompt copiato ✓", `${count} partite. Incolla con Ctrl+V nella nuova scheda di TypingMind.`);
+      if (!aperto) {
+        notify("Prompt copiato ✓", `${count} partite. Non sono riuscito ad aprire ${AI_CHAT_NAME}: vai su ${AI_CHAT_URL} e incolla.`);
+        return;
+      }
+      notify("Prompt copiato ✓", `${count} partite. Incolla in ${AI_CHAT_NAME}.`);
     } catch (e: any) {
       notify("Errore", e?.message);
     }

@@ -9,12 +9,11 @@ import { useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Clipboard from "expo-clipboard";
 
 import { api } from "@/src/api";
 import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
-import { confirmAction, notify, openExternalUrl } from "@/src/utils/platform";
+import { apriConPrompt, confirmAction, notify, openExternalUrl } from "@/src/utils/platform";
 import { matchesCache, daysCache } from "@/src/utils/cache";
 import { AI_CHAT_URL, AI_CHAT_NAME, ARENA_URL, ARENA_NAME, MULTIPLA_ESTERNA_PROMPT } from "@/src/utils/aiChat";
 import { isAndroidBrowser, isAndroidShell, downloadLatestApk, RELEASE_LATEST_PAGE } from "@/src/utils/androidApp";
@@ -154,27 +153,19 @@ export default function Strumenti() {
   const apriMultiplaEsterna = async (url: string, nomeSito: string, chiave: string) => {
     setBusy(chiave);
     try {
-      // La scheda va aperta PRIMA di qualunque await, altrimenti il browser la
-      // blocca come popup (trappola gia' pagata su questo stesso tasto).
-      let newWin: Window | null = null;
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        newWin = window.open(url, "_blank", "noopener,noreferrer");
-      }
-      try {
-        await Clipboard.setStringAsync(MULTIPLA_ESTERNA_PROMPT);
-      } catch {
-        if (Platform.OS === "web" && typeof navigator !== "undefined") {
-          try { await (navigator as any).clipboard.writeText(MULTIPLA_ESTERNA_PROMPT); } catch {}
-        }
-      }
-      if (Platform.OS !== "web") {
-        openExternalUrl(url);
-      }
-      if (Platform.OS === "web" && !newWin) {
-        notify("Popup bloccato", "Abilita i popup per questo sito o apri manualmente " + url + " e incolla con Ctrl+V.");
+      const { copiato, aperto } = await apriConPrompt(url, MULTIPLA_ESTERNA_PROMPT);
+      if (!copiato) {
+        notify(
+          "Prompt non copiato",
+          `Ho aperto ${nomeSito}, ma il telefono non mi ha lasciato scrivere negli appunti. Riprova toccando di nuovo il tasto: se non funziona neanche cosi', dimmelo.`,
+        );
         return;
       }
-      notify("Prompt Copiato ✓", `Incolla con Ctrl+V nella nuova scheda di ${nomeSito}: cerchera' le partite di oggi e proporra' una multipla.`);
+      if (!aperto) {
+        notify("Prompt copiato ✓", `Non sono riuscito ad aprire ${nomeSito}: vai su ${url} e incolla.`);
+        return;
+      }
+      notify("Prompt copiato ✓", `Incolla in ${nomeSito}: cerchera' le partite di oggi e proporra' una multipla.`);
     } catch (e: any) {
       notify("Errore", e?.message);
     } finally {

@@ -88,6 +88,55 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-19 (4) — Analisi esterna dentro l'APK: "popup bloccato" falso e prompt non copiato
+
+**Sintomo riferito da Rossi** (con l'APK nuovo installato): tocca un tasto di
+analisi esterna, si apre Edge, il prompt NON e' negli appunti e l'app dice di
+abilitare i popup — popup che in un'app Android non esistono.
+
+**Causa, errore di progettazione mio.** Dentro la WebView di Capacitor
+`Platform.OS` vale **"web"**, perche' l'app E' il sito caricato dal guscio.
+Tutto il codice trattava quindi il guscio come un browser qualsiasi:
+1. `window.open(url)` nella WebView non apre una scheda: consegna l'indirizzo al
+   browser di sistema (Edge) e restituisce **null**. Il codice leggeva quel null
+   come "popup bloccato" e mostrava un avviso senza senso.
+2. In Strumenti la scheda veniva aperta PRIMA della copia (giusto in un browser,
+   per non perdere il gesto dell'utente): nel guscio, quando si arrivava alla
+   copia, la WebView aveva gia' perso il fuoco e `navigator.clipboard` falliva
+   in silenzio. Lo `catch {}` vuoto nascondeva anche l'errore.
+3. Il messaggio finale "Prompt copiato ✓" veniva dato per scontato: non
+   controllava se la copia fosse davvero riuscita.
+
+**Correzione**: una sola funzione, `apriConPrompt(url, testo)` in
+`src/utils/platform.ts`, usata da tutti e quattro i tasti piu' quello del Book.
+- `isCapacitorApp()` riconosce il guscio (`window.Capacitor.isNativePlatform`).
+- La copia e' **sincrona**, con `document.execCommand("copy")` su una textarea
+  temporanea. Risolve il conflitto fra i due vincoli: `navigator.clipboard` vuole
+  il fuoco (quindi copiare PRIMA di aprire), `window.open` vuole il gesto
+  dell'utente (quindi niente await prima). Essendo sincrona, copia e apertura
+  restano nello stesso gesto e nessuno dei due vincoli viene violato. Nella
+  WebView Android scrive negli appunti di sistema.
+- L'apertura usa `window.open(url, "_system")` nel guscio — niente ripiego su
+  `location.href`, che farebbe navigare via l'app stessa — e `_blank` nel
+  browser, dove il null e' davvero un popup bloccato.
+- Se `execCommand` fallisce si riprova con `navigator.clipboard` (li' l'await e'
+  innocuo: la scheda e' gia' aperta).
+- La funzione **restituisce cosa e' andato a buon fine** (`copiato`, `aperto`) e
+  i messaggi dicono la verita': "Prompt non copiato", oppure copiato ma sito non
+  aperto con l'indirizzo da aprire a mano.
+
+Toccati `strumenti.tsx`, `selected.tsx` e `book.tsx`: avevano tre varianti
+diverse della stessa logica, ora ne condividono una. Tolti gli import rimasti
+senza uso (`expo-clipboard`, `Platform`, `Linking`, `openExternalUrl`).
+
+`tsc` 0 errori, eslint 0 errori (warning scesi da 16 a 15),
+`npm run build:web` verde con `isCapacitorApp`, `_system` ed `execCommand`
+presenti nel bundle prodotto.
+
+**Serve un APK nuovo?** No: il guscio carica il sito da Vercel, quindi la
+correzione arriva con il deploy. L'APK va rifatto solo quando cambia
+`android/` o `capacitor.config.ts`.
+
 ### 2026-09-19 (3) — Quattro tasti per due siti esterni, e pattern di mercato nella Multipla
 
 **I quattro tasti** (richiesta di Rossi). Le stesse due analisi si possono ora

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  TextInput, Platform,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { api, Match, quickPrediction, evaluateMarketOutcome } from "@/src/api";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
-import { confirmAction, notify } from "@/src/utils/platform";
+import { apriConPrompt, confirmAction, notify } from "@/src/utils/platform";
 import { parseLeagueCode } from "@/src/utils/leagues";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
@@ -177,46 +177,21 @@ export default function Selected() {
       // e' una consegna DIVERSA ("raccoglitore dati web, non fare EV
       // matematico") e si aspettava una semplice tabella di quote. Ricevendo un
       // prompt completo, il modello si trovava due consegne opposte e seguiva
-      // la prima. Il testo di /aistudio-prompt e' gia' completo di ruolo,
-      // processo, formato di output e disclaimer: va incollato cosi' com'e'.
+      // la prima. Il testo di /aistudio-prompt va incollato cosi' com'e'.
       const { csv: filled, count } = await api.aiStudioPrompt();
 
-      // Si copia PRIMA e si apre DOPO: aprendo prima, il documento perde il
-      // fuoco e la scrittura negli appunti fallisce in silenzio.
-      let copied = false;
-      if (Platform.OS === "web" && typeof navigator !== "undefined") {
-        try {
-          await (navigator as any).clipboard.writeText(filled);
-          copied = true;
-        } catch {
-          // Ripiego per i browser che non concedono la clipboard API
-          try {
-            const ta = document.createElement("textarea");
-            ta.value = filled;
-            ta.style.position = "fixed";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
-            ta.focus();
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-            copied = true;
-          } catch {}
-        }
-      }
-
-      let newWin: Window | null = null;
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        newWin = window.open(url, "_blank", "noopener,noreferrer");
-      }
-      if (Platform.OS === "web" && !newWin) {
-        notify("Popup bloccato", "Abilita i popup e riprova.");
+      // Copia e apertura stanno in apriConPrompt: browser, PWA installata e
+      // guscio Android si comportano diversamente e vanno gestiti in un posto solo.
+      const { copiato, aperto } = await apriConPrompt(url, filled);
+      if (!copiato) {
+        notify("Prompt non copiato", `Ho aperto ${nomeSito}, ma il telefono non mi ha lasciato scrivere negli appunti. Riprova toccando di nuovo il tasto.`);
         return;
       }
-      notify(
-        copied ? "Prompt copiato ✓" : "Prompt pronto",
-        `${count} partite. ${copied ? "Incolla con Ctrl+V" : "Copia manuale richiesta"} nella scheda ${nomeSito}.`,
-      );
+      if (!aperto) {
+        notify("Prompt copiato ✓", `${count} partite. Non sono riuscito ad aprire ${nomeSito}: vai su ${url} e incolla.`);
+        return;
+      }
+      notify("Prompt copiato ✓", `${count} partite. Incolla in ${nomeSito}.`);
     } catch (e: any) { notify("Errore", e?.message); }
   };
 
