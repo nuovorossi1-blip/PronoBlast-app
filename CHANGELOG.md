@@ -88,6 +88,38 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-19 (5) — Multipla: i tre tasti di scarto "non fanno niente" sul telefono
+
+**Segnalazione di Rossi**: nell'APK, toccando "Altro pronostico" / "Altra
+partita" / "No campionato" non succede nulla; sul sito funzionano.
+
+**Non ho trovato la causa guardando il codice**, e dopo l'errore di stamattina
+(correggere su un'ipotesi) non ne invento una. I tre gestori sono React puro,
+non usano niente che cambi fra browser e WebView, e la richiesta al server e' la
+stessa che fa il tasto "Genera", che sul telefono funziona. Restano due
+spiegazioni che dall'esterno non si distinguono: il tocco non arriva al tasto,
+oppure arriva, la multipla viene rigenerata e torna **identica** — e senza
+nessun segnale a schermo le due cose sono indistinguibili.
+
+**Cosa e' stato fatto: rendere la differenza visibile.**
+- Ogni tasto ora mostra una rotella al posto dell'icona mentre lavora, e si
+  accende di bordo. Se il tocco arriva, si vede subito.
+- Se la multipla rigenerata e' **uguale** alla precedente (confronto per
+  `match_id:mercato`), compare un avviso: "Il motore non ha trovato
+  un'alternativa: la multipla resta questa". Prima quel caso era un silenzio.
+- Bersaglio del dito: `paddingVertical` da 6 a 10, `minHeight` 40 e `hitSlop` di
+  8px. Con 6 il tasto era alto circa 28px, sotto la soglia comoda su telefono —
+  un buon candidato se il problema e' il tocco che non arriva.
+- Il confronto prima/dopo usa un `useRef`, non `res` fra le dipendenze del
+  `useCallback`: metterlo li' ricreerebbe `generate` a ogni risposta.
+
+`tsc` 0 errori, eslint 0 errori (15 warning, uno in meno di prima),
+`npm run build:web` verde.
+
+**Da verificare sul telefono di Rossi**: se ora la rotella compare, il tocco
+arriva e il problema e' la rigenerazione; se non compare, il tocco non arriva e
+la strada e' il bersaglio o un sovrapposizione nel layout.
+
 ### 2026-09-19 (4) — Analisi esterna dentro l'APK: "popup bloccato" falso e prompt non copiato
 
 **Sintomo riferito da Rossi** (con l'APK nuovo installato): tocca un tasto di

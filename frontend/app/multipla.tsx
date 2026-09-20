@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Switch,
 } from "react-native";
@@ -38,6 +38,12 @@ const PATTERN_LIST = [
   { key: "X2", label: "X2" },
 ];
 
+/** Impronta della multipla, per capire se una rigenerazione l'ha cambiata. */
+function firmaLegs(legs?: MultiplaLeg[] | null): string | null {
+  if (!legs || !legs.length) return null;
+  return legs.map((l) => `${l.match_id}:${l.market}`).join("|");
+}
+
 const TODAY = () => new Date().toLocaleString("sv-SE", { timeZone: "Europe/Rome" }).slice(0, 10);
 
 export default function Multipla() {
@@ -61,8 +67,17 @@ export default function Multipla() {
   const [replace, setReplace] = useState(true);
 
   const [busy, setBusy] = useState(false);
+  /** Quale tasto di quale gamba sta lavorando: "<match_id>:<tipo>".
+   *  19/09/2026 — Senza questo, toccare "Altra partita" non dava NESSUN segnale
+   *  finche' la risposta non arrivava, e se la nuova multipla risultava uguale
+   *  sembrava che il tasto fosse morto. */
+  const [azione, setAzione] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [res, setRes] = useState<MultiplaResponse | null>(null);
+  /** Copia sempre aggiornata dell'ultimo risultato: serve dentro `generate` per
+   *  confrontare prima/dopo senza metterla fra le dipendenze del useCallback
+   *  (la ricreerebbe a ogni risposta). */
+  const resRef = useRef<MultiplaResponse | null>(null);
   // Scelte di Rossi sulla proposta corrente: sopravvivono alle rigenerazioni.
   const [excludeMatches, setExcludeMatches] = useState<string[]>([]);
   const [excludeLeagues, setExcludeLeagues] = useState<string[]>([]);
@@ -97,12 +112,20 @@ export default function Multipla() {
         locked: keep.map((l) => ({ matchId: l.match_id, market: overrides[l.match_id] || l.market })),
         excludeMatches: exM, excludeLeagues: exL,
       });
+      const primaFirma = firmaLegs(resRef.current?.legs);
+      resRef.current = r;
       setRes(r);
-      if (r.error) toast.show(r.error);
+      if (r.error) { toast.show(r.error); return; }
+      // Se la multipla e' identica a prima, il motore non ha trovato niente di
+      // meglio: va detto, altrimenti sembra che il tasto non abbia funzionato.
+      if (primaFirma && firmaLegs(r.legs) === primaFirma) {
+        toast.show("Il motore non ha trovato un'alternativa: la multipla resta questa");
+      }
     } catch (e: any) {
       toast.show(`Errore: ${e.message}`);
     } finally {
       setBusy(false);
+      setAzione(null);
     }
   }, [day, events, minTotalNum, excludeMatches, excludeLeagues, pickOverride, patterns, toast]);
 
@@ -110,6 +133,7 @@ export default function Multipla() {
 
   const changePick = (leg: MultiplaLeg) => {
     if (!leg.alternatives.length) { toast.show("Nessun altro pronostico sopra soglia per questa partita"); return; }
+    setAzione(`${leg.match_id}:pick`);
     // Passa all'alternativa successiva (in ordine di ranking); la partita resta.
     const next = leg.alternatives[0].market;
     const ov = { ...pickOverride, [leg.match_id]: next };
@@ -118,19 +142,21 @@ export default function Multipla() {
   };
 
   const changeMatch = (leg: MultiplaLeg) => {
+    setAzione(`${leg.match_id}:match`);
     const exM = [...excludeMatches, leg.match_id];
     setExcludeMatches(exM);
     generate(otherLegs(leg.match_id), exM, excludeLeagues, pickOverride);
   };
 
   const excludeLeague = (leg: MultiplaLeg) => {
+    setAzione(`${leg.match_id}:league`);
     const exL = Array.from(new Set([...excludeLeagues, leg.manifestazione]));
     setExcludeLeagues(exL);
     generate((res?.legs || []).filter((l) => l.manifestazione !== leg.manifestazione), excludeMatches, exL, pickOverride);
   };
 
   const reset = () => {
-    setExcludeMatches([]); setExcludeLeagues([]); setPickOverride({}); setRes(null);
+    setExcludeMatches([]); setExcludeLeagues([]); setPickOverride({}); setRes(null); resRef.current = null;
   };
 
   const save = async () => {
@@ -281,16 +307,40 @@ export default function Multipla() {
                   </View>
                   {/* Non mi piace: tre modi di scartare. Le altre gambe restano bloccate. */}
                   <View style={styles.cardActions}>
-                    <TouchableOpacity testID={`multipla-pick-${leg.match_id}`} onPress={() => changePick(leg)} style={[styles.actionBtn, !leg.alternatives.length && { opacity: 0.4 }]} disabled={busy || !leg.alternatives.length}>
-                      <Ionicons name="swap-horizontal-outline" size={16} color={colors.textMuted} />
+                    <TouchableOpacity
+                      testID={`multipla-pick-${leg.match_id}`}
+                      onPress={() => changePick(leg)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={[styles.actionBtn, !leg.alternatives.length && { opacity: 0.4 }, azione === `${leg.match_id}:pick` && styles.actionBtnOn]}
+                      disabled={busy || !leg.alternatives.length}
+                    >
+                      {azione === `${leg.match_id}:pick`
+                        ? <ActivityIndicator size="small" color={colors.primary} />
+                        : <Ionicons name="swap-horizontal-outline" size={16} color={colors.textMuted} />}
                       <Text style={styles.actionTxt}>Altro pronostico</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity testID={`multipla-match-${leg.match_id}`} onPress={() => changeMatch(leg)} style={styles.actionBtn} disabled={busy}>
-                      <Ionicons name="thumbs-down-outline" size={16} color={colors.textMuted} />
+                    <TouchableOpacity
+                      testID={`multipla-match-${leg.match_id}`}
+                      onPress={() => changeMatch(leg)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={[styles.actionBtn, azione === `${leg.match_id}:match` && styles.actionBtnOn]}
+                      disabled={busy}
+                    >
+                      {azione === `${leg.match_id}:match`
+                        ? <ActivityIndicator size="small" color={colors.primary} />
+                        : <Ionicons name="thumbs-down-outline" size={16} color={colors.textMuted} />}
                       <Text style={styles.actionTxt}>Altra partita</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity testID={`multipla-league-${leg.match_id}`} onPress={() => excludeLeague(leg)} style={styles.actionBtn} disabled={busy}>
-                      <Ionicons name="ban-outline" size={16} color={colors.textDim} />
+                    <TouchableOpacity
+                      testID={`multipla-league-${leg.match_id}`}
+                      onPress={() => excludeLeague(leg)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={[styles.actionBtn, azione === `${leg.match_id}:league` && styles.actionBtnOn]}
+                      disabled={busy}
+                    >
+                      {azione === `${leg.match_id}:league`
+                        ? <ActivityIndicator size="small" color={colors.textDim} />
+                        : <Ionicons name="ban-outline" size={16} color={colors.textDim} />}
                       <Text style={[styles.actionTxt, { color: colors.textDim }]}>No campionato</Text>
                     </TouchableOpacity>
                   </View>
@@ -389,7 +439,10 @@ const styles = StyleSheet.create({
   alts: { color: colors.textDim, fontSize: 11, marginTop: 4 },
   storico: { color: colors.textMuted, fontSize: 11, marginTop: 4 },
   cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: colors.bg },
+  // paddingVertical 10 (era 6): con 6 il bersaglio era alto ~28px, sotto la
+  // soglia comoda per un dito su telefono.
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.bg, minHeight: 40 },
+  actionBtnOn: { borderWidth: 1, borderColor: colors.primary },
   actionTxt: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
   switchTxt: { color: colors.textMuted, fontSize: 13 },
