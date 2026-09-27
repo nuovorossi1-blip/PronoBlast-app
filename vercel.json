@@ -149,6 +149,10 @@
       "destination": "/api/web-probe"
     },
     {
+      "source": "/apif-probe",
+      "destination": "/api/apif-probe"
+    },
+    {
       "source": "/odd-settings",
       "destination": "/api/odd-settings"
     },

@@ -183,6 +183,11 @@
   status = 200
 
 [[redirects]]
+  from = "/apif-probe"
+  to = "/.netlify/functions/apif-probe"
+  status = 200
+
+[[redirects]]
   from = "/odd-settings"
   to = "/.netlify/functions/odd-settings"
   status = 200
