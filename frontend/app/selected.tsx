@@ -1,13 +1,12 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, quickPrediction, evaluateMarketOutcome } from "@/src/api";
+import { api, Match, evaluateMarketOutcome } from "@/src/api";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
 import { apriConPrompt, confirmAction, notify } from "@/src/utils/platform";
@@ -291,9 +290,17 @@ export default function Selected() {
           })}
           <ScrollView contentContainerStyle={styles.list} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16} decelerationRate="fast">
             {items.map((m) => {
-              const pre = quickPrediction(m.odds);
+              // 27/09/2026 — La card mostrava `quickPrediction`, un'euristica
+              // calcolata sul momento dalle sole quote, che non conosce ne' il
+              // motore ne' l'IA ne' lo storico. Sembrava un pronostico del
+              // sistema e non lo era. Ora mostra `pick_finale`, cioe' il
+              // VERDETTO vero della fusione; l'euristica e' rimasta dove ha
+              // senso, nelle statistiche del dettaglio partita, con scritto
+              // cos'e'. Quando il verdetto non c'e' ancora (partita mai
+              // aperta), la card lo dice invece di inventare.
+              const verdetto = m.pick_finale || null;
               const lc = parseLeagueCode(m.manifestazione);
-              const preOutcome = m.result && pre ? evaluateMarketOutcome(pre.market, m.result) : null;
+              const preOutcome = m.result && verdetto ? evaluateMarketOutcome(verdetto, m.result) : null;
               const aiOutcome = m.result && m.main_prediction ? evaluateMarketOutcome(m.main_prediction, m.result) : null;
               const outcomeStyle = (o: boolean | null) =>
                 o === true ? { backgroundColor: "rgba(16,185,129,0.20)", borderColor: colors.success }
@@ -310,11 +317,18 @@ export default function Selected() {
                   <Text style={styles.cardTeams}>{m.squadra1} – {m.squadra2}</Text>
                   <Text style={styles.cardWhen}>{m.day} · {m.time}</Text>
                   <View style={styles.predRow}>
-                    {pre && (
+                    {verdetto ? (
                       <View style={[styles.preTag, outcomeStyle(preOutcome)]}>
                         <Ionicons name="flash" size={10} color={colors.primary} />
-                        <Text style={styles.preTagTxt}>{pre.market}</Text>
-                        <Text style={styles.preTagOdd}>@ {pre.odd.toFixed(2)}</Text>
+                        <Text style={styles.preTagTxt}>{verdetto}</Text>
+                        {m.pick_finale_prob ? (
+                          <Text style={styles.preTagOdd}>{Math.round(m.pick_finale_prob * 100)}%</Text>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <View style={[styles.preTag, { borderStyle: "dashed" }]}>
+                        <Ionicons name="help-circle-outline" size={10} color={colors.textDim} />
+                        <Text style={[styles.preTagTxt, { color: colors.textDim }]}>apri per il verdetto</Text>
                       </View>
                     )}
                     {m.main_prediction && (

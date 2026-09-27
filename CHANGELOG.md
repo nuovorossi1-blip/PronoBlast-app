@@ -88,6 +88,75 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-27 (5) — Storico quote simili, euristica rimessa al suo posto, IA con ricerca web
+
+**1. Storico quote simili** (`GET /similar-odds?id=&tol=`). Le cinque quote — 1,
+X, 2, Over 2.5, GG — si confrontano **insieme, in blocco**: devono cadere tutte
+dentro la tolleranza. Se a ±0,15 le partite simili sono meno di 20, si allarga
+da solo a 0,20, 0,30, 0,40 e lo dichiara; se non basta, **tace**. Una
+percentuale su 4 partite non e' un'informazione, e' rumore travestito da numero.
+
+Possibile solo ora: misurato il 19/09, con 432 partite concluse il **76% non ne
+trovava nemmeno una** simile, mediana zero. Con 7.855 la mediana e' 52.
+
+Provato in produzione su Sparta Praga - Slavia Praga (2,50 / 3,40 / 2,50 / 1,75
+/ 1,60): **237 partite simili** su 8.061. Over 1.5 76,8%, X2 66,7%, 1X 62,9%,
+MG 2-4 61,6%, GG 58,2%, O2.5 51,1% e **"1" al 33,3%** — la casa vince un terzo
+delle volte mentre il book la prezza 2,50, cioe' 40%. Media gol 2,70, punteggio
+piu' frequente 1-1 (14,3%). Su Trefelin - Caernarfon (1 a 10,00) risponde invece
+"solo 4 partite simili anche a ±0,40: troppe poche", che e' il comportamento
+giusto.
+
+**2. L'euristica rapida non e' piu' spacciata per un pronostico.** La card della
+Schedina mostrava `quickPrediction`, un calcolo fatto sul momento **dalle sole
+quote**, che non conosce il motore Poisson, ne' l'IA, ne' lo storico. Sembrava il
+pronostico del sistema e non lo era — ed e' cosi' che Banfield mostrava
+`MG 2-4 @1.40` in Schedina e `MG 3-6` nel dettaglio: due cose diverse, non una
+divergenza temporale. Ora:
+- la card mostra `pick_finale`, il VERDETTO vero, con la probabilita'; se la
+  partita non e' mai stata aperta scrive "apri per il verdetto" invece di
+  inventare (regola 6 del 27/07, finalmente rispettata);
+- nel dettaglio il blocco si chiama **EURISTICA RAPIDA (solo quote)** e sotto il
+  titolo c'e' scritto cos'e' e cosa non e'.
+
+**3. Pronostico AI con ricerca web (Tavily).** Fino a ieri il modello riceveva
+solo quote, probabilita' del motore e storico: niente xG, niente formazioni,
+niente assenze. Non era un analista, era un lettore di tabelle.
+
+Quello che NON cambia: il formato della risposta resta **JSON rigido**, perche'
+quel JSON alimenta fusione, verdetto e apprendimento. Il prompt proposto da
+Rossi (schede Markdown con emoji ed "esito secco") avrebbe rotto tutta la
+catena, e "1, X, 2, GG, NG, Over 2.5, Combo" avrebbe riaperto il problema di NG
+chiuso il 19/09. Tavily cambia cosa il modello SA, non come risponde.
+
+- `lib/webSearch.ts`: **tre ricerche mirate** (formazioni e assenze, forma
+  recente, xG), non una generica — "Banfield Newells pronostico" restituisce i
+  siti di pronostici altrui, cioe' l'opinione di qualcun altro invece dei dati.
+  Filtro di rilevanza a 0,5: sotto e' rumore, e dare rumore al modello e' peggio
+  che non dargli niente. Finestra 14 giorni.
+- **Il silenzio e' una risposta**: se non trova niente di attendibile (leghe
+  minori, ARG1F, terze divisioni) il blocco dice "nessun dato attendibile" e
+  ordina esplicitamente di non inventare formazioni o statistiche. Stessa regola
+  dei risultati: nel dubbio non si scrive.
+- Le fonti si accodano al campo `analysis` invece di finire in una colonna
+  nuova: `predictions` ha colonne fisse e una migrazione, per mostrare dei link,
+  non vale il rischio.
+- Un errore di Tavily non impedisce MAI un pronostico: si lavora come prima.
+
+**Provato dal server** (`/web-probe`, sonda temporanea): 9,1 secondi, dati veri
+— infortunio all'adduttore di Calhanoglu e Stones out, classifica di Serie A,
+xG 2,42 fatti e 1,23 subiti — da Transfermarkt, StatMuse, NewsNow e altri.
+**Avvertenza registrata**: i risultati possono riferirsi ad ALTRE partite delle
+stesse squadre (nella prova sono arrivate Roma-Inter e Real Madrid-Inter), per
+questo il blocco dice al modello di usarli come indicazione di forma e non come
+se fossero la partita in questione. E i 9 secondi si sommano al tempo del
+pronostico: la risposta resta salvata, un secondo click non ripaga.
+
+Chiavi `TAVILY_API_KEY` e `APIFOOTBALL_KEY` nelle variabili Vercel, cifrate, mai
+nel repository. **Entrambe da rigenerare: sono passate in chat.**
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del motore invariati.
+
 ### 2026-09-27 (4) — "Perché questo pick" e avviso quando card e dettaglio divergono
 
 **Da dove nasce.** Su Ca Banfield - Newells Old Boys (ARG1F, 26/09) il verdetto

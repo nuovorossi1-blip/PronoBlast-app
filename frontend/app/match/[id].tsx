@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -74,6 +74,11 @@ export default function MatchDetail() {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [mostraPerche, setMostraPerche] = useState(false);
+  /** Storico delle partite concluse con quote vicine. Si carica a richiesta:
+   *  il server deve scorrere ottomila partite, non ha senso farlo all'apertura
+   *  di ogni scheda. */
+  const [storicoQuote, setStoricoQuote] = useState<SimilarOddsResponse | null>(null);
+  const [caricoStorico, setCaricoStorico] = useState(false);
   const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
   const [showClusterAll, setShowClusterAll] = useState(false);
   const [history, setHistory] = useState<MatchHistory | null>(null);
@@ -990,14 +995,83 @@ export default function MatchDetail() {
             : rankedRaw;
           if (ranked.length === 0) return null;
           return (
+            <>
+            {/* ===== STORICO QUOTE SIMILI =====
+                "Partendo da queste quote, nelle partite passate con quote vicine
+                com'e' andata a finire?" Le cinque quote (1, X, 2, Over 2.5, GG)
+                si confrontano INSIEME, in blocco. Possibile solo dal 27/09/2026:
+                con 432 partite concluse il 76% non ne trovava nemmeno una simile;
+                con 7.855 la mediana e' 52. */}
+            <View style={styles.preBlock}>
+              <View style={styles.preHeader}>
+                <Ionicons name="albums-outline" size={14} color={colors.primary} />
+                <Text style={styles.preTitle}>STORICO QUOTE SIMILI</Text>
+              </View>
+              {!storicoQuote && !caricoStorico && (
+                <TouchableOpacity
+                  testID="storico-quote"
+                  onPress={async () => {
+                    setCaricoStorico(true);
+                    try { setStoricoQuote(await api.similarOdds(String(id))); }
+                    catch (e: any) { notify("Errore", e?.message); }
+                    finally { setCaricoStorico(false); }
+                  }}
+                  style={styles.storicoBtn}
+                >
+                  <Ionicons name="search-outline" size={16} color={colors.primary} />
+                  <Text style={styles.storicoBtnTxt}>Cerca partite con quote simili</Text>
+                </TouchableOpacity>
+              )}
+              {caricoStorico && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+              {storicoQuote && !storicoQuote.ok && (
+                <Text style={styles.euristicaNota}>{storicoQuote.motivo || storicoQuote.error}</Text>
+              )}
+              {storicoQuote && storicoQuote.ok && (
+                <>
+                  <Text style={styles.euristicaNota}>
+                    {storicoQuote.partite_simili} partite concluse con tutte e cinque le quote entro
+                    ±{storicoQuote.tolleranza.toFixed(2)} da questa, su {storicoQuote.storico_totale} in archivio.
+                    {storicoQuote.allargata ? " Tolleranza allargata: a ±0,15 il campione era troppo piccolo." : ""}
+                    {storicoQuote.media_gol ? ` Media gol ${storicoQuote.media_gol}.` : ""}
+                  </Text>
+                  {(storicoQuote.punteggi_frequenti || []).length > 0 && (
+                    <Text style={styles.storicoPunteggi}>
+                      Punteggi più frequenti: {(storicoQuote.punteggi_frequenti || [])
+                        .map((p) => `${p.punteggio} (${p.pct}%)`).join(" · ")}
+                    </Text>
+                  )}
+                  {(storicoQuote.mercati || []).slice(0, 12).map((m) => (
+                    <View key={m.market} style={styles.storicoRiga}>
+                      <Text style={[styles.storicoPct, { color: (m.pct ?? 0) >= 60 ? colors.success : (m.pct ?? 0) >= 50 ? colors.primary : colors.textDim }]}>
+                        {m.pct}%
+                      </Text>
+                      <Text style={[styles.storicoMercato, !m.giocabile && { color: colors.textDim }]}>
+                        {m.market}{m.giocabile ? "" : "  (non fra i tuoi mercati)"}
+                      </Text>
+                      <Text style={styles.storicoConteggio}>{m.vinte}/{m.valutate}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+
             <View style={styles.preBlock}>
               <View style={styles.preHeader}>
                 <Ionicons name="flash" size={14} color={colors.primary} />
-                <Text style={styles.preTitle}>FAMIGLIA PRE-PRONOSTICO (locale)</Text>
+                <Text style={styles.preTitle}>EURISTICA RAPIDA (solo quote)</Text>
                 <TouchableOpacity onPress={() => setShowLegend(true)} style={styles.helpBtn} testID="open-legend">
                   <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
                 </TouchableOpacity>
               </View>
+              {/* 27/09/2026 — Questa lista compariva anche nella card della
+                  Schedina come se fosse un pronostico del sistema. Non lo e':
+                  e' un calcolo fatto sul momento dalle sole quote. Dirlo qui
+                  evita di scambiarla per il verdetto. */}
+              <Text style={styles.euristicaNota}>
+                Calcolata sul momento dalle sole quote del bookmaker: non conosce il motore Poisson,
+                né il pronostico AI, né lo storico. Serve come terzo parere indipendente nella fusione,
+                non è il verdetto.
+              </Text>
               <Text style={styles.preHint}>Mercati validi ordinati per quota reale del bookmaker e win-rate storico. Questa lista NON tiene conto del pronostico AI: resta un parere indipendente, così la concordanza fra i tre sistemi è reale e non un’eco.</Text>
 
               {/* RANK #1 - HIGHLIGHTED PICK */}
@@ -1087,6 +1161,7 @@ export default function MatchDetail() {
                 );
               })}
             </View>
+            </>
           );
         })()}
 
@@ -1680,4 +1755,18 @@ const styles = StyleSheet.create({
   perchePunti: { width: 52, textAlign: "right", fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
   percheVoce: { flex: 1, color: colors.textDim, fontSize: 12, lineHeight: 16 },
   percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
+
+  // Euristica rapida e storico quote simili
+  euristicaNota: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginBottom: 8, fontStyle: "italic" },
+  storicoBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.primary,
+    backgroundColor: "rgba(255,87,34,0.10)",
+  },
+  storicoBtnTxt: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  storicoPunteggi: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginBottom: 8 },
+  storicoRiga: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 3 },
+  storicoPct: { width: 52, textAlign: "right", fontSize: 13, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  storicoMercato: { flex: 1, color: colors.text, fontSize: 12 },
+  storicoConteggio: { color: colors.textDim, fontSize: 11, fontVariant: ["tabular-nums"] },
 });

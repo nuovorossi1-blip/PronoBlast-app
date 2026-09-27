@@ -7,6 +7,7 @@ import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
 import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson } from "./lib/predictionPrompt";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
+import { contestoPartita, blocoTesto } from "./lib/webSearch";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -109,6 +110,29 @@ REGOLE OBBLIGATORIE basate sul PIN:
     // se la tabella fallisce si procede senza: il pronostico resta possibile
   }
 
+  // DATI DAL WEB (27/09/2026). Fino a ieri il modello riceveva SOLO quote,
+  // probabilita' del motore e storico: niente xG, niente formazioni, niente
+  // assenze. Non era un analista, era un lettore di tabelle. Qui Tavily
+  // aggiunge i fatti, con le fonti.
+  //
+  // Il formato della risposta NON cambia: resta JSON rigido, perche' quel JSON
+  // alimenta la fusione, il verdetto e l'apprendimento. Tavily aggiunge cosa il
+  // modello SA, non come risponde.
+  let fontiWeb: { titolo: string; url: string }[] = [];
+  let webDisponibile = false;
+  try {
+    const ctx = await contestoPartita(
+      match.squadra1, match.squadra2, match.manifestazione || "",
+      (process.env.TAVILY_API_KEY || "").trim(),
+    );
+    fontiWeb = ctx.fonti;
+    webDisponibile = ctx.disponibile;
+    prompt = prompt + blocoTesto(ctx);
+  } catch {
+    // La ricerca web non deve MAI impedire un pronostico: senza, si lavora
+    // come prima.
+  }
+
   let prediction;
   try {
     const text = await callLlm(llmOption, PREDICTION_SYSTEM, prompt);
@@ -125,12 +149,20 @@ REGOLE OBBLIGATORIE basate sul PIN:
     /* non bloccante */
   }
 
+  // Le fonti si accodano all'analisi invece di finire in una colonna nuova:
+  // `predictions` ha colonne fisse e una migrazione, per mostrare dei link,
+  // non vale il rischio. Cosi' Rossi le vede nel dettaglio partita e restano
+  // salvate insieme al pronostico che hanno contribuito a formare.
+  const analisiConFonti = webDisponibile && fontiWeb.length
+    ? `${prediction.analysis}\n\nFonti web consultate: ${fontiWeb.map((f) => f.url).join(" | ")}`
+    : prediction.analysis;
+
   const saved = await pgPost(
     "predictions",
     {
       match_id: matchId,
       family: prediction.family,
-      analysis: prediction.analysis,
+      analysis: analisiConFonti,
       playable_markets: prediction.playable_markets,
       main_prediction: prediction.main_prediction,
       confidence: prediction.confidence,
@@ -146,7 +178,8 @@ REGOLE OBBLIGATORIE basate sul PIN:
     updated_at: new Date().toISOString(),
   });
 
-  return jsonResponse(Array.isArray(saved) ? saved[0] : saved);
+  const uscita = Array.isArray(saved) ? saved[0] : saved;
+  return jsonResponse({ ...uscita, web_disponibile: webDisponibile, web_fonti: fontiWeb });
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {

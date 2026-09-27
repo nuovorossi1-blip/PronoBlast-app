@@ -92,6 +92,7 @@ export type Match = {
   main_prediction?: string | null;
   /** verdetto finale della fusione, salvato su Supabase: card e dettaglio devono mostrarlo entrambi */
   pick_finale?: string | null;
+  pick_finale_prob?: number | null;
   playable_markets?: { market: string; reasoning?: string }[] | null;
   selected?: boolean;
 };
@@ -214,6 +215,19 @@ export type RebuildResponse = {
   error?: string;
 };
 
+export type SimilarOddsResponse = {
+  ok: boolean;
+  motivo?: string;
+  tolleranza: number;
+  allargata?: boolean;
+  partite_simili: number;
+  storico_totale: number;
+  media_gol?: number;
+  punteggi_frequenti?: { punteggio: string; volte: number; pct: number }[];
+  mercati?: { market: string; giocabile: boolean; vinte: number; valutate: number; pct: number | null }[];
+  error?: string;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -223,6 +237,10 @@ export const api = {
     return netlifyReq<Match[]>(`/matches-list${qs ? `?${qs}` : ""}`);
   },
   days: () => netlifyReq<string[]>("/matches-days"),
+
+  /** Storico delle partite concluse con quote vicine a quelle di questa. */
+  similarOdds: (matchId: string, tol = 0.15) =>
+    netlifyReq<SimilarOddsResponse>(`/similar-odds?id=${encodeURIComponent(matchId)}&tol=${tol}`),
 
   // --- MANUTENZIONE (27/09/2026) ---
   /** Partite gia' giocate ma ancora senza risultato. `count` evita di scaricare
