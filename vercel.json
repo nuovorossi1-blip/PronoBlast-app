@@ -141,6 +141,14 @@
       "destination": "/api/rebuild-learning"
     },
     {
+      "source": "/similar-odds",
+      "destination": "/api/similar-odds"
+    },
+    {
+      "source": "/web-probe",
+      "destination": "/api/web-probe"
+    },
+    {
       "source": "/odd-settings",
       "destination": "/api/odd-settings"
     },

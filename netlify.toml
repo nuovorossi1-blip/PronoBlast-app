@@ -173,6 +173,16 @@
   status = 200
 
 [[redirects]]
+  from = "/similar-odds"
+  to = "/.netlify/functions/similar-odds"
+  status = 200
+
+[[redirects]]
+  from = "/web-probe"
+  to = "/.netlify/functions/web-probe"
+  status = 200
+
+[[redirects]]
   from = "/odd-settings"
   to = "/.netlify/functions/odd-settings"
   status = 200
