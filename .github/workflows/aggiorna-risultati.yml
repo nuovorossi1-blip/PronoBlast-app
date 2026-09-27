@@ -1,0 +1,49 @@
+# Aggiorna i risultati delle ultime giornate ogni mattina, da solo.
+#
+# Perche' qui e non sul PC di Rossi: prima la stessa cosa la faceva un .bat con
+# l'Utilita' di pianificazione di Windows, che funziona solo a computer acceso.
+# Questo gira sui server di GitHub.
+#
+# Alle 7:00 UTC = 9:00 in Italia (ora legale), 8:00 in inverno. L'orario esatto
+# non conta: le partite della sera prima sono finite da un pezzo.
+#
+# IMPORTANTE: il piano gratuito di API-Football copre solo gli ultimi due
+# giorni. Per questo si gira TUTTI i giorni e si guardano 3 giorni indietro: se
+# un'esecuzione salta, la successiva recupera comunque.
+
+name: Aggiorna risultati
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      giorni:
+        description: "Quanti giorni indietro guardare"
+        required: false
+        default: "3"
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chiama /sync-results
+        run: |
+          GIORNI="${{ github.event.inputs.giorni || '3' }}"
+          echo "Aggiorno i risultati degli ultimi $GIORNI giorni…"
+          CODICE=$(curl -s -o /tmp/risposta.json -w "%{http_code}" --max-time 300 \
+            "https://pronoblast.vercel.app/sync-results?days=$GIORNI")
+          echo "HTTP $CODICE"
+          cat /tmp/risposta.json
+          echo
+          if [ "$CODICE" != "200" ]; then
+            echo "::error::L'aggiornamento non e' riuscito (HTTP $CODICE)"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          d = json.load(open("/tmp/risposta.json"))
+          print(f"::notice::Scritti {d.get('scritte')} risultati su {d.get('partite_esaminate')} partite "
+                f"({d.get('dal')} - {d.get('al')}). Da controllare: {d.get('da_verificare')}, "
+                f"ambigue: {d.get('ambigue')}, non trovate: {d.get('non_trovate')}.")
+          PY

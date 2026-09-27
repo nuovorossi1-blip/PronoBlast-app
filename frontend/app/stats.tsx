@@ -32,9 +32,12 @@ export default function Stats() {
 
   const reset = () => {
     confirmAction({
-      title: "Azzerare apprendimento?",
-      message: "Tutti i punteggi delle famiglie verranno cancellati.",
-      confirmText: "Azzera",
+      title: "Azzerare l'apprendimento?",
+      message:
+        "Cancella tutti i punteggi e NON li ricostruisce. I risultati restano nel database, ma il motore smette di correggere le probabilità con lo storico finché non arrivano partite nuove.\n\n" +
+        "Per ripartire dai dati che hai già: Strumenti → Manutenzione → \"Ricostruisci l'apprendimento\".",
+      confirmText: "Azzera lo stesso",
+      cancelText: "Annulla",
       destructive: true,
       onConfirm: async () => { await api.statsReset(); load(); },
     });

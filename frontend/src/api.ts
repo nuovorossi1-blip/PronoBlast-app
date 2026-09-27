@@ -195,6 +195,25 @@ export type ResultsImportResponse = {
   esempi_diverse: { id: string; nel_database: string; nel_file: string }[];
 };
 
+export type SyncResultsResponse = {
+  ok: boolean; prova: boolean; dal: string; al: string; giorni: number;
+  partite_esaminate: number;
+  scritte: number; da_verificare: number; ambigue: number;
+  non_trovate: number; non_finite: number; supplementari: number; incerte: number;
+  per_fonte: Record<string, number>;
+  fonti_non_raggiungibili: string[];
+  da_controllare: { id: string; partita: string; giorno: string; motivo: string; risultato?: string; fonte?: string; somiglianza?: number }[];
+  error?: string;
+};
+
+export type RebuildResponse = {
+  ok: boolean; totale_concluse: number; da: number; elaborate: number;
+  prossimo: number | null; finito: boolean;
+  scenari_aggiornati: number; pagelle_aggiornate: number; famiglie_aggiornate: number;
+  saltate_risultato_illeggibile: number;
+  error?: string;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -222,6 +241,15 @@ export const api = {
     netlifyReq<{ results: any[]; applied: number; skipped: number; not_found: number }>(
       "/results-fetch", { method: "POST", body: JSON.stringify({ ids, apply: true }) },
     ),
+
+  /** "Aggiorna risultati": una richiesta per giornata, cascata API-Football ->
+   *  FotMob. Scrive solo quando e' sicuro. */
+  syncResults: (days = 3, dry = false) =>
+    netlifyReq<SyncResultsResponse>(`/sync-results?days=${days}${dry ? "&dry=1" : ""}`),
+
+  /** Ricostruisce l'apprendimento rigiocando le partite concluse, a blocchi. */
+  rebuildLearning: (from = 0, reset = false) =>
+    netlifyReq<RebuildResponse>(`/rebuild-learning?from=${from}${reset ? "&reset=1" : ""}`, { method: "POST" }),
 
   /** Caricamento massivo dei risultati dal foglio compilato. */
   resultsImport: (items: { id: string; result: string }[], overwrite = false) =>

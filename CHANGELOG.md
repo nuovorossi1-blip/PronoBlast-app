@@ -88,6 +88,77 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-27 (3) — Aggiorna risultati dal server, e ricostruzione dell'apprendimento
+
+**IL DANNO DA CAPIRE PRIMA DI TUTTO.** Il tasto "Azzera apprendimento" cancella
+`market_scores` e `family_counters` e basta: non ricostruisce niente. I risultati
+pero' sono gia' dentro `matches`, quindi non arriva nessun evento nuovo da
+contare e le tabelle restano vuote **per sempre**. Rossi l'ha premuto dopo aver
+caricato 7.000 risultati aspettandosi piu' precisione, e si e' ritrovato con
+`family_totals` a 1, 1, 1 — tre partite contate su 7.855 concluse. Nessun
+messaggio, nessun segnale: i numeri erano solo spariti.
+
+- Nuovo `POST /rebuild-learning`: rigioca tutte le partite concluse a blocchi di
+  300 (`from`/`limit`, `reset=1` sul primo). Ricostruisce
+  `scenario_market_scores` e `system_scorecard` per TUTTE le partite (servono
+  solo quote e risultato), e `market_scores`/`family_counters` solo per quelle
+  con un pronostico AI salvato — senza pronostico non c'e' niente da valutare, ed
+  e' un limite dei dati, non della funzione.
+- `updateSystemScorecard` e `updateScenarioScores` esportate da `applyResult.ts`:
+  `applyMatchResult` non si puo' riusare qui, perche' vedendo il risultato gia'
+  salvato esce subito senza contare.
+- L'avviso del tasto di azzeramento ora dice la verita' e rimanda alla
+  ricostruzione. Prima diceva solo "verranno cancellati".
+
+**"Aggiorna risultati" dal server** (`GET /sync-results`), sullo schema dello
+script Python di Rossi che ha gia' recuperato 7.000 risultati:
+- **una richiesta per GIORNATA**, non per partita. `fotmobFetch.ts` cerca su
+  FotMob una partita alla volta: con 10.000 partite sono 10.000 richieste, ed e'
+  il motivo per cui il recupero di ieri era lentissimo. Qui quattro giornate
+  sono quattro richieste per fonte.
+- **cascata** API-Football -> FotMob (ESPN e SofaScore restano nel codice ma
+  rispondono 403 ai server, vedi sotto).
+- **abbinamento nomi portato di peso** dallo script: `teamTables.ts` (STOP,
+  esonimi, 201 nazionali, sigle, parole generiche, distintive) e `teamMatch.ts`
+  (`norm`, `traduci`, `simil`, piu' Ratcliff/Obershelp equivalente a
+  `difflib.SequenceMatcher.ratio`). **Verificato confrontando il port TypeScript
+  con il Python originale su 374 coppie di nomi veri presi dal database di
+  Rossi: 374 su 374 identiche, differenza zero.**
+- **scrive solo quando e' sicuro**: ambigua, incerta, non trovata, non finita,
+  supplementari o rigori -> non scrive e passa oltre. Un risultato sbagliato non
+  resta fermo li': entra nell'apprendimento e sposta le probabilita' di tutte le
+  partite con quote simili.
+
+**Le fonti, PROVATE DAL SERVER** (`/sync-results?probe=1`, giornata del 26/09):
+
+| Fonte | Esito | Partite |
+|---|---|---|
+| API-Football | ok, 215 ms | 1.163 (1.124 finite) |
+| FotMob | ok, 498 ms | 494 |
+| ESPN | **HTTP 403** | — |
+| SofaScore | **HTTP 403** | — |
+
+ESPN e SofaScore bloccano gli indirizzi dei data center: dal PC di casa
+rispondono, da Vercel no. Restano nel codice perche' non costano niente e
+potrebbero sbloccarsi, ma non vanno considerate.
+
+**Prova a vuoto su 4 giorni** (`?dry=1`): 701 partite esaminate, 169 risultati
+trovati (166 da API-Football, 3 da FotMob), 1 ambigua, 1 ai supplementari, 4 con
+nomi poco simili, 110 non ancora finite. Le 420 non trovate sono quasi tutte del
+24 e 25 settembre: **il piano gratuito di API-Football copre solo gli ultimi due
+giorni**, e oltre resta la sola FotMob. Conseguenza pratica: il tasto va premuto
+ogni giorno, ed e' esattamente il compito del cron.
+
+**Cron GitHub** `.github/workflows/aggiorna-risultati.yml`, ogni giorno alle 7:00
+UTC, piu' lancio a mano con il numero di giorni. Gira sui server di GitHub:
+niente PC acceso, al contrario del `.bat` con l'Utilita' di pianificazione.
+
+**Schermata Manutenzione**: nuovo passo 0 (ricostruzione), il passo 1 ora usa
+`/sync-results`, selettore dei giorni (1/3/7/15/30) ed elenco delle righe da
+controllare con partita, risultato, fonte e somiglianza.
+
+`tsc` 0 errori, eslint 0 errori, build verde.
+
 ### 2026-09-27 (2) — MANUTENZIONE: completare i risultati delle 11.565 partite senza esito
 
 **Perche'.** `/db-stats` ha mostrato 11.997 partite nel database e **solo 432

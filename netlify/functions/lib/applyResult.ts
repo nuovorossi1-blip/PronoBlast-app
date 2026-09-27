@@ -88,6 +88,10 @@ export async function applyMatchResult(
 }
 
 /**
+ * Esportate (27/09/2026) perche' servono anche alla ricostruzione
+ * dell'apprendimento: li' i risultati sono gia' nel database, quindi
+ * `applyMatchResult` uscirebbe subito senza contare niente.
+ *
  * FASE 0 — aggiorna `system_scorecard` con l'esito dei pick registrati dai tre
  * sistemi per questa partita, separatamente per scenario.
  *
@@ -95,7 +99,7 @@ export async function applyMatchResult(
  * del risultato: una casella vuota resta vuota, non viene contata come errore.
  * Best effort — un problema qui non deve impedire il salvataggio del risultato.
  */
-async function updateSystemScorecard(match: any, home: number, away: number): Promise<void> {
+export async function updateSystemScorecard(match: any, home: number, away: number): Promise<void> {
   try {
     const scenario: string = match.scenario || classifyScenario(rowToOdds(match) as any);
     if (!scenario || scenario === "sconosciuto") return;
@@ -131,7 +135,7 @@ async function updateSystemScorecard(match: any, home: number, away: number): Pr
  * contano tutti i 49 mercati: la statistica resta imparziale e non riflette
  * quello che il sistema aveva scelto di proporre.
  */
-async function updateScenarioScores(match: any, home: number, away: number): Promise<void> {
+export async function updateScenarioScores(match: any, home: number, away: number): Promise<void> {
   try {
     const scenario: string = match.scenario || classifyScenario(rowToOdds(match) as any);
     if (!scenario || scenario === "sconosciuto") return;

@@ -168,6 +168,11 @@
   status = 200
 
 [[redirects]]
+  from = "/rebuild-learning"
+  to = "/.netlify/functions/rebuild-learning"
+  status = 200
+
+[[redirects]]
   from = "/odd-settings"
   to = "/.netlify/functions/odd-settings"
   status = 200

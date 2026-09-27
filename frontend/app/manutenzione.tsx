@@ -30,11 +30,6 @@ import { matchesCache, daysCache } from "@/src/utils/cache";
  * ogni volta che si accumulano partite non aggiornate.
  */
 
-/** Quante partite per richiesta al recupero automatico. Dentro la function
- *  FotMob viene interrogato 4 alla volta, e il limite di tempo e' 5 minuti:
- *  100 righe stanno larghe, 500 rischierebbero di sforare. */
-const BLOCCO_FETCH = 100;
-
 /** Quante righe per richiesta al caricamento. Applicare un risultato aggiorna
  *  pagella, punteggi per scenario e contatori: 300 e' il compromesso fra numero
  *  di richieste e limite di tempo. */
@@ -52,6 +47,10 @@ export default function Manutenzione() {
   const [lavoro, setLavoro] = useState<string | null>(null);
   const [avanzamento, setAvanzamento] = useState("");
   const [sovrascrivi, setSovrascrivi] = useState(false);
+  /** Quanti giorni indietro guardare. 3 di partenza: la finestra scorre da sola
+   *  ogni giorno, quindi con un uso quotidiano non resta mai scoperta. */
+  const [giorniIndietro, setGiorniIndietro] = useState(3);
+  const [daVerificare, setDaVerificare] = useState<any[]>([]);
   /** Messo a true dal tasto Ferma: il ciclo lo controlla a ogni blocco. */
   const stop = useRef(false);
 
@@ -66,35 +65,66 @@ export default function Manutenzione() {
 
   useEffect(() => { caricaConteggio(); }, [caricaConteggio]);
 
+  // --- 0. RICOSTRUZIONE DELL'APPRENDIMENTO ------------------------------
+  const ricostruisci = () => confirmAction({
+    title: "Ricostruire l'apprendimento?",
+    message: "Svuota le tabelle e le riempie di nuovo rigiocando tutte le partite concluse. Serve dopo un azzeramento, che cancella e basta senza ricostruire niente.",
+    confirmText: "Ricostruisci",
+    onConfirm: async () => {
+      stop.current = false;
+      setLavoro("rebuild");
+      setAvanzamento("Svuoto e riparto…");
+      try {
+        let da = 0, primo = true, tot = 0, scen = 0, fam = 0;
+        for (;;) {
+          if (stop.current) break;
+          const r = await api.rebuildLearning(da, primo);
+          primo = false;
+          tot = r.totale_concluse;
+          scen += r.scenari_aggiornati;
+          fam += r.famiglie_aggiornate;
+          setAvanzamento(`${da + r.elaborate} di ${tot} partite rigiocate`);
+          if (r.finito || r.prossimo === null) break;
+          da = r.prossimo;
+        }
+        notify(
+          stop.current ? "Ricostruzione fermata" : "Apprendimento ricostruito",
+          `Partite rigiocate: ${tot}.\nPunteggi per scenario e pagella dei sistemi: ${scen}.\nPunteggi per famiglia di mercato: ${fam} (solo le partite che avevano un pronostico AI salvato).`,
+        );
+      } catch (e: any) {
+        notify("Errore", e?.message);
+      } finally {
+        setLavoro(null);
+        setAvanzamento("");
+      }
+    },
+  });
+
   // --- 1. RECUPERO AUTOMATICO -------------------------------------------
   const recuperaAuto = async () => {
     stop.current = false;
     setLavoro("auto");
-    setAvanzamento("Preparo l'elenco…");
+    setAvanzamento("Interrogo le fonti…");
     try {
-      const r = await api.pendingMatches();
-      const ids = (r.matches || []).map((m) => m.id);
-      let fatte = 0, applicati = 0, nonTrovati = 0;
-      for (let i = 0; i < ids.length; i += BLOCCO_FETCH) {
-        if (stop.current) break;
-        const blocco = ids.slice(i, i + BLOCCO_FETCH);
-        try {
-          const out = await api.resultsFetch(blocco);
-          applicati += out.applied || 0;
-          nonTrovati += out.not_found || 0;
-        } catch {
-          nonTrovati += blocco.length;   // blocco fallito: si prosegue
-        }
-        fatte += blocco.length;
-        setAvanzamento(`${fatte} di ${ids.length} — recuperate ${applicati}, non trovate ${nonTrovati}`);
-      }
+      // Il server fa tutto in una volta: una richiesta per giornata alle fonti,
+      // abbinamento in locale. Prima si mandava una ricerca per PARTITA.
+      const r = await api.syncResults(giorniIndietro);
       matchesCache.invalidate();
       daysCache.invalidate();
       await caricaConteggio();
-      notify(
-        stop.current ? "Recupero fermato" : "Recupero completato",
-        `Risultati recuperati: ${applicati}. Non trovati su FotMob: ${nonTrovati}. Quelli che restano si completano con il foglio Excel.`,
-      );
+      setDaVerificare(r.da_controllare || []);
+      const righe = [
+        `Partite esaminate: ${r.partite_esaminate}`,
+        `Risultati scritti: ${r.scritte}`,
+        r.da_verificare ? `Da controllare (nomi poco simili): ${r.da_verificare}` : "",
+        r.ambigue ? `Ambigue, non scritte: ${r.ambigue}` : "",
+        r.supplementari ? `Ai supplementari, non scritte: ${r.supplementari}` : "",
+        r.non_finite ? `Non ancora finite: ${r.non_finite}` : "",
+        r.non_trovate ? `Non trovate: ${r.non_trovate}` : "",
+        Object.keys(r.per_fonte || {}).length ? `Fonti: ${Object.entries(r.per_fonte).map(([k, v]) => `${k} ${v}`).join(", ")}` : "",
+        (r.fonti_non_raggiungibili || []).length ? "Alcune fonti non hanno risposto (normale: ESPN e SofaScore bloccano i server)." : "",
+      ].filter(Boolean);
+      notify("Aggiornamento completato", righe.join("\n"));
     } catch (e: any) {
       notify("Errore", e?.message);
     } finally {
@@ -263,9 +293,39 @@ export default function Manutenzione() {
         </View>
 
         <Passo
+          numero="0"
+          titolo="Ricostruisci l'apprendimento"
+          testo="Da usare dopo un azzeramento: quel tasto cancella e basta, non ricostruisce niente. Qui il motore rigioca tutte le partite concluse e rifà i conteggi."
+          icona="refresh-outline"
+          attivo={lavoro === "rebuild"}
+          disabilitato={occupato}
+          onPress={ricostruisci}
+        />
+
+        <View style={styles.box}>
+          <Text style={styles.boxTitle}>GIORNI DA GUARDARE</Text>
+          <View style={styles.giorniRow}>
+            {[1, 3, 7, 15, 30].map((g) => (
+              <TouchableOpacity
+                key={g}
+                onPress={() => setGiorniIndietro(g)}
+                disabled={occupato}
+                style={[styles.giornoChip, giorniIndietro === g && styles.giornoChipOn]}
+              >
+                <Text style={[styles.giornoTxt, giorniIndietro === g && styles.giornoTxtOn]}>{g}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.hint}>
+            Il piano gratuito di API-Football copre solo gli ultimi due giorni: oltre resta FotMob, che trova molto meno.
+            Con un uso quotidiano 3 bastano; se salti qualche giorno, alza il numero.
+          </Text>
+        </View>
+
+        <Passo
           numero="1"
-          titolo="Recupera risultati automaticamente"
-          testo="Cerca i risultati su FotMob, a blocchi di 100. È lenta: tieni l'app aperta. Non li troverà tutti — campionati minori e amichevoli restano fuori."
+          titolo="Aggiorna risultati"
+          testo="Una richiesta per giornata a API-Football e FotMob, abbinamento in locale. Scrive solo quando è sicuro: ambigue, incerte e partite ai supplementari restano vuote."
           icona="cloud-download-outline"
           attivo={lavoro === "auto"}
           disabilitato={occupato || !conteggio?.da_completare}
@@ -318,6 +378,21 @@ export default function Manutenzione() {
             >
               <Text style={styles.stopTxt}>FERMA</Text>
             </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {daVerificare.length ? (
+          <View style={styles.box}>
+            <Text style={styles.boxTitle}>DA CONTROLLARE</Text>
+            <Text style={styles.hint}>
+              Righe scritte con nomi poco simili, o non scritte perché ambigue. Controllale nel dettaglio partita.
+            </Text>
+            {daVerificare.slice(0, 20).map((v, i) => (
+              <Text key={i} style={styles.verifica}>
+                {v.giorno} · {v.partita} — {v.motivo}
+                {v.risultato ? ` → ${v.risultato} (${v.fonte}, somiglianza ${v.somiglianza})` : ""}
+              </Text>
+            ))}
           </View>
         ) : null}
 
@@ -398,6 +473,16 @@ const styles = StyleSheet.create({
   lavoroTxt: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
   stopBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.danger },
   stopTxt: { color: "#FFF", fontSize: 12, fontWeight: "900" },
+
+  giorniRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 6 },
+  giornoChip: {
+    minWidth: 44, paddingVertical: 8, borderRadius: 10, alignItems: "center",
+    borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg,
+  },
+  giornoChipOn: { borderColor: colors.primary, backgroundColor: "rgba(255,87,34,0.15)" },
+  giornoTxt: { color: colors.textMuted, fontSize: 14, fontWeight: "800" },
+  giornoTxtOn: { color: colors.primary },
+  verifica: { color: colors.warning, fontSize: 11, lineHeight: 16, marginTop: 4 },
 
   nota: { color: colors.textDim, fontSize: 11, lineHeight: 16, fontStyle: "italic" },
 });

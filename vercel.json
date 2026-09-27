@@ -137,6 +137,10 @@
       "destination": "/api/sync-results"
     },
     {
+      "source": "/rebuild-learning",
+      "destination": "/api/rebuild-learning"
+    },
+    {
       "source": "/odd-settings",
       "destination": "/api/odd-settings"
     },
