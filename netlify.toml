@@ -153,6 +153,16 @@
   status = 200
 
 [[redirects]]
+  from = "/pending-matches"
+  to = "/.netlify/functions/pending-matches"
+  status = 200
+
+[[redirects]]
+  from = "/results-import"
+  to = "/.netlify/functions/results-import"
+  status = 200
+
+[[redirects]]
   from = "/odd-settings"
   to = "/.netlify/functions/odd-settings"
   status = 200

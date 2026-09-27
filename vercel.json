@@ -125,6 +125,14 @@
       "destination": "/api/db-stats"
     },
     {
+      "source": "/pending-matches",
+      "destination": "/api/pending-matches"
+    },
+    {
+      "source": "/results-import",
+      "destination": "/api/results-import"
+    },
+    {
       "source": "/odd-settings",
       "destination": "/api/odd-settings"
     },

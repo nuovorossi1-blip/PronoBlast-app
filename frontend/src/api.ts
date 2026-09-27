@@ -172,6 +172,29 @@ export type StructuralAnalysis = {
   explanation: string;
 };
 
+export type PendingMatch = {
+  id: string; day: string; time: string | null; manifestazione: string;
+  squadra1: string; squadra2: string;
+  odd_1: number | null; odd_x: number | null; odd_2: number | null;
+  odd_1x: number | null; odd_x2: number | null; odd_12: number | null;
+  odd_u15: number | null; odd_o15: number | null;
+  odd_u25: number | null; odd_o25: number | null;
+  odd_u35: number | null; odd_o35: number | null;
+  odd_gg: number | null; odd_ng: number | null;
+};
+
+export type ResultsImportResponse = {
+  ricevute: number;
+  applicate: number;
+  sovrascritte: number;
+  gia_presenti: number;
+  saltate_perche_diverse: number;
+  illeggibili: number;
+  non_trovate: number;
+  esempi_illeggibili: string[];
+  esempi_diverse: { id: string; nel_database: string; nel_file: string }[];
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -181,6 +204,30 @@ export const api = {
     return netlifyReq<Match[]>(`/matches-list${qs ? `?${qs}` : ""}`);
   },
   days: () => netlifyReq<string[]>("/matches-days"),
+
+  // --- MANUTENZIONE (27/09/2026) ---
+  /** Partite gia' giocate ma ancora senza risultato. `count` evita di scaricare
+   *  migliaia di righe quando serve solo sapere quante sono. */
+  pendingMatches: (soloConteggio = false) =>
+    netlifyReq<{
+      da_completare: number;
+      prima_data?: string | null;
+      ultima_data?: string | null;
+      per_mese?: Record<string, number>;
+      matches?: PendingMatch[];
+    }>(`/pending-matches${soloConteggio ? "?count=1" : ""}`),
+
+  /** Recupero automatico dei risultati via FotMob per gli id indicati. */
+  resultsFetch: (ids: string[]) =>
+    netlifyReq<{ results: any[]; applied: number; skipped: number; not_found: number }>(
+      "/results-fetch", { method: "POST", body: JSON.stringify({ ids, apply: true }) },
+    ),
+
+  /** Caricamento massivo dei risultati dal foglio compilato. */
+  resultsImport: (items: { id: string; result: string }[], overwrite = false) =>
+    netlifyReq<ResultsImportResponse>(
+      "/results-import", { method: "POST", body: JSON.stringify({ items, overwrite }) },
+    ),
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),

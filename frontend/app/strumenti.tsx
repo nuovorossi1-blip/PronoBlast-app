@@ -315,6 +315,18 @@ export default function Strumenti() {
           onPress={() => router.push("/stats")}
         />
 
+        {/* Sezione temporanea (27/09/2026): serve a riempire i risultati mancanti
+            delle 11.565 partite gia' giocate ma senza esito. Quando il database
+            sara' completo, questo blocco e app/manutenzione.tsx possono sparire. */}
+        <Text style={styles.section}>MANUTENZIONE</Text>
+        <Tool
+          testID="tool-manutenzione"
+          icon="construct-outline"
+          title="Completa i risultati mancanti"
+          desc="Recupero automatico da FotMob, esportazione in Excel delle partite rimaste e ricaricamento del foglio compilato."
+          onPress={() => router.push("/manutenzione")}
+        />
+
         {showApkInstall && (
           <>
             <Text style={styles.section}>APP ANDROID</Text>

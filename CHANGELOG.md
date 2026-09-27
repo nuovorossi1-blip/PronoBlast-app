@@ -88,6 +88,69 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-27 (2) — MANUTENZIONE: completare i risultati delle 11.565 partite senza esito
+
+**Perche'.** `/db-stats` ha mostrato 11.997 partite nel database e **solo 432
+concluse**. Tutte le altre hanno le quote e nessun risultato, quindi non
+insegnano niente al motore. Misurato sul campione: con le tolleranze di Rossi
+(1X2 +-0,10, Over 2.5 e GG +-0,15) il **76% delle partite non trova nemmeno una
+partita simile**, mediana zero, massimo quattro. Lo storico per quote simili non
+e' costruibile finche' la base resta questa.
+
+**Nuova schermata `app/manutenzione.tsx`**, raggiungibile dalla sezione
+MANUTENZIONE in fondo a Strumenti. Tre passi, in ordine:
+
+1. **Recupero automatico** — riusa `/results-fetch`, che gia' esisteva per la
+   Schedina e cerca i risultati su FotMob. L'app cicla a blocchi di 100 con
+   avanzamento a schermo e tasto FERMA. Il blocco e' 100 e non 500 perche'
+   dentro la function FotMob viene interrogato 4 alla volta e il limite di tempo
+   e' 5 minuti. Questo passo fa il grosso senza lavoro manuale; campionati
+   minori e amichevoli resteranno fuori.
+2. **Esportazione in Excel** — nuovo endpoint `GET /pending-matches`: partite
+   con `result IS NULL` e data **anteriore a oggi** (ora di Roma), con tutte e
+   14 le quote. `?count=1` restituisce solo il conteggio, per scrivere sul tasto
+   quante partite verranno toccate. Il foglio si costruisce nell'app con
+   SheetJS.
+3. **Caricamento** — nuovo endpoint `POST /results-import`, a blocchi di 300.
+
+**Due colonne numeriche invece di una.** Il foglio ha `gol_casa` e `gol_ospite`,
+non una sola colonna `risultato`. Motivo: Excel riscrive da solo la cella —
+`2-1` diventa la data 2 gennaio, `2.1` il numero 2,1, `2:1` l'ora 02:01. Su
+11.000 righe non te ne accorgeresti. Due numeri interi non hanno niente da
+convertire. Resta una colonna `risultato` libera come alternativa, che vince se
+compilata e accetta tutti e tre i formati.
+
+**Doppio caricamento innocuo**: `applyMatchResult` gia' riconosce un risultato
+identico e non conta due volte; se e' diverso, annulla prima i conteggi vecchi.
+In piu' `results-import` salta le partite che hanno gia' un risultato DIVERSO e
+le segnala, a meno che non si accenda "sovrascrivi": un errore di compilazione
+non cancella dati buoni di nascosto.
+
+Registrati nei TRE posti come vuole la regola: `api/[route].ts`, `vercel.json`,
+`netlify.toml`.
+
+**Verifiche ESEGUENDO.**
+- `results-import` con database finto, sette casi: riga nuova applicata; stesso
+  risultato -> "gia' presenti", niente doppio conteggio; risultato diverso senza
+  sovrascrivi -> saltato e segnalato con vecchio e nuovo valore; con sovrascrivi
+  -> applicato; `2:1` e `2.1` letti correttamente, "rinviata" segnalata come
+  illeggibile, riga vuota ignorata, id inesistente contato a parte; 501 righe ->
+  400 con il motivo; zero righe -> 400.
+- **Giro completo del foglio**: scritto un .xlsx con le colonne vere, compilato
+  come farebbe Rossi (due interi, piu' una riga con la colonna libera "2-1"),
+  riletto con la stessa identica logica dell'app. Tre risultati su tre estratti
+  giusti, **0-0 compreso** (il caso che una lettura ingenua avrebbe scartato
+  come casella vuota).
+
+`tsc` 0 errori, eslint 0 errori, build verde. Il bundle passa da 2,49 a 2,9 MB
+per SheetJS: accettabile, ed e' il prezzo per leggere e scrivere .xlsx senza
+passare dal CSV, che Excel rimaneggia al salvataggio.
+
+**Quando il database sara' completo** questa sezione puo' sparire: bastera'
+togliere il blocco MANUTENZIONE da `strumenti.tsx` e il file
+`app/manutenzione.tsx`. Il passo 1 pero' resta utile ogni volta che si accumulano
+partite non aggiornate.
+
 ### 2026-09-27 — L'export del database era troncato a 1000 righe, in silenzio
 
 **Come e' saltato fuori.** Rossi chiede quante partite concluse ci siano nello
