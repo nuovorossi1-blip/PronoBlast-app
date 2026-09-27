@@ -28,6 +28,7 @@ import build_multipla from "../netlify/functions/build-multipla";
 import db_stats from "../netlify/functions/db-stats";
 import pending_matches from "../netlify/functions/pending-matches";
 import results_import from "../netlify/functions/results-import";
+import sync_results from "../netlify/functions/sync-results";
 import delete_all from "../netlify/functions/delete-all";
 import export_db from "../netlify/functions/export-db";
 import import_db from "../netlify/functions/import-db";
@@ -62,6 +63,7 @@ const ROUTES: Record<string, Handler> = {
   "db-stats": db_stats,
   "pending-matches": pending_matches,
   "results-import": results_import,
+  "sync-results": sync_results,
   "delete-all": delete_all,
   "export-db": export_db,
   "import-db": import_db,
