@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -73,6 +73,7 @@ export default function MatchDetail() {
   const [yellowCandidates, setYellowCandidates] = useState<{ market: string; family: string; missed: number; family_total: number; miss_rate: number }[]>([]);
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [mostraPerche, setMostraPerche] = useState(false);
   const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
   const [showClusterAll, setShowClusterAll] = useState(false);
   const [history, setHistory] = useState<MatchHistory | null>(null);
@@ -673,6 +674,63 @@ export default function MatchDetail() {
                   )}
                 </View>
               </View>
+
+              {/* Il salvato e il ricalcolato possono divergere: la card della
+                  Schedina mostra `pick_finale`, cioe' il verdetto fissato in un
+                  momento passato, mentre qui il verdetto viene RICALCOLATO a ogni
+                  apertura con l'IA e la soglia di adesso. Se nel mezzo e' arrivato
+                  il pronostico AI o e' cambiata la soglia, i due numeri non
+                  coincidono e finora niente lo diceva. */}
+              {match.pick_finale && normalizeMarket(match.pick_finale) !== normalizeMarket(top.market) && (
+                <View style={styles.divergenza}>
+                  <Ionicons name="sync-outline" size={14} color={colors.warning} />
+                  <Text style={styles.divergenzaTxt}>
+                    In Schedina era salvato <Text style={{ fontWeight: "900" }}>{match.pick_finale}</Text>: il verdetto è
+                    cambiato ed è stato aggiornato ora. Succede quando arriva il pronostico AI o cambi la soglia minima.
+                  </Text>
+                </View>
+              )}
+
+              {/* "Perche' questo pick": il verdetto nasce da una somma di undici
+                  correttivi (posizione nei tre sistemi, concordanza, probabilita'
+                  reale, storico, penalita' varie). Senza vederli, la scelta e'
+                  impossibile da giudicare — ed e' esattamente il motivo per cui
+                  un MG 3-6 al posto di un 1 sembrava inspiegabile. */}
+              <TouchableOpacity
+                testID="verdict-perche"
+                onPress={() => setMostraPerche(!mostraPerche)}
+                style={styles.percheBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name={mostraPerche ? "chevron-down" : "chevron-forward"} size={14} color={colors.textMuted} />
+                <Text style={styles.percheBtnTxt}>PERCHÉ QUESTO PICK</Text>
+              </TouchableOpacity>
+
+              {mostraPerche && (
+                <View style={styles.percheBox}>
+                  {[top, ...alts].map((p, idx) => (
+                    <View key={`perche-${p.market}-${idx}`} style={idx ? styles.percheAltro : undefined}>
+                      <Text style={styles.percheMercato}>
+                        {idx === 0 ? "★ " : `${idx + 1}. `}{p.market} — totale {Number(p.score).toFixed(1)}
+                      </Text>
+                      {(p.dettaglio || []).map((d, j) => (
+                        <View key={j} style={styles.percheRiga}>
+                          <Text style={[styles.perchePunti, { color: d.punti >= 0 ? colors.success : colors.danger }]}>
+                            {d.punti > 0 ? "+" : ""}{d.punti}
+                          </Text>
+                          <Text style={styles.percheVoce}>{d.voce}</Text>
+                        </View>
+                      ))}
+                      {!(p.dettaglio || []).length && (
+                        <Text style={styles.percheVoce}>Nessun punto registrato per questo mercato.</Text>
+                      )}
+                    </View>
+                  ))}
+                  <Text style={styles.percheNota}>
+                    Vince il punteggio più alto, non la posizione nel ranking strutturale. A parità entro 5 punti decide la quota più bassa.
+                  </Text>
+                </View>
+              )}
 
               {alts.length > 0 && (
                 <View style={{ marginTop: 4 }}>
@@ -1599,4 +1657,27 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(245, 158, 11, 0.12)", borderRadius: 8,
   },
   aiFuoriTxt: { flex: 1, color: colors.warning, fontSize: 11, fontWeight: "700" },
+
+  // Avviso di divergenza fra il pick salvato (card della Schedina) e quello
+  // ricalcolato qui: prima i due numeri potevano essere diversi in silenzio.
+  divergenza: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: 8, paddingVertical: 6, paddingHorizontal: 8,
+    backgroundColor: "rgba(245, 158, 11, 0.12)", borderRadius: 8,
+  },
+  divergenzaTxt: { flex: 1, color: colors.warning, fontSize: 11, lineHeight: 15 },
+
+  // "Perche' questo pick": la somma dei correttivi, voce per voce.
+  percheBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, paddingVertical: 8 },
+  percheBtnTxt: { color: colors.textMuted, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
+  percheBox: {
+    backgroundColor: colors.bg, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  percheAltro: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
+  percheMercato: { color: colors.text, fontSize: 13, fontWeight: "800", marginBottom: 6 },
+  percheRiga: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 2 },
+  perchePunti: { width: 52, textAlign: "right", fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  percheVoce: { flex: 1, color: colors.textDim, fontSize: 12, lineHeight: 16 },
+  percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
 });

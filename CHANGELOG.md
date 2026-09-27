@@ -88,6 +88,57 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-27 (4) — "Perché questo pick" e avviso quando card e dettaglio divergono
+
+**Da dove nasce.** Su Ca Banfield - Newells Old Boys (ARG1F, 26/09) il verdetto
+mostrava `MG 3-6 totali` mentre il ranking strutturale aveva `1 @1.45` al terzo
+posto con coverage 66%, e il pre-pronostico indicava proprio `1`. Impossibile
+capire perche' guardando lo schermo: il punteggio della fusione e' la somma di
+**undici correttivi** (posizione nei tre sistemi, bonus del 1° del motore,
+concordanza, coppie opposte, probabilita' reale, divario con lo storico, combo
+ridondanti, Under vicino al pavimento...), e nessuno di questi era visibile.
+
+**1) Riquadro "PERCHÉ QUESTO PICK"** nel dettaglio partita, richiudibile.
+`buildFinalVerdict` ora annota ogni punto assegnato in `dettaglio: {voce, punti}[]`,
+e il riquadro lo mostra per il pick scelto e per le alternative. I moltiplicatori
+(penalita' in percentuale) vengono annotati come la differenza che producono
+davvero, non come fattore: leggibile senza fare i conti.
+
+Verificato ricostruendo quella partita con i suoi dati veri — quote a schermo,
+ranking, pick PRE, proposte dell'IA e storico reale di DOMINANZA_CON_TETTO preso
+dalla schermata Machine Learning — ed eseguendo la fusione:
+
+```
+soglia 1,40 -> 1 @1.45, totale 19.6
+     +6.8  motore, 3° nel ranking
+     +5    pre-pronostico, 1°
+     +2.5  concordanza 2 sistemi
+     +0.5  3° del motore
+     +4.8  probabilità reale 66%
+soglia 1,50 -> nessuna giocata
+```
+
+**Con quei dati la fusione sceglie `1`, non `MG 3-6`.** Il pick mostrato
+nell'app era marcato "SEGNALE PARZIALE 1/3", cioe' sostenuto da un solo sistema:
+segno che nel `preRanked` passato davvero alla fusione `1` non c'era, pur
+comparendo nel riquadro PRE a schermo. Il riquadro e quella lista non sono
+necessariamente la stessa cosa: e' il prossimo punto da verificare, e ora il
+"perche'" lo rendera' visibile a colpo d'occhio sulla prossima partita.
+Verificato anche che il filtro pavimento/tetto non c'entra:
+`violatesStructure("1", floor 2, ceiling 4)` e' falso (scarta invece
+`MG 1-3 casa`, primo del ranking).
+
+**2) Avviso di divergenza.** La card della Schedina mostra `pick_finale`, cioe'
+il verdetto fissato in un momento passato; il dettaglio lo RICALCOLA a ogni
+apertura con l'IA e la soglia di adesso. Se nel mezzo arriva il pronostico AI o
+cambia la soglia minima, i due numeri divergono — ed e' esattamente il caso di
+Banfield: card `MG 2-4 totali @1.40`, dettaglio `MG 3-6 totali`. Ora il dettaglio
+lo dice, indicando cosa era salvato e che il verdetto e' stato aggiornato.
+Il salvataggio automatico gia' esisteva (`saveVerdict` su ogni ricalcolo):
+mancava solo dirlo.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del motore invariati.
+
 ### 2026-09-27 (3) — Aggiorna risultati dal server, e ricostruzione dell'apprendimento
 
 **IL DANNO DA CAPIRE PRIMA DI TUTTO.** Il tasto "Azzera apprendimento" cancella

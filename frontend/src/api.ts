@@ -783,6 +783,11 @@ export type VerdictPick = {
   agreementLabel: "piena" | "forte" | "parziale" | "divergente";
   vetoed?: boolean;              // true se il motore strutturale ha posto veto
   ambiguousPair?: boolean;       // true se questo pick forma una coppia opposta ravvicinata col #1/#2 (es. GG vs NG testa a testa)
+  /** Da dove viene ogni punto del punteggio, nell'ordine in cui e' stato
+   *  assegnato. Alimenta il riquadro "perche' questo pick" nel dettaglio
+   *  partita: il verdetto nasce da una somma di undici correttivi, e senza
+   *  questa traccia non e' ricostruibile guardando lo schermo. */
+  dettaglio?: { voce: string; punti: number }[];
 };
 
 const SRC_WEIGHTS: Record<VerdictSource, { top: number; decay: number; bonus: number }> = {
@@ -877,14 +882,32 @@ export function buildFinalVerdict(
     oddEstimated?: boolean;
     /** quanti sistemi potevano esprimersi su questo mercato (2 o 3) */
     eligibleSystems?: number;
+    /** Da dove arriva ogni punto del punteggio. Serve al riquadro "perche'
+     *  questo pick": senza, il verdetto e' una somma di undici correttivi che
+     *  nessuno puo' ricostruire guardando lo schermo. */
+    dettaglio: { voce: string; punti: number }[];
   };
   const buckets = new Map<string, Bucket>();
+
+  /** Somma punti e li annota. Un delta zero non viene annotato: la traccia
+   *  deve restare leggibile. */
+  const punti = (b: Bucket, voce: string, delta: number) => {
+    b.score += delta;
+    if (Math.abs(delta) >= 0.005) b.dettaglio.push({ voce, punti: Math.round(delta * 100) / 100 });
+  };
+  /** Moltiplicatore: annotato come la differenza che produce davvero. */
+  const fattore = (b: Bucket, voce: string, k: number) => {
+    const prima = b.score;
+    b.score *= k;
+    const delta = b.score - prima;
+    if (Math.abs(delta) >= 0.005) b.dettaglio.push({ voce, punti: Math.round(delta * 100) / 100 });
+  };
 
   const ensure = (raw: string): Bucket => {
     const k = norm(raw);
     let b = buckets.get(k);
     if (!b) {
-      b = { market: raw, score: 0, sources: new Set(), ranks: {} };
+      b = { market: raw, score: 0, sources: new Set(), ranks: {}, dettaglio: [] };
       buckets.set(k, b);
     }
     return b;
@@ -895,7 +918,7 @@ export function buildFinalVerdict(
     structural.ranking.slice(0, 6).forEach((r, i) => {
       const b = ensure(r.market);
       const w = SRC_WEIGHTS.structural;
-      b.score += Math.max(w.top - i * w.decay, 0);
+      punti(b, `motore, ${i + 1}\u00b0 nel ranking`, Math.max(w.top - i * w.decay, 0));
       b.sources.add("structural");
       b.ranks.structural = i + 1;
       b.coverage = r.coverage;
@@ -910,7 +933,7 @@ export function buildFinalVerdict(
   aiList.slice(0, 4).forEach((m, i) => {
     const b = ensure(m);
     const w = SRC_WEIGHTS.ai;
-    b.score += Math.max(w.top - i * w.decay, 0);
+    punti(b, `IA, ${i + 1}\u00b0 fra i mercati proposti`, Math.max(w.top - i * w.decay, 0));
     b.sources.add("ai");
     b.ranks.ai = i + 1;
   });
@@ -925,7 +948,7 @@ export function buildFinalVerdict(
   preRanked.filter((p) => p.source !== "ai").slice(0, 6).forEach((p, i) => {
     const b = ensure(p.market);
     const w = SRC_WEIGHTS.pre;
-    b.score += Math.max(w.top - i * w.decay, 0);
+    punti(b, `pre-pronostico, ${i + 1}\u00b0`, Math.max(w.top - i * w.decay, 0));
     b.sources.add("pre");
     b.ranks.pre = i + 1;
     if (p.odd > 0 && !b.odd) b.odd = p.odd;
@@ -960,7 +983,7 @@ export function buildFinalVerdict(
       const daMappa = structural?.market_odds?.[norm(r.market)] || structural?.market_odds?.[r.market];
       const quota = r.odd ?? daMappa?.odd ?? (odds ? getMarketOdd(r.market, odds) : undefined);
       buckets.set(k, {
-        market: r.market, score: 0, sources: new Set(), ranks: {},
+        market: r.market, score: 0, sources: new Set(), ranks: {}, dettaglio: [],
         coverage: r.coverage, fragility: r.fragility,
         odd: quota ?? undefined,
         oddEstimated: r.odd_estimated ?? daMappa?.estimated ?? false,
@@ -1015,8 +1038,8 @@ export function buildFinalVerdict(
     // pareri indipendenti sono comunque meno.
     const eligible = eligibleSystemsFor(b.market, preEligible);
     const agree = b.sources.size;
-    if (agree >= 2 && agree >= eligible) b.score += eligible >= 3 ? 8 : 4;
-    else if (agree === 2) b.score += 2.5;
+    if (agree >= 2 && agree >= eligible) punti(b, `concordanza ${agree}/${eligible} sistemi`, eligible >= 3 ? 8 : 4);
+    else if (agree === 2) punti(b, "concordanza 2 sistemi", 2.5);
     b.eligibleSystems = eligible;
   }
 
@@ -1031,7 +1054,7 @@ export function buildFinalVerdict(
       const inStructural = structuralWhitelist.has(key);
       const onlyStructural = b.sources.size === 1 && b.sources.has("structural");
       if (!inStructural && !onlyStructural) {
-        b.score *= 0.85; // lieve penalità, non più eliminazione di fatto
+        fattore(b, "coppia opposta ravvicinata", 0.85); // lieve penalità, non più eliminazione di fatto
         vetoedKeys.add(key);
       }
     }
@@ -1049,11 +1072,11 @@ export function buildFinalVerdict(
       const rank = b.ranks.structural;
       if (!rank) continue;
       if (rank === 1) {
-        b.score += robust ? 3 : 1.5;
+        punti(b, robust ? "1\u00b0 del motore, cluster solido" : "1\u00b0 del motore", robust ? 3 : 1.5);
       } else if (rank === 2) {
-        b.score += 1;
+        punti(b, "2\u00b0 del motore", 1);
       } else if (rank === 3) {
-        b.score += 0.5;
+        punti(b, "3\u00b0 del motore", 0.5);
       }
     }
   }
@@ -1080,7 +1103,7 @@ export function buildFinalVerdict(
   const COVERAGE_WEIGHT = 30;
   for (const b of buckets.values()) {
     if (b.coverage !== undefined) {
-      b.score += (b.coverage - 0.5) * COVERAGE_WEIGHT;
+      punti(b, `probabilit\u00e0 reale ${Math.round(b.coverage * 100)}%`, (b.coverage - 0.5) * COVERAGE_WEIGHT);
     }
   }
 
@@ -1106,10 +1129,10 @@ export function buildFinalVerdict(
     if (b.coverage !== undefined) {
       const gap = b.coverage - hist.rate;
       if (gap > HIST_GAP_TOLERANCE) {
-        b.score -= (gap - HIST_GAP_TOLERANCE) * HIST_GAP_WEIGHT;
+        punti(b, `storico ${Math.round(hist.rate * 100)}% su ${hist.total}: promette troppo`, -(gap - HIST_GAP_TOLERANCE) * HIST_GAP_WEIGHT);
       }
     } else {
-      b.score += (hist.rate - 0.5) * HIST_ONLY_WEIGHT;
+      punti(b, `storico ${Math.round(hist.rate * 100)}% su ${hist.total}`, (hist.rate - 0.5) * HIST_ONLY_WEIGHT);
     }
   }
 
@@ -1123,7 +1146,7 @@ export function buildFinalVerdict(
       const baseSign = b.market.split("+")[0].replace(/^dc\s*/i, "").trim();
       const baseOdd = getMarketOdd(baseSign, odds);
       if (baseOdd !== undefined && baseOdd >= minOdd) {
-        b.score *= 0.5;
+        fattore(b, "combo ridondante: il segno singolo paga gi\u00e0", 0.5);
       }
     }
   }
@@ -1144,7 +1167,7 @@ export function buildFinalVerdict(
           const n = parseFloat(underMatch[1]);
           if (n - floor <= 1.5) {
             // Penalità: -25% allo score
-            b.score *= 0.75;
+            fattore(b, "Under troppo vicino al pavimento", 0.75);
           }
         }
         // Anche per combo "DC X + U(N).5"
@@ -1152,7 +1175,7 @@ export function buildFinalVerdict(
         if (comboUnder) {
           const n = parseFloat(comboUnder[1]);
           if (n - floor <= 1.5) {
-            b.score *= 0.85; // penalità più lieve sui combo
+            fattore(b, "combo con Under vicino al pavimento", 0.85); // penalità più lieve sui combo
           }
         }
       }
@@ -1184,6 +1207,7 @@ export function buildFinalVerdict(
       return {
         market: b.market,
         score: Math.round(b.score * 100) / 100,
+        dettaglio: b.dettaglio,
         sources: Array.from(b.sources),
         ranks: b.ranks,
         odd: b.odd,
