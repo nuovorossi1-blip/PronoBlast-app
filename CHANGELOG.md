@@ -88,6 +88,41 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-27 — L'export del database era troncato a 1000 righe, in silenzio
+
+**Come e' saltato fuori.** Rossi chiede quante partite concluse ci siano nello
+storico e se abbiano quote e risultato, perche' ha "un problema di
+esportazione". Scaricando `/export-db` dal sito arrivano **esattamente 1000**
+partite, a fronte di un `limit=100000` nella query.
+
+**Causa**: PostgREST ha un tetto di righe per richiesta (`db-max-rows`, 1000 su
+Supabase) e **tronca senza errore**: risposta 200, nessun avviso, solo dati
+mancanti. Il `limit` alto nella query non serve a niente. L'export era quindi
+incompleto da sempre, e qualunque conto fatto su quel file era sbagliato senza
+che si potesse vedere.
+
+**Correzione**: nuova `pgGetAll(path, ordine)` in `lib/supabaseRest.ts`, che
+pagina con `offset` finche' una pagina torna piu' corta del tetto. Richiede un
+ordinamento esplicito, altrimenti PostgREST non garantisce che pagine diverse
+non si sovrappongano. Sostituita a `pgGet` nei tre punti che chiedevano piu' di
+1000 righe:
+- `export-db.ts` (`limit=100000` -> tutte, e nella risposta c'e' ora un blocco
+  `counts` per accorgersi subito di un export corto);
+- `matches-list.ts` (`limit=5000`): senza filtro giorno la lista partite era
+  tagliata a 1000;
+- `build-multipla.ts`, storico per campionato (`limit=2000`).
+
+**Nuovo endpoint `/db-stats`** (sola lettura), registrato nei TRE posti come
+vuole la regola: `api/[route].ts`, `vercel.json`, `netlify.toml`. Conta lato
+server, senza scaricare il database: partite totali, concluse, e fra le concluse
+quante hanno risultato leggibile, quote 1X2, Over 2.5 + GG, tutte e 14 le quote,
+e soprattutto quante sono **utilizzabili per lo storico** (quote + risultato
+insieme). In piu' i campionati piu' ricchi e la distribuzione per mese.
+
+**Cosa si e' visto nel campione troncato** (le 1000 righe arrivate): 250
+concluse, e di quelle **250 su 250** avevano tutte e 14 le quote e un risultato
+leggibile. Nessun buco. Il numero vero arriva da `/db-stats` dopo il deploy.
+
 ### 2026-09-19 (5) — Multipla: i tre tasti di scarto "non fanno niente" sul telefono
 
 **Segnalazione di Rossi**: nell'APK, toccando "Altro pronostico" / "Altra

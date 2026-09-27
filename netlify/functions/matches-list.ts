@@ -1,4 +1,4 @@
-import { pgGet, jsonResponse, rowToMatch } from "./lib/supabaseRest";
+import { pgGetAll, jsonResponse, rowToMatch } from "./lib/supabaseRest";
 
 /**
  * GET /matches-list?day=YYYY-MM-DD&q=testo
@@ -18,7 +18,9 @@ export default async (req: Request): Promise<Response> => {
   }
 
   try {
-    const rows = await pgGet(`matches?select=*&order=day.asc,time.asc${filter}&limit=5000`);
+    // pgGetAll: con `limit=5000` PostgREST rispondeva comunque al massimo 1000
+    // righe, troncando in silenzio (27/09/2026).
+    const rows = await pgGetAll(`matches?select=*${filter}`, "day.asc,time.asc");
     return jsonResponse(rows.map(rowToMatch));
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 502);

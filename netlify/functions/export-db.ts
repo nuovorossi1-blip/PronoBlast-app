@@ -1,4 +1,4 @@
-import { pgGet, jsonResponse } from "./lib/supabaseRest";
+import { pgGetAll, jsonResponse } from "./lib/supabaseRest";
 
 /**
  * GET /export-db
@@ -6,11 +6,14 @@ import { pgGet, jsonResponse } from "./lib/supabaseRest";
  */
 export default async (): Promise<Response> => {
   try {
-    const matches = await pgGet(`matches?select=*&limit=100000`);
-    const predictions = await pgGet(`predictions?select=*&limit=100000`);
+    // pgGetAll e non pgGet: con `limit=100000` PostgREST rispondeva comunque
+    // 1000 righe e basta, troncando l'export in silenzio (27/09/2026).
+    const matches = await pgGetAll("matches?select=*");
+    const predictions = await pgGetAll("predictions?select=*");
     return jsonResponse({
       version: 1,
       exported_at: new Date().toISOString(),
+      counts: { matches: matches.length, predictions: predictions.length },
       matches,
       predictions,
     });

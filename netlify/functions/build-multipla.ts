@@ -307,7 +307,7 @@ export default async (req: Request): Promise<Response> => {
   for (const leg of legs) {
     if (!storicoLega.has(leg.manifestazione)) {
       try {
-        const done = await pgGet(`matches?manifestazione=eq.${encodeURIComponent(leg.manifestazione)}&result=not.is.null&select=result&limit=2000`);
+        const done = await pgGetAll(`matches?manifestazione=eq.${encodeURIComponent(leg.manifestazione)}&result=not.is.null&select=id,result`);
         storicoLega.set(leg.manifestazione, done.map((r: any) => String(r.result || "")));
       } catch {
         storicoLega.set(leg.manifestazione, []);   // senza storico si mostra "—"

@@ -25,11 +25,42 @@ function headers(key: string, extra?: Record<string, string>) {
   };
 }
 
+/** Tetto di righe che PostgREST restituisce per richiesta, qualunque `limit`
+ *  si chieda. Non e' un errore e non c'e' nessun avviso: la risposta arriva
+ *  semplicemente troncata. */
+const PG_MAX_ROWS = 1000;
+
 export async function pgGet(path: string): Promise<any> {
   const { url, key } = supabaseConfig();
   const res = await fetch(`${url}/rest/v1/${path}`, { headers: headers(key) });
   if (!res.ok) throw new Error(`Supabase GET ${path}: ${res.status} ${await res.text()}`);
   return res.json();
+}
+
+/**
+ * Come pgGet, ma recupera DAVVERO tutte le righe.
+ *
+ * 27/09/2026 — Trovato analizzando l'export di Rossi: `matches?select=*&limit=100000`
+ * restituiva esattamente 1000 righe. PostgREST ha un tetto per richiesta
+ * (`db-max-rows`) e tronca in silenzio: nessun errore, nessuna avvertenza, solo
+ * dati mancanti. L'export del database era quindi incompleto da sempre, e
+ * qualunque conto fatto su quel file era sbagliato senza che si vedesse.
+ *
+ * Qui si pagina con offset finche' una pagina torna piu' corta del tetto.
+ * `path` NON deve contenere `limit` o `offset`: li mette questa funzione.
+ * `ordine` serve a rendere la paginazione stabile — senza un ordinamento,
+ * PostgREST non garantisce che pagine diverse non si sovrappongano.
+ */
+export async function pgGetAll(path: string, ordine = "id.asc", max = 100000): Promise<any[]> {
+  const sep = path.includes("?") ? "&" : "?";
+  const out: any[] = [];
+  for (let offset = 0; offset < max; offset += PG_MAX_ROWS) {
+    const pagina = await pgGet(`${path}${sep}order=${ordine}&limit=${PG_MAX_ROWS}&offset=${offset}`);
+    if (!Array.isArray(pagina)) break;
+    out.push(...pagina);
+    if (pagina.length < PG_MAX_ROWS) break;
+  }
+  return out;
 }
 
 export async function pgPost(path: string, body: unknown, prefer = "return=representation"): Promise<any> {

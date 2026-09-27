@@ -148,6 +148,11 @@
   status = 200
 
 [[redirects]]
+  from = "/db-stats"
+  to = "/.netlify/functions/db-stats"
+  status = 200
+
+[[redirects]]
   from = "/odd-settings"
   to = "/.netlify/functions/odd-settings"
   status = 200

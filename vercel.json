@@ -121,6 +121,10 @@
       "destination": "/api/build-multipla"
     },
     {
+      "source": "/db-stats",
+      "destination": "/api/db-stats"
+    },
+    {
       "source": "/odd-settings",
       "destination": "/api/odd-settings"
     },

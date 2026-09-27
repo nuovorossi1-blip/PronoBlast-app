@@ -25,6 +25,7 @@ import ai_predict from "../netlify/functions/ai-predict";
 import aistudio_prompt from "../netlify/functions/aistudio-prompt";
 import budget from "../netlify/functions/budget";
 import build_multipla from "../netlify/functions/build-multipla";
+import db_stats from "../netlify/functions/db-stats";
 import delete_all from "../netlify/functions/delete-all";
 import export_db from "../netlify/functions/export-db";
 import import_db from "../netlify/functions/import-db";
@@ -56,6 +57,7 @@ const ROUTES: Record<string, Handler> = {
   "aistudio-prompt": aistudio_prompt,
   "budget": budget,
   "build-multipla": build_multipla,
+  "db-stats": db_stats,
   "delete-all": delete_all,
   "export-db": export_db,
   "import-db": import_db,
