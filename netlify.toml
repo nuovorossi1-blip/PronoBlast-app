@@ -188,6 +188,11 @@
   status = 200
 
 [[redirects]]
+  from = "/pick-locale"
+  to = "/.netlify/functions/pick-locale"
+  status = 200
+
+[[redirects]]
   from = "/apif-probe"
   to = "/.netlify/functions/apif-probe"
   status = 200

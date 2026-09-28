@@ -33,6 +33,7 @@ import rebuild_learning from "../netlify/functions/rebuild-learning";
 import similar_odds from "../netlify/functions/similar-odds";
 import web_probe from "../netlify/functions/web-probe";
 import af_probe from "../netlify/functions/af-probe";
+import pick_locale from "../netlify/functions/pick-locale";
 import apif_probe from "../netlify/functions/apif-probe";
 import delete_all from "../netlify/functions/delete-all";
 import export_db from "../netlify/functions/export-db";
@@ -73,6 +74,7 @@ const ROUTES: Record<string, Handler> = {
   "similar-odds": similar_odds,
   "web-probe": web_probe,
   "af-probe": af_probe,
+  "pick-locale": pick_locale,
   "apif-probe": apif_probe,
   "delete-all": delete_all,
   "export-db": export_db,
