@@ -853,6 +853,39 @@ export default function MatchDetail() {
             </View>
             <View style={styles.structLambdaRow}>
               <Text style={styles.structSub}>λ Poisson · Casa <Text style={styles.structLambda}>{structural.structure.lambda_home.toFixed(2)}</Text> · Ospite <Text style={styles.structLambda}>{structural.structure.lambda_away.toFixed(2)}</Text></Text>
+              {/* xG dal web contro lambda del motore (28/09/2026).
+                  I lambda nascono dalle QUOTE, gli xG da come le squadre hanno
+                  giocato davvero: quando i due numeri divergono, il confronto
+                  dice se il bookmaker sta prezzando una partita piu' aperta o
+                  piu' chiusa di quella che il campo ha mostrato.
+                  NON entrano nel calcolo: prima si accumulano su partite che poi
+                  hanno un risultato, poi si misura se predicono meglio, e solo
+                  allora si cambia il motore. */}
+              {typeof prediction?.xg_casa === "number" && typeof prediction?.xg_ospite === "number" && (() => {
+                const attesiMotore = structural.structure.lambda_home + structural.structure.lambda_away;
+                const attesiWeb = prediction.xg_casa + prediction.xg_ospite;
+                const scarto = attesiWeb - attesiMotore;
+                const colore = Math.abs(scarto) < 0.25 ? colors.textDim : scarto < 0 ? colors.warning : colors.success;
+                return (
+                  <View style={styles.xgRiga}>
+                    <Text style={styles.structSub}>
+                      xG dal web · Casa <Text style={styles.structLambda}>{prediction.xg_casa.toFixed(2)}</Text>
+                      {" · Ospite "}<Text style={styles.structLambda}>{prediction.xg_ospite.toFixed(2)}</Text>
+                    </Text>
+                    <Text style={[styles.xgScarto, { color: colore }]}>
+                      {attesiWeb.toFixed(2)} gol attesi dal campo contro {attesiMotore.toFixed(2)} dalle quote
+                      {Math.abs(scarto) < 0.25
+                        ? " — d'accordo"
+                        : scarto < 0
+                          ? ` — il campo dice ${Math.abs(scarto).toFixed(2)} gol in meno: partita più chiusa di come la prezza il book`
+                          : ` — il campo dice ${scarto.toFixed(2)} gol in più: partita più aperta di come la prezza il book`}
+                    </Text>
+                    {typeof prediction.h2h_over_pct === "number" && (
+                      <Text style={styles.xgScarto}>Scontri diretti: Over 2.5 nel {prediction.h2h_over_pct}% dei casi</Text>
+                    )}
+                  </View>
+                );
+              })()}
             </View>
           </View>
         )}
@@ -1757,6 +1790,9 @@ const styles = StyleSheet.create({
   percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
 
   // Euristica rapida e storico quote simili
+  xgRiga: { marginTop: 6, gap: 3 },
+  xgScarto: { color: colors.textDim, fontSize: 11, lineHeight: 16 },
+
   euristicaNota: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginBottom: 8, fontStyle: "italic" },
   storicoBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,

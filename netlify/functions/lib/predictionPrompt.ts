@@ -73,8 +73,22 @@ OUTPUT (SOLO JSON, niente markdown)
   "main_prediction": "MG 2-4 totali",
   "confidence": "Media",
   "min_goals": 2,
-  "max_goals": 4
-}`;
+  "max_goals": 4,
+  "xg_casa": 1.15,
+  "xg_ospite": 1.25,
+  "h2h_over_pct": 33.3
+}
+
+REGOLA SUI TRE CAMPI FINALI — vale solo se nel messaggio utente c'e' il blocco
+"DATI DAL WEB":
+- "xg_casa" e "xg_ospite": gli expected goals delle due squadre, SOLO se
+  compaiono letteralmente in quel blocco. Se ci sono solo xG stagionali o di
+  altre partite, mettili lo stesso ma dillo nell'analisi.
+- "h2h_over_pct": percentuale di Over 2.5 negli scontri diretti, SOLO se
+  scritta nel blocco.
+- Se un numero non c'e', metti null. NON dedurlo, NON stimarlo, NON ricavarlo
+  dalle quote: quei campi finiscono in un confronto con i numeri del motore, e
+  un valore inventato varrebbe meno di zero.`;
 
 function fmt(o: any, k: string, label: string): string {
   const v = o?.[k];
@@ -121,6 +135,13 @@ export type AiPrediction = {
   confidence: string;
   min_goals?: number;
   max_goals?: number;
+  /** xG letti LETTERALMENTE nel blocco web, mai dedotti (28/09/2026).
+   *  null quando il blocco non li contiene: un xG inventato e' peggio di
+   *  nessun xG, perche' verrebbe confrontato con i lambda del motore come se
+   *  fosse un dato. */
+  xg_casa?: number | null;
+  xg_ospite?: number | null;
+  h2h_over_pct?: number | null;
 };
 
 /** Porting 1:1 di parse_ai_json — estrazione robusta di JSON dalla risposta del modello. */

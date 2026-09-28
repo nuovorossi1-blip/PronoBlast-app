@@ -157,20 +157,37 @@ REGOLE OBBLIGATORIE basate sul PIN:
     ? `${prediction.analysis}\n\nFonti web consultate: ${fontiWeb.map((f) => f.url).join(" | ")}`
     : prediction.analysis;
 
-  const saved = await pgPost(
-    "predictions",
-    {
-      match_id: matchId,
-      family: prediction.family,
-      analysis: analisiConFonti,
-      playable_markets: prediction.playable_markets,
-      main_prediction: prediction.main_prediction,
-      confidence: prediction.confidence,
-      min_goals: prediction.min_goals ?? null,
-      max_goals: prediction.max_goals ?? null,
-    },
-    "return=representation"
-  );
+  // I tre campi nuovi (28/09/2026) esistono solo se Rossi ha aggiunto le colonne
+  // con la ALTER TABLE. Se non ci sono, PostgREST rifiuta TUTTA la riga: si
+  // riprova senza, cosi' il pronostico si salva comunque. Meglio perdere gli xG
+  // che perdere il pronostico.
+  const numero = (v: any) => (typeof v === "number" && isFinite(v) ? v : null);
+  const extra = {
+    xg_casa: numero(prediction.xg_casa),
+    xg_ospite: numero(prediction.xg_ospite),
+    h2h_over_pct: numero(prediction.h2h_over_pct),
+  };
+
+  const riga = {
+    match_id: matchId,
+    family: prediction.family,
+    analysis: analisiConFonti,
+    playable_markets: prediction.playable_markets,
+    main_prediction: prediction.main_prediction,
+    confidence: prediction.confidence,
+    min_goals: prediction.min_goals ?? null,
+    max_goals: prediction.max_goals ?? null,
+  };
+
+  let saved;
+  let xgSalvati = true;
+  try {
+    saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
+  } catch {
+    // Colonne non ancora create: si salva il pronostico senza gli xG.
+    xgSalvati = false;
+    saved = await pgPost("predictions", riga, "return=representation");
+  }
 
   await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}`, {
     family: prediction.family,
@@ -179,7 +196,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   });
 
   const uscita = Array.isArray(saved) ? saved[0] : saved;
-  return jsonResponse({ ...uscita, web_disponibile: webDisponibile, web_fonti: fontiWeb });
+  return jsonResponse({ ...uscita, ...extra, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {

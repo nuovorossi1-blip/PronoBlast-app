@@ -88,6 +88,68 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 — xG dal web salvati e confrontati con i lambda. E: NON comprare API-Football per gli xG
+
+**LA VERIFICA CHE EVITA UNA SPESA INUTILE.** Rossi stava per pagare 19 $/mese il
+piano Pro di API-Football per avere xG, formazioni e infortuni. Provato dal
+server (`/af-probe`, sonda temporanea) su 1.240 campionati attivi:
+
+| dato | campionati coperti |
+|---|---|
+| formazioni | 738 / 1.240 (60%) |
+| statistiche partita | 137 / 1.240 (11%) |
+| **infortuni** | **22 / 1.240 (1,8%)** |
+
+E gli **xG non esistono**: chieste le statistiche di una partita conclusa
+(Marquense - Malacateco), la lista dei tipi disponibili torna **vuota**.
+
+I dieci campionati piu' frequenti di Rossi sono ING7 (199 partite), EUCONFL,
+AMI (amichevoli), USA1, ITA3, ARG2, ARG1, ING6, ARG3, AUSREG: settime e seste
+divisioni inglesi, terze italiane e argentine, amichevoli, regionali
+australiani. Stanno **tutti fuori** dall'1,8% con gli infortuni e dall'11% con
+le statistiche. Il piano Pro, per quei dati, non servirebbe a niente. Resta
+valido il solo motivo dello storico risultati (sbloccare le date vecchie).
+
+**Gli xG li trova Tavily, ed e' un dato che dice qualcosa.** Su Haiti - Costa
+Rica (CONCACAF Nations League, competizione senza statistiche su API-Football)
+il modello ha riportato xG 1,15 e 1,25, combinato 2,40, da otto fonti. Il motore
+stima dalle quote lambda 1,39 + 1,31 = 2,70 gol attesi: **trenta centesimi di
+scarto**, nella direzione "partita piu' chiusa di come la prezza il book".
+
+**1) Gli xG diventano numeri, non testo.** Tre campi nuovi nel JSON del modello:
+`xg_casa`, `xg_ospite`, `h2h_over_pct`. La regola nel prompt e' esplicita: si
+compilano SOLO se compaiono letteralmente nel blocco web, altrimenti null — non
+dedurli, non stimarli, non ricavarli dalle quote. Un xG inventato verrebbe
+confrontato con i lambda del motore come se fosse un dato, quindi vale meno di
+zero.
+
+**2) Salvataggio a prova di colonna mancante.** Le tre colonne vanno aggiunte a
+mano su Supabase (PostgREST non fa DDL). Finche' non ci sono, PostgREST
+rifiuterebbe l'INTERA riga: `ai-predict` prova con i campi nuovi e, se fallisce,
+riprova senza. Meglio perdere gli xG che perdere il pronostico. La risposta
+include `xg_salvati` per sapere quale dei due percorsi e' stato usato.
+
+```sql
+alter table predictions
+  add column if not exists xg_casa numeric,
+  add column if not exists xg_ospite numeric,
+  add column if not exists h2h_over_pct numeric;
+```
+
+**3) Confronto a schermo**, sotto i lambda: "xG dal web 1,15 - 1,25 · 2,40 gol
+attesi dal campo contro 2,70 dalle quote — il campo dice 0,30 gol in meno:
+partita piu' chiusa di come la prezza il book". Sotto i 0,25 gol di scarto dice
+"d'accordo" invece di inventare un significato.
+
+**Cosa NON e' stato fatto, deliberatamente**: gli xG non entrano nel calcolo
+delle probabilita'. Sarebbe la mossa istintiva ed e' quella sbagliata: non
+sappiamo ancora se gli xG raccolti dal web predicono meglio dei lambda ricavati
+dalle quote. Prima si accumulano su partite che poi hanno un risultato, poi si
+misura, e solo se vincono si cambia il motore. Stesso metodo di NG e dei
+risultati.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del motore invariati.
+
 ### 2026-09-27 (5) — Storico quote simili, euristica rimessa al suo posto, IA con ricerca web
 
 **1. Storico quote simili** (`GET /similar-odds?id=&tol=`). Le cinque quote — 1,

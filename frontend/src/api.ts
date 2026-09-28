@@ -107,6 +107,11 @@ export type Prediction = {
   confidence?: string;
   min_goals?: number;
   max_goals?: number;
+  /** xG letti dal web al momento del pronostico (28/09/2026). null quando le
+   *  fonti non li contenevano: non vengono mai dedotti. */
+  xg_casa?: number | null;
+  xg_ospite?: number | null;
+  h2h_over_pct?: number | null;
 };
 
 export type StructuralCluster = {
