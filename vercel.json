@@ -149,6 +149,10 @@
       "destination": "/api/web-probe"
     },
     {
+      "source": "/af-probe",
+      "destination": "/api/af-probe"
+    },
+    {
       "source": "/apif-probe",
       "destination": "/api/apif-probe"
     },
