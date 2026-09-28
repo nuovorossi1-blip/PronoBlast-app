@@ -88,6 +88,29 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (5) — Pick locale: una classifica sola, teoria e storia combinate
+
+**Correzione di un mio errore di impostazione.** Avevo diviso i pattern in fasce
+di quota (1,35-1,49 / 1,50-1,59 / ...) dentro il blocco Pick Locale. Rossi:
+le fasce servono a scegliere la GIOCATA finale, non a leggere quanto e'
+probabile ciascun pattern. Qui va una lista sola, dal piu' probabile al meno.
+
+**E una probabilita' sola, non due.** Prima mostravo "reale se c'e', altrimenti
+teorico". Ora si combinano, con il peso della storia legato alla dimensione del
+campione:
+
+    peso_storia = n / (n + 50)
+
+Con 20 partite simili la storia vale il 29%, con 238 l'83%. Il motivo e'
+concreto: su 20 casi una percentuale balla di dieci punti per una partita in
+piu' (su Patronato "1-1 al 20%" erano quattro partite), su 238 no. Senza
+campione resta la sola teoria, e lo dice.
+
+Ogni riga mostra la percentuale combinata, il pattern, i due numeri di partenza
+("teoria 69,7 · storia 65,0") e la quota. Trasparente e verificabile.
+
+`tsc` 0 errori, eslint 0 errori, build verde.
+
 ### 2026-09-28 (4) — Un solo lambda per tutto, e il pick locale al posto dell'euristica
 
 Rossi ha aperto una partita (Patronato - San Martin) e trovato CINQUE blocchi

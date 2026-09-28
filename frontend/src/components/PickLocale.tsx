@@ -58,9 +58,21 @@ export default function PickLocale({ matchId }: { matchId: string }) {
   const rea = dati?.passo3_cluster_reale;
   const conReale = !!rea?.voci?.length;
 
-  /** La probabilita' su cui si ordina: il reale quando c'e', il teorico quando
-   *  il campione e' troppo piccolo. Entrambi restano visibili. */
-  const prob = (v: VocePattern) => v.reale_clu ?? v.teorico_clu;
+  /**
+   * LA PROBABILITA' UNICA: teoria e storia INSIEME (28/09/2026).
+   *
+   * Non "il reale se c'e', altrimenti il teorico": si combinano. Quanto pesa la
+   * storia dipende da quante partite simili ci sono — con 20 casi una
+   * percentuale balla di dieci punti per una partita in piu', con 238 no.
+   * Peso = n / (n + 50): a 20 partite la storia vale il 29%, a 238 l'83%.
+   * Senza campione resta la sola teoria.
+   */
+  const simili = rea?.partite_simili ?? 0;
+  const pesoStoria = conReale ? simili / (simili + 50) : 0;
+  const prob = (v: VocePattern) =>
+    v.reale_clu != null
+      ? Math.round((v.teorico_clu * (1 - pesoStoria) + v.reale_clu * pesoStoria) * 10) / 10
+      : v.teorico_clu;
 
   return (
     <View style={s.blocco}>
@@ -101,28 +113,30 @@ export default function PickLocale({ matchId }: { matchId: string }) {
             Totale {dati.passo2_lambda?.totale.toFixed(2)} (errore {dati.passo2_lambda?.errore})
           </Text>
 
-          {/* PASSO 6 — la classifica per fasce, il pezzo che serve davvero */}
-          <Text style={s.sezione}>MIGLIORE PER FASCIA DI QUOTA</Text>
-          {(dati.passo6_per_fascia || []).map((f) => (
-            <View key={f.etichetta} style={s.fascia}>
-              <Text style={s.fasciaTit}>{f.etichetta}</Text>
-              {f.voci.slice(0, 4).map((v, i) => (
-                <View key={v.pattern} style={s.vocePat}>
-                  <Text style={[s.pct, i === 0 && { color: colors.primary }]}>{prob(v)}%</Text>
-                  <Text style={[s.nomePat, i === 0 && s.forte]}>{v.pattern}</Text>
-                  <Text style={s.quota}>
-                    @{v.quota?.toFixed(2)}{v.quota_reale ? "" : "~"}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ))}
+          {/* PASSO 6 — una lista sola, dal piu' probabile al meno.
+              Niente fasce di quota: quelle servono a scegliere la giocata
+              finale, non a leggere quanto e' probabile ciascun pattern. */}
+          <Text style={s.sezione}>
+            PATTERN IN ORDINE DI PROBABILITÀ
+          </Text>
+          {[...(dati.passo4_copertura || [])]
+            .filter((v) => v.ammesso)
+            .sort((a, b) => prob(b) - prob(a))
+            .map((v, i) => (
+              <View key={v.pattern} style={s.vocePat}>
+                <Text style={[s.pct, i === 0 && { color: colors.primary }]}>{prob(v)}%</Text>
+                <Text style={[s.nomePat, i === 0 && s.forte]}>{v.pattern}</Text>
+                <Text style={s.dettaglio}>
+                  {v.reale_clu != null ? `teoria ${v.teorico_clu} · storia ${v.reale_clu}` : `teoria ${v.teorico_clu}`}
+                </Text>
+                <Text style={s.quota}>@{v.quota?.toFixed(2)}{v.quota_reale ? "" : "~"}</Text>
+              </View>
+            ))}
           <Text style={s.nota}>
-            La tilde dopo la quota vuol dire stimata dal motore, non letta dal bookmaker: i multigol
-            Sisal non li quota, quindi il valore vero potrebbe essere diverso e cadere in un’altra fascia.
             {conReale
-              ? ` Ordinato sulle ${rea?.partite_simili} partite con quote simili (±${rea?.tolleranza}).`
-              : ` ${rea?.motivo || "Nessun campione storico: ordinato sul solo Poisson."}`}
+              ? `Teoria e storia combinate: con ${simili} partite simili (±${rea?.tolleranza}) la storia pesa il ${Math.round(pesoStoria * 100)}%. Più il campione è grande, più conta.`
+              : rea?.motivo || "Nessun campione storico: solo Poisson."}
+            {" "}La tilde dopo la quota vuol dire stimata dal motore, non letta dal bookmaker.
           </Text>
 
           {/* PASSO 3 — i risultati attesi */}
@@ -224,13 +238,12 @@ const s = StyleSheet.create({
   tastoTxt: { color: colors.primary, fontSize: 13, fontWeight: "800" },
 
   sezione: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1.2, marginTop: 14, marginBottom: 6 },
-  fascia: { marginBottom: 8 },
-  fasciaTit: { color: colors.textMuted, fontSize: 11, fontWeight: "800", marginBottom: 2 },
   vocePat: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },
   pct: { width: 54, textAlign: "right", color: colors.text, fontSize: 12, fontWeight: "800", fontVariant: ["tabular-nums"] },
   intestazione: { color: colors.textDim, fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
   nomePat: { flex: 1, minWidth: 130, color: colors.text, fontSize: 12 },
   quota: { color: colors.textDim, fontSize: 11, fontVariant: ["tabular-nums"] },
+  dettaglio: { color: colors.textDim, fontSize: 10, fontVariant: ["tabular-nums"] },
 
   apri: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, paddingVertical: 6 },
   apriTxt: { color: colors.textMuted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
