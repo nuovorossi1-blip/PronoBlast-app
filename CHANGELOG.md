@@ -88,6 +88,33 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (2) — Verdetto congelato a partita finita
+
+**Il difetto.** Il riquadro del verdetto ricalcolava la fusione a OGNI apertura
+della scheda, e fra gli ingredienti del calcolo c'e' lo storico delle famiglie —
+che, una volta salvato il risultato, contiene anche QUELLA partita. Su Haiti -
+Costa Rica si e' visto il sintomo: "opportunita' non sfruttata" passata da
+143/184 a 144/185 fra prima e dopo.
+
+Li' il verdetto e' rimasto lo stesso (`MG 2-4 totali`, vinto con il 2-0), ma su
+una partita al limite, dove due mercati distano un punto, il risultato appena
+applicato puo' ribaltare l'ordine: si vedrebbe un "VINTO" appiccicato a un
+verdetto che il sistema, PRIMA della partita, non aveva dato. Un modo silenzioso
+di sembrare piu' bravi di quanto si e', e un veleno per la pagella dei tre
+sistemi, che misurerebbe pronostici ricostruiti dopo invece che fatti prima.
+
+**Correzione.** A risultato presente il dettaglio mostra `pick_finale`, cioe'
+quello che il sistema aveva davvero consigliato, con l'etichetta "(congelata)".
+Il ricalcolo resta per le partite ancora da giocare, dove serve. Se il ricalcolo
+darebbe oggi un pick diverso, compare una riga che lo dice e spiega perche' —
+informazione utile, non piu' una sostituzione silenziosa.
+
+Il salvataggio automatico gia' si fermava a risultato presente
+(`if (!match || !structural || match.result) return`): era la VISUALIZZAZIONE a
+non rispettare il congelamento.
+
+`tsc` 0 errori, eslint 0 errori, build verde.
+
 ### 2026-09-28 — xG dal web salvati e confrontati con i lambda. E: NON comprare API-Football per gli xG
 
 **LA VERIFICA CHE EVITA UNA SPESA INUTILE.** Rossi stava per pagare 19 $/mese il

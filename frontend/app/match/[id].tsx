@@ -489,9 +489,41 @@ export default function MatchDetail() {
             structural.structure.goal_ceiling,
             !!structural.structure.goal_ceiling_open,
           );
-          const verdict = verdictRaw.filter((v) => !violatesFn(v.market));
-          if (verdict.length === 0) return renderNessunaGiocata();
+          const verdictCalcolato = verdictRaw.filter((v) => !violatesFn(v.market));
+          if (verdictCalcolato.length === 0) return renderNessunaGiocata();
+
+          // ============================================================
+          // VERDETTO CONGELATO A PARTITA FINITA (28/09/2026)
+          //
+          // Il riquadro ricalcolava la fusione a OGNI apertura, e fra gli
+          // ingredienti del calcolo c'e' lo storico delle famiglie — che, una
+          // volta salvato il risultato, contiene anche QUESTA partita. Su una
+          // partita al limite, dove due mercati distano un punto, il risultato
+          // appena applicato puo' ribaltare l'ordine: ti ritroveresti un
+          // "VINTO" appiccicato a un verdetto che il sistema, prima della
+          // partita, non ti aveva dato. Un modo silenzioso di sembrare piu'
+          // bravi di quanto si e'.
+          //
+          // Quindi: a risultato presente si mostra `pick_finale`, cioe' quello
+          // che il sistema aveva DAVVERO consigliato. Il ricalcolo resta solo
+          // per le partite ancora da giocare, dove serve.
+          const congelato = !!match.result && !!match.pick_finale;
+          const verdict = congelato
+            ? [
+                verdictCalcolato.find((v) => normalizeMarket(v.market) === normalizeMarket(match.pick_finale!))
+                  ?? ({
+                    market: match.pick_finale!,
+                    score: 0, sources: [], ranks: {},
+                    coverage: match.pick_finale_prob ?? undefined,
+                    concordance: 0, agreementLabel: "divergente",
+                    odd: getMarketOdd(match.pick_finale!, match.odds) ?? undefined,
+                  } as VerdictPick),
+                ...verdictCalcolato.filter((v) => normalizeMarket(v.market) !== normalizeMarket(match.pick_finale!)),
+              ]
+            : verdictCalcolato;
           const top = verdict[0];
+          const verdettoDiverso = congelato
+            && normalizeMarket(verdictCalcolato[0].market) !== normalizeMarket(match.pick_finale!);
           // Alternative ordinate per concordanza DESC, poi score DESC.
           // POI filtrate per coerenza: scartano contraddizioni col PICK e
           // violazioni floor/ceiling (es. MG 2-X se floor=0, U3.5 se tetto aperto)
@@ -649,7 +681,15 @@ export default function MatchDetail() {
                   <Ionicons name="medal" size={22} color="#FFF" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.verdictLabel}>GIOCATA CONSIGLIATA</Text>
+                  <Text style={styles.verdictLabel}>
+                    {congelato ? "GIOCATA CONSIGLIATA (congelata)" : "GIOCATA CONSIGLIATA"}
+                  </Text>
+                  {verdettoDiverso && (
+                    <Text style={styles.congelatoNota}>
+                      Ricalcolando adesso uscirebbe {verdictCalcolato[0].market}: lo storico è cambiato
+                      perché ora contiene anche questa partita. Qui resta quello che il sistema ti aveva dato prima.
+                    </Text>
+                  )}
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
                     <Text style={styles.verdictMarket}>{top.market}</Text>
                     {top.odd && top.odd > 0 ? (
@@ -1790,6 +1830,7 @@ const styles = StyleSheet.create({
   percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
 
   // Euristica rapida e storico quote simili
+  congelatoNota: { color: colors.textDim, fontSize: 10, lineHeight: 14, marginTop: 2, fontStyle: "italic" },
   xgRiga: { marginTop: 6, gap: 3 },
   xgScarto: { color: colors.textDim, fontSize: 11, lineHeight: 16 },
 
