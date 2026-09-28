@@ -23,6 +23,22 @@ import { confirmAction, notify } from "@/src/utils/platform";
  * chiedono insieme condividono la stessa promessa, cosi' non partono due
  * richieste per lo stesso numero.
  */
+/**
+ * Soglia del VERDETTO, fissa (28/09/2026). Prima il verdetto tagliava alla
+ * soglia del Profilo: su Lettonia - Cipro rispondeva "nessuna giocata a 1,40"
+ * mentre a 1,36 c'era 1X al 76%. Il pick locale lavora a 1,35, e due soglie
+ * diverse nella stessa schermata erano solo confusione.
+ */
+const SOGLIA_VERDETTO = 1.35;
+
+/** Le stesse fasce del pick locale: si sceglie la fascia, non la soglia. */
+const FASCE_QUOTA = [
+  { da: 1.35, a: 1.50, etichetta: "1,35 – 1,49" },
+  { da: 1.50, a: 1.60, etichetta: "1,50 – 1,59" },
+  { da: 1.60, a: 1.70, etichetta: "1,60 – 1,69" },
+  { da: 1.70, a: 999, etichetta: "1,70 e oltre" },
+];
+
 const ODD_FALLBACK = { min_odd: 1.40, options: [1.40, 1.50, 1.60, 1.75] };
 let oddSettingsPromise: Promise<{ min_odd: number; options: number[] }> | null = null;
 
@@ -471,7 +487,14 @@ export default function MatchDetail() {
             : quickPredictionFamily(match.odds);
           const llmMarkets = prediction?.playable_markets?.map((p) => p.market) || (prediction?.main_prediction ? [prediction.main_prediction] : []);
           const preRanked = rankPicks(fam, llmMarkets, marketStats);
-          const verdictRaw = buildFinalVerdict(structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+          // SOGLIA FISSA A 1,35 (28/09/2026). Prima il verdetto tagliava alla
+          // soglia del Profilo, e su Lettonia - Cipro rispondeva "nessuna
+          // giocata a 1,40" mentre a 1,36 c'era 1X al 76%. Il pick locale
+          // lavora a 1,35: due soglie diverse nella stessa schermata erano solo
+          // confusione. Ora si calcola tutto da 1,35 e si mostra il migliore
+          // PER FASCIA di quota — la scelta di quanto rischiare torna a Rossi,
+          // che e' quello che gli serve giocando in multipla.
+          const verdictRaw = buildFinalVerdict(structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd: SOGLIA_VERDETTO });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -525,6 +548,15 @@ export default function MatchDetail() {
           const top = verdict[0];
           const verdettoDiverso = congelato
             && normalizeMarket(verdictCalcolato[0].market) !== normalizeMarket(match.pick_finale!);
+
+          // Il migliore di ogni fascia di quota: si sceglie la fascia e si
+          // prende quello che il verdetto propone li' dentro.
+          const perFascia = FASCE_QUOTA
+            .map((f) => ({
+              etichetta: f.etichetta,
+              voce: verdict.find((v) => typeof v.odd === "number" && v.odd >= f.da && v.odd < f.a) || null,
+            }))
+            .filter((f) => f.voce);
           // Alternative ordinate per concordanza DESC, poi score DESC.
           // POI filtrate per coerenza: scartano contraddizioni col PICK e
           // violazioni floor/ceiling (es. MG 2-X se floor=0, U3.5 se tetto aperto)
@@ -774,6 +806,32 @@ export default function MatchDetail() {
                   ))}
                   <Text style={styles.percheNota}>
                     Vince il punteggio più alto, non la posizione nel ranking strutturale. A parità entro 5 punti decide la quota più bassa.
+                  </Text>
+                </View>
+              )}
+
+              {/* IL MIGLIORE PER FASCIA DI QUOTA (28/09/2026).
+                  Rossi gioca in multipla: gli serve scegliere quanto rischiare
+                  su ogni gamba, non ricevere un pick solo. Qui vede, per ogni
+                  fascia, cosa propone il verdetto — e quanto costa salire. */}
+              {perFascia.length > 0 && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={styles.verdictAltTitle}>IL MIGLIORE PER FASCIA DI QUOTA</Text>
+                  {perFascia.map((f) => (
+                    <View key={f.etichetta} style={styles.fasciaRiga}>
+                      <Text style={styles.fasciaEtic}>{f.etichetta}</Text>
+                      <Text style={styles.fasciaMerc} numberOfLines={1}>{f.voce!.market}</Text>
+                      {typeof f.voce!.coverage === "number" && (
+                        <Text style={styles.fasciaProb}>{Math.round(f.voce!.coverage * 100)}%</Text>
+                      )}
+                      <Text style={styles.fasciaQuota}>
+                        @{f.voce!.odd?.toFixed(2)}{f.voce!.oddEstimated ? "~" : ""}
+                      </Text>
+                    </View>
+                  ))}
+                  <Text style={styles.percheNota}>
+                    Tutte le fasce partono da 1,35, come il pick locale. Scegli la fascia che vuoi giocare
+                    e prendi quello che il verdetto propone lì dentro: la tilde vuol dire quota stimata dal motore.
                   </Text>
                 </View>
               )}
@@ -1698,6 +1756,12 @@ const styles = StyleSheet.create({
   percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
 
   // Euristica rapida e storico quote simili
+  fasciaRiga: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  fasciaEtic: { width: 86, color: colors.textDim, fontSize: 11, fontVariant: ["tabular-nums"] },
+  fasciaMerc: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
+  fasciaProb: { color: colors.primary, fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  fasciaQuota: { width: 56, textAlign: "right", color: colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
+
   congelatoNota: { color: colors.textDim, fontSize: 10, lineHeight: 14, marginTop: 2, fontStyle: "italic" },
   xgRiga: { marginTop: 6, gap: 3 },
   xgScarto: { color: colors.textDim, fontSize: 11, lineHeight: 16 },

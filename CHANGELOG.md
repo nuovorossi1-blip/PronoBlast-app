@@ -88,6 +88,33 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (6) — Il verdetto parte da 1,35 e mostra il migliore per fascia
+
+**Le fasce erano nel posto sbagliato.** Le avevo messe nel Pick Locale, che
+invece deve stilare una classifica sola dal piu' probabile al meno. Vanno nel
+VERDETTO FINALE, che e' dove si sceglie cosa giocare.
+
+- `SOGLIA_VERDETTO = 1.35`, fissa. Prima il verdetto tagliava alla soglia del
+  Profilo: su Lettonia - Cipro rispondeva "nessuna giocata a 1,40" mentre il
+  pick locale, che lavora a 1,35, aveva 1X al 76% a quota 1,36. Due soglie
+  diverse nella stessa schermata erano solo confusione.
+- Il riquadro mostra **il migliore per ogni fascia** (1,35-1,49 / 1,50-1,59 /
+  1,60-1,69 / 1,70 e oltre): si sceglie la fascia, non la soglia. Rossi gioca
+  in multipla, quindi gli serve decidere quanto rischiare su ogni gamba e
+  vedere quanto costa salire di quota.
+- La soglia del Profilo non governa piu' cosa il verdetto puo' proporre.
+
+**E una nota di metodo su come e' emerso il problema.** Rossi ha segnalato di
+non vedere le modifiche: il deploy del commit precedente era in stato **ERROR**.
+Non per il codice — `npm ci` era caduto con `ECONNRESET` mentre scaricava i
+pacchetti, un guasto di rete momentaneo di Vercel. Rilanciato con un commit
+vuoto, e' passato. **Da qui in avanti va controllato lo stato del deploy prima
+di dire che qualcosa e' online**: "ho fatto push" e "e' in produzione" non sono
+la stessa cosa.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del verdetto
+invariati.
+
 ### 2026-09-28 (5) — Pick locale: una classifica sola, teoria e storia combinate
 
 **Correzione di un mio errore di impostazione.** Avevo diviso i pattern in fasce
