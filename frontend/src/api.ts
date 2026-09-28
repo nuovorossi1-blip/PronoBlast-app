@@ -233,6 +233,33 @@ export type SimilarOddsResponse = {
   error?: string;
 };
 
+export type VocePattern = {
+  pattern: string;
+  quota: number | null;
+  quota_reale: boolean;
+  teorico_ass: number; teorico_clu: number;
+  reale_ass: number | null; reale_clu: number | null;
+  scarto: number | null;
+  ammesso: boolean;
+  motivo_scarto?: string;
+};
+
+export type PickLocaleResponse = {
+  ok: boolean;
+  motivo?: string;
+  partita?: string;
+  soglia?: number;
+  passo1_depurate?: Record<string, number>;
+  passo2_lambda?: { casa: number; ospite: number; totale: number; errore: number };
+  passo3_cluster_teorico?: { risultati: number; massa: number; voci: { punteggio: string; pct: number }[] };
+  passo3_cluster_reale?: { risultati: number; partite_simili: number; tolleranza: number; motivo?: string; voci?: { punteggio: string; pct: number }[] };
+  passo4_copertura?: VocePattern[];
+  passo5_scartati?: { pattern: string; quota: number | null; motivo?: string }[];
+  passo6_per_fascia?: { etichetta: string; voci: VocePattern[] }[];
+  pick?: VocePattern | null;
+  error?: string;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -242,6 +269,10 @@ export const api = {
     return netlifyReq<Match[]>(`/matches-list${qs ? `?${qs}` : ""}`);
   },
   days: () => netlifyReq<string[]>("/matches-days"),
+
+  /** I sei passi del pick locale: depura, lambda, due cluster, imbuto, fasce. */
+  pickLocale: (matchId: string, tol = 0.15) =>
+    netlifyReq<PickLocaleResponse>(`/pick-locale?id=${encodeURIComponent(matchId)}&tol=${tol}`),
 
   /** Storico delle partite concluse con quote vicine a quelle di questa. */
   similarOdds: (matchId: string, tol = 0.15) =>

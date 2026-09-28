@@ -15,6 +15,7 @@ import { ScoreInput } from "@/src/components/ScoreInput";
 import { FamilyLegendModal } from "@/src/components/FamilyLegendModal";
 import { predictionQueue } from "@/src/utils/predictionQueue";
 import BottomNav, { useNavMetrics } from "@/src/components/BottomNav";
+import PickLocale from "@/src/components/PickLocale";
 import { confirmAction, notify } from "@/src/utils/platform";
 
 /**
@@ -1069,6 +1070,10 @@ export default function MatchDetail() {
           if (ranked.length === 0) return null;
           return (
             <>
+            {/* I sei passi (28/09/2026): il metodo di Rossi al posto della
+                scaletta di soglie fisse. Si calcola a richiesta. */}
+            <PickLocale matchId={String(id)} />
+
             {/* ===== STORICO QUOTE SIMILI =====
                 "Partendo da queste quote, nelle partite passate con quote vicine
                 com'e' andata a finire?" Le cinque quote (1, X, 2, Over 2.5, GG)

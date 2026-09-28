@@ -88,6 +88,82 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (3) — PICK LOCALE: i sei passi al posto dell'euristica a soglie fisse
+
+**Da dove nasce.** Rossi ha fatto girare il suo metodo a un LLM con le sole
+quote e ha ottenuto buoni risultati. Il metodo: depura le quote, cerca i lambda,
+costruisce il cluster dei risultati attesi all'85% di massa, misura quanto
+ciascun pattern lo copre, scarta sotto soglia, ordina. Sei passi espliciti,
+ognuno verificabile.
+
+Quello che c'era prima (`quickPredictionFamily`) era una scaletta di soglie
+fisse sulle quote — "se la favorita e' sotto 1,85 allora..." — senza nessun
+modello sotto e senza modo di capire da dove uscisse il pick. Compariva anche
+nella card della Schedina come se fosse un pronostico del sistema.
+
+**IL DIFETTO PIU' GROSSO TROVATO: `deriveLambdas`.** Non cerca i lambda, li
+calcola con una formula lineare scritta a mano:
+`lamTotal = 2.0 + (probOver2.5 - 0.3) * 3.5`. Misurato sugli esempi di Rossi,
+contro le probabilita' depurate del book:
+
+| | ESEMPIO 1 | ESEMPIO 2 |
+|---|---|---|
+| formula attuale | 2,87 / 0,49 — errore **0,326** | 0,82 / 2,45 — errore **0,279** |
+| lambda di Rossi | 2,70 / 0,70 — errore **0,084** | 1,05 / 2,30 — errore **0,093** |
+| ottimo su griglia | 2,67 / 0,71 — errore 0,072 | 1,04 / 2,34 — errore 0,085 |
+
+**Quattro volte l'errore**, e sull'esempio 1 la formula da' all'ospite 0,49 gol
+attesi contro 0,70: sottostima del 30% la probabilita' che l'ospite segni. E'
+esattamente il punto 2 dell'audit di settembre ("GG e NG appaiati mentre il book
+prezza 59/41"). Non e' pero' sistematico: su Sparta - Slavia la formula azzecca
+(1,40/1,40 identico al cercato). Sbaglia sulle partite SBILANCIATE.
+
+**`lib/pickLocale.ts`** — i sei passi, con due scelte tecniche da ricordare:
+- la ricerca dei lambda e' in DUE FASI (passo 0,10 su tutta la griglia
+  0,30-3,20, poi 0,01 attorno al minimo): ~1.100 valutazioni invece di 84.000,
+  stesso risultato. La ricerca piena sarebbe impraticabile su una lista di 300
+  partite.
+- **DUE CLUSTER**: teorico da Poisson e reale dai punteggi delle partite con
+  quote simili. E **due percentuali** per ciascuno, assoluta e di cluster. La
+  seconda e' condizionata ("dato che il risultato cade nell'85% piu' probabile")
+  ma il 15% tagliato si gioca lo stesso, e li' vivono i mercati larghi. Tenerle
+  entrambe permette di misurare piu' avanti quale ordina meglio, invece di
+  deciderlo a priori.
+
+**15 pattern**, lista chiusa decisa da Rossi: 1, 2, 1X, X2, GG, O2.5, MG 2-4,
+MG 3-6, DC 1X+GG, DC X2+GG, GG+O2.5, DC 1X+O2.5, DC X2+O2.5, 1+U4.5, 2+U4.5.
+Fuori a priori tutti gli Under, NG, 12, X secco, O1.5, O3.5 — comprese
+`DC 1X + U3.5` e `DC X2 + U3.5` che erano nella whitelist del verdetto.
+Verificato che il motore sappia valutare e quotare tutti e 15: si', anche
+`1+U4.5` e `2+U4.5`, che non servono aggiunte.
+
+**Soglia 1,35** (era 1,40) e classifica divisa in fasce 1,35-1,49 / 1,50-1,59 /
+1,60-1,69 / 1,70 e oltre, ordinate per probabilita' dentro ciascuna: si sceglie
+la fascia e si prende il primo.
+
+**PROVATO IN PRODUZIONE** su Sparta - Slavia: aggio 9,4%, lambda 1,39/1,40
+(errore 0,062), cluster teorico 14 risultati per l'85,7%, cluster reale 13 su
+**238 partite simili**. Classifica: X2 70,0% @1,42 · MG 2-4 65,0% @1,48~ ·
+1X 61,6% @1,45 | GG 59,6% @1,60 | DC X2+GG 45,8% @2,41.
+
+**Gli scarti teoria-storia sono il dato interessante**: DC X2+GG **+7,6**,
+GG **+7,2**, MG 2-4 **-4,7**. Poisson sottostima i mercati con GG perche'
+assume i due attacchi indipendenti, e nella realta' non lo sono. Ordinando sul
+teorico il primo sarebbe MG 2-4; sul reale e' X2. Il vecchio sistema questa
+differenza non la mostrava.
+
+**Le quote dei multigol sono STIMATE**, non lette dal book (Sisal non le quota
+nel foglio): nella schermata sono marcate con una tilde, perche' il valore vero
+potrebbe cadere in un'altra fascia.
+
+Il blocco si calcola a richiesta — il server confronta le quote con 8.000
+partite concluse — e **non tocca niente**: verdetto della fusione, pronostico
+AI, storico quote simili e Multipla restano come sono. Se il metodo non
+convince, e' un blocco in piu' e nient'altro.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del motore invariati.
+Punto di ripristino: tag `prima-del-lavoro-sui-pesi`.
+
 ### 2026-09-28 (2) — Verdetto congelato a partita finita
 
 **Il difetto.** Il riquadro del verdetto ricalcolava la fusione a OGNI apertura
