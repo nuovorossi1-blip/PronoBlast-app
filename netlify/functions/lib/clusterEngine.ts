@@ -38,7 +38,114 @@ function num(odds: Odds, key: string): number {
 // derive_lambdas
 // ============================================================
 
+/**
+ * LAMBDA CERCATI, non calcolati con una formula (28/09/2026).
+ *
+ * Prima qui c'era `2.0 + (pOver2.5 - 0.3) * 3.5` piu' una ripartizione fra casa
+ * e ospite basata sull'1X2. Misurata contro le probabilita' depurate del
+ * bookmaker su due partite reali, sbagliava QUATTRO VOLTE tanto della ricerca:
+ *
+ *   casa favorita 1@1.15 -> formula 2.87/0.49 errore 0.326
+ *                           cercati  2.67/0.71 errore 0.072
+ *   ospite favorito 2@1.36 -> formula 0.82/2.45 errore 0.279
+ *                             cercati  1.04/2.34 errore 0.085
+ *
+ * Sull'esempio 1 la formula dava all'ospite 0,49 gol attesi invece di 0,70:
+ * sottostima del 30% la probabilita' che l'ospite segni. E' il difetto "GG e NG
+ * appaiati mentre il book prezza 59/41" segnalato nell'audit di settembre.
+ * Non e' sistematico — sulle partite equilibrate la formula azzecca — ma sulle
+ * sbilanciate va fuori strada, e da qui dipendono cluster, coverage dei 54
+ * mercati, ranking e verdetto.
+ *
+ * COME: si cercano i lambda che riproducono meglio 1, X, 2, O1.5, O2.5, O3.5 e
+ * GG depurati dall'aggio. Due fasi (passo 0,10 su tutta la griglia 0,30-3,20,
+ * poi 0,01 attorno al minimo): ~1.100 valutazioni invece di 84.000, stesso
+ * risultato. La formula vecchia resta come punto di partenza della ricerca e
+ * come ripiego se le quote 1X2 mancano.
+ *
+ * CACHE OBBLIGATORIA: questa funzione e' chiamata da fullDistribution,
+ * structuralAnalysis, estimateMarketOdd e comboOdd, quindi decine di volte per
+ * partita. Senza memoria, su una lista di 300 partite sarebbe insostenibile.
+ */
+const cacheLambda = new Map<string, [number, number]>();
+const CHIAVI_LAMBDA = ["odd_1", "odd_X", "odd_2", "odd_O15", "odd_U15", "odd_O25", "odd_U25", "odd_O35", "odd_U35", "odd_GG", "odd_NG"];
+
+function quotaDi(odds: Odds, nome: string): number {
+  return num(odds, nome) || num(odds, nome.toLowerCase());
+}
+
+/** Probabilita' depurate: due esiti complementari, tolto l'aggio. */
+function coppiaDepurata(a: number, b: number, dflt: number): number {
+  if (!a || !b) return dflt;
+  const pa = impliedProb(a), pb = impliedProb(b);
+  const t = pa + pb;
+  return t > 0 ? pa / t : dflt;
+}
+
+function probabilitaPoisson(lh: number, la: number, max = 8) {
+  let p1 = 0, pX = 0, p2 = 0, o15 = 0, o25 = 0, o35 = 0, gg = 0;
+  for (let h = 0; h <= max; h++) {
+    for (let a = 0; a <= max; a++) {
+      const p = poisson(h, lh) * poisson(a, la);
+      if (h > a) p1 += p; else if (h === a) pX += p; else p2 += p;
+      if (h + a > 1) o15 += p;
+      if (h + a > 2) o25 += p;
+      if (h + a > 3) o35 += p;
+      if (h > 0 && a > 0) gg += p;
+    }
+  }
+  return { p1, pX, p2, o15, o25, o35, gg };
+}
+
 export function deriveLambdas(odds: Odds): [number, number] {
+  const chiave = CHIAVI_LAMBDA.map((k) => quotaDi(odds, k) || 0).join("|");
+  const memo = cacheLambda.get(chiave);
+  if (memo) return memo;
+
+  const q1 = quotaDi(odds, "odd_1"), qX = quotaDi(odds, "odd_X"), q2 = quotaDi(odds, "odd_2");
+  if (!q1 || !qX || !q2) {
+    const ripiego = deriveLambdasFormula(odds);
+    cacheLambda.set(chiave, ripiego);
+    return ripiego;
+  }
+  const sTot = impliedProb(q1) + impliedProb(qX) + impliedProb(q2);
+  const fair = {
+    p1: impliedProb(q1) / sTot, pX: impliedProb(qX) / sTot, p2: impliedProb(q2) / sTot,
+    o15: coppiaDepurata(quotaDi(odds, "odd_O15"), quotaDi(odds, "odd_U15"), 0.75),
+    o25: coppiaDepurata(quotaDi(odds, "odd_O25"), quotaDi(odds, "odd_U25"), 0.5),
+    o35: coppiaDepurata(quotaDi(odds, "odd_O35"), quotaDi(odds, "odd_U35"), 0.3),
+    gg: coppiaDepurata(quotaDi(odds, "odd_GG"), quotaDi(odds, "odd_NG"), 0.5),
+  };
+  const errore = (lh: number, la: number) => {
+    const p = probabilitaPoisson(lh, la);
+    return Math.abs(p.p1 - fair.p1) + Math.abs(p.pX - fair.pX) + Math.abs(p.p2 - fair.p2)
+      + Math.abs(p.o15 - fair.o15) + Math.abs(p.o25 - fair.o25) + Math.abs(p.o35 - fair.o35)
+      + Math.abs(p.gg - fair.gg);
+  };
+
+  let bh = 1, ba = 1, be = Infinity;
+  for (let lh = 0.3; lh <= 3.2001; lh += 0.1) {
+    for (let la = 0.3; la <= 3.2001; la += 0.1) {
+      const e = errore(lh, la);
+      if (e < be) { be = e; bh = lh; ba = la; }
+    }
+  }
+  const h0 = bh, a0 = ba;
+  for (let lh = Math.max(0.3, h0 - 0.1); lh <= Math.min(3.2, h0 + 0.1001); lh += 0.01) {
+    for (let la = Math.max(0.3, a0 - 0.1); la <= Math.min(3.2, a0 + 0.1001); la += 0.01) {
+      const e = errore(lh, la);
+      if (e < be) { be = e; bh = lh; ba = la; }
+    }
+  }
+  const out: [number, number] = [round3(bh), round3(ba)];
+  cacheLambda.set(chiave, out);
+  return out;
+}
+
+/** La vecchia formula lineare. Tenuta come ripiego quando manca l'1X2, e come
+ *  termine di paragone quando si vorra' rimisurare la differenza. */
+export function deriveLambdasFormula(odds: Odds): [number, number] {
+
   const o25 = num(odds, "odd_O25") || num(odds, "odd_o25");
   const u25 = num(odds, "odd_U25") || num(odds, "odd_u25");
 

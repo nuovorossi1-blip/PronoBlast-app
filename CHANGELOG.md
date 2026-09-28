@@ -88,6 +88,60 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (4) — Un solo lambda per tutto, e il pick locale al posto dell'euristica
+
+Rossi ha aperto una partita (Patronato - San Martin) e trovato CINQUE blocchi
+che rispondono alla stessa domanda con numeri diversi: cluster risultati,
+ranking strutturale, pick locale, storico quote simili, euristica rapida. Causa:
+avevo aggiunto il blocco nuovo senza togliere i vecchi, e sopra tutto due
+lambda diversi (1,12/1,07 in alto, 1,06/1,05 nel pick locale).
+
+**1. `deriveLambdas` ora CERCA i lambda, ovunque.** La formula lineare
+`2.0 + (pOver2.5 - 0.3) * 3.5` e' sostituita dalla ricerca a due fasi contro le
+probabilita' depurate di 1, X, 2, O1.5, O2.5, O3.5 e GG. Stessa firma, quindi
+la usano automaticamente `fullDistribution`, `structuralAnalysis`,
+`estimateMarketOdd`, `comboOdd` e tutto il resto: cluster, coverage dei 54
+mercati, ranking e verdetto nascono adesso dagli stessi lambda che mostra il
+pick locale.
+
+| partita | formula vecchia | ricerca |
+|---|---|---|
+| casa favorita 1@1.15 | 2,87 / 0,49 | 2,80 / 0,77 |
+| ospite favorito 2@1.36 | 0,82 / 2,45 | 1,07 / 2,37 |
+| Patronato (equilibrio) | 1,12 / 1,07 | 1,06 / 1,05 |
+
+**CACHE OBBLIGATORIA**: la ricerca costa 12 ms, e la funzione e' chiamata decine
+di volte per partita. Con la memoria sulle quote, 2.000 chiamate ripetute
+costano 4 ms in tutto. Senza, una lista di 300 partite sarebbe insostenibile.
+La formula resta come `deriveLambdasFormula`, usata quando manca l'1X2 e come
+termine di paragone per una misura futura.
+
+**2. La voce PRE della fusione e' il pick locale.** `preHeuristicRanking`
+ordinava i mercati per QUOTA CRESCENTE — il piu' a buon mercato per primo: non
+era un pronostico, era una classifica di prezzi, e intanto pesava fino a 5 punti
+nel verdetto. Ora applica i sei passi (solo cluster teorico: quello reale
+richiede il confronto con ottomila partite e questa funzione gira su ogni
+partita di una lista).
+
+**3. Il blocco EURISTICA RAPIDA e' sparito dalla scheda**, come chiesto. Restano
+Pick Locale e Storico quote simili, che Rossi ha voluto tenere per esteso.
+
+**4. Il pick locale si calcola da solo** all'apertura della scheda; il tasto
+resta per rifarlo a mano se la chiamata fallisce.
+
+**RESTA DA FARE**: il ranking strutturale mostra ancora 21 righe di cui meta'
+sono mercati fuori dai 15 di Rossi (MG 1-3 casa, MG 1-2 ospite, MG 0-3 casa +
+MG 1-2 ospite...). Va filtrato ai 15 con gli altri in una sezione richiudibile.
+E la misura sulle 8.190 partite concluse — verdetti rigiocati con i lambda nuovi
+contro i vecchi — non e' ancora stata fatta: i lambda sono stati sostituiti
+subito su richiesta esplicita di Rossi, quindi il confronto va fatto a
+posteriori.
+
+Verifiche: `tsc` 0 errori, eslint 0 errori, build verde, `structuralAnalysis`
+gira con i lambda nuovi (23 mercati nel ranking), test a runtime del verdetto
+invariati (nessuna eccezione alle quattro soglie, NG mai giocato).
+Punto di ripristino: tag `prima-del-lavoro-sui-pesi`.
+
 ### 2026-09-28 (3) — PICK LOCALE: i sei passi al posto dell'euristica a soglie fisse
 
 **Da dove nasce.** Rossi ha fatto girare il suo metodo a un LLM con le sole

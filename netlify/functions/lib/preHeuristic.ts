@@ -1,4 +1,5 @@
 import { CANDIDATE_MARKETS, type Odds } from "./clusterEngine";
+import { depura, cercaLambda, clusterTeorico, coperturaPattern } from "./pickLocale";
 
 export type PreCandidate = { market: string; odd: number; family: string };
 
@@ -29,16 +30,32 @@ export type PreCandidate = { market: string; odd: number; family: string };
  * finta. Su quei mercati l'euristica ASTIENE, e chi calcola la concordanza
  * deve contare solo i sistemi che potevano davvero esprimersi.
  */
+/**
+ * LA VOCE PRE E' IL PICK LOCALE (28/09/2026).
+ *
+ * Prima questa funzione ordinava i mercati per QUOTA CRESCENTE: il piu' a buon
+ * mercato per primo. Non era un pronostico, era una classifica di prezzi — e
+ * intanto pesava fino a 5 punti nella fusione, come terza voce.
+ *
+ * Ora la terza voce e' il metodo a sei passi: si cercano i lambda che
+ * riproducono le probabilita' depurate del bookmaker, si costruisce il cluster
+ * dei risultati attesi all'85% di massa, si misura quanto ciascuno dei 15
+ * pattern lo copre, si scarta sotto 1,35 e si ordina per copertura decrescente.
+ *
+ * Qui si usa il solo cluster TEORICO: il cluster reale richiede di confrontare
+ * le quote con ottomila partite concluse, e questa funzione gira dentro
+ * `/predict` su ogni partita di una lista. Il confronto con la storia resta nel
+ * blocco Pick Locale della scheda partita, dove si calcola a richiesta.
+ */
 export function preHeuristicRanking(odds: Odds): PreCandidate[] {
-  const out: PreCandidate[] = [];
-  for (const market of CANDIDATE_MARKETS) {
-    const odd = realOddFor(market, odds);
-    if (odd === null) continue;          // astensione: nessun prezzo indipendente
-    if (odd < 1.40) continue;            // sotto 1.40 e' solo rischio, niente valore
-    out.push({ market, odd, family: "" });
-  }
-  out.sort((a, b) => a.odd - b.odd);
-  return out;
+  const fair = depura(odds);
+  if (!fair) return [];
+  const lam = cercaLambda(fair);
+  const teo = clusterTeorico(lam.casa, lam.ospite);
+  return coperturaPattern(odds, teo, [])
+    .filter((v) => v.ammesso && v.quota != null)
+    .sort((a, b) => b.teorico_clu - a.teorico_clu)
+    .map((v) => ({ market: v.pattern, odd: v.quota as number, family: "" }));
 }
 
 /**

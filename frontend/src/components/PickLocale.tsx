@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/src/theme";
@@ -24,6 +24,24 @@ export default function PickLocale({ matchId }: { matchId: string }) {
   const [dati, setDati] = useState<PickLocaleResponse | null>(null);
   const [carico, setCarico] = useState(false);
   const [apri, setApri] = useState<"cluster" | "pattern" | "scarti" | null>(null);
+
+  // Calcolo automatico all'apertura (28/09/2026, su richiesta di Rossi).
+  // Resta il tasto per rifarlo a mano se la prima chiamata fallisce.
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setCarico(true);
+      try {
+        const r = await api.pickLocale(matchId);
+        if (vivo) setDati(r);
+      } catch {
+        // silenzioso: il tasto Calcola resta disponibile
+      } finally {
+        if (vivo) setCarico(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [matchId]);
 
   const calcola = async () => {
     setCarico(true);

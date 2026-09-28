@@ -1039,209 +1039,72 @@ export default function MatchDetail() {
           );
         })()}
 
-        {/* Pre-pronostic family — local heuristic */}
-        {(() => {
-          // FASE 5 — se il backend manda la sua classifica PRE la usiamo: è una
-          // sola implementazione invece di due copie da tenere allineate a mano.
-          const fam = structural?.pre_ranking?.length
-            ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
-            : quickPredictionFamily(match.odds);
-          if (fam.length === 0) return null;
-          const llmMarkets = match.playable_markets?.map((p) => p.market) || (match.main_prediction ? [match.main_prediction] : []);
-          // Solo i mercati che il pre-pronostico ha davvero in classifica:
-          // rankPicks unisce anche quelli proposti dall'IA (marcati AI_ONLY), ma
-          // mostrarli qui contraddice la didascalia — questa lista deve essere
-          // il parere del pre-pronostico e basta. I mercati dell'IA hanno gia'
-          // la loro sezione piu' sotto.
-          const rankedRaw = rankPicks(fam, llmMarkets, marketStats).filter((r) => r.source !== "ai");
-          // ============================================================
-          // FILTRO STRUTTURALE: scarta mercati che violano floor/ceiling
-          // (es. MG 2-4 quando floor=0, MG 1-3 quando floor=2-tetto=4,
-          // U2.5 quando ceiling aperto, MG con range non coerente)
-          // ============================================================
-          const ranked = structural?.structure
-            ? rankedRaw.filter((p) => !violatesStructure(
-                p.market,
-                structural.structure.goal_floor,
-                structural.structure.goal_ceiling,
-                !!structural.structure.goal_ceiling_open,
-              ))
-            : rankedRaw;
-          if (ranked.length === 0) return null;
-          return (
+        {/* Pick locale (i sei passi) e storico quote simili. L'euristica
+            rapida che stava qui e' stata rimossa il 28/09/2026: era una
+            scaletta di soglie fisse, e il suo posto nella fusione l'ha preso il
+            pick locale (vedi preHeuristic.ts lato server). */}
+        {/* I sei passi (28/09/2026): il metodo di Rossi al posto della
+            scaletta di soglie fisse. Si calcola a richiesta. */}
+        <PickLocale matchId={String(id)} />
+
+        {/* ===== STORICO QUOTE SIMILI =====
+            "Partendo da queste quote, nelle partite passate con quote vicine
+            com'e' andata a finire?" Le cinque quote (1, X, 2, Over 2.5, GG)
+            si confrontano INSIEME, in blocco. Possibile solo dal 27/09/2026:
+            con 432 partite concluse il 76% non ne trovava nemmeno una simile;
+            con 7.855 la mediana e' 52. */}
+        <View style={styles.preBlock}>
+          <View style={styles.preHeader}>
+            <Ionicons name="albums-outline" size={14} color={colors.primary} />
+            <Text style={styles.preTitle}>STORICO QUOTE SIMILI</Text>
+          </View>
+          {!storicoQuote && !caricoStorico && (
+            <TouchableOpacity
+              testID="storico-quote"
+              onPress={async () => {
+                setCaricoStorico(true);
+                try { setStoricoQuote(await api.similarOdds(String(id))); }
+                catch (e: any) { notify("Errore", e?.message); }
+                finally { setCaricoStorico(false); }
+              }}
+              style={styles.storicoBtn}
+            >
+              <Ionicons name="search-outline" size={16} color={colors.primary} />
+              <Text style={styles.storicoBtnTxt}>Cerca partite con quote simili</Text>
+            </TouchableOpacity>
+          )}
+          {caricoStorico && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {storicoQuote && !storicoQuote.ok && (
+            <Text style={styles.euristicaNota}>{storicoQuote.motivo || storicoQuote.error}</Text>
+          )}
+          {storicoQuote && storicoQuote.ok && (
             <>
-            {/* I sei passi (28/09/2026): il metodo di Rossi al posto della
-                scaletta di soglie fisse. Si calcola a richiesta. */}
-            <PickLocale matchId={String(id)} />
-
-            {/* ===== STORICO QUOTE SIMILI =====
-                "Partendo da queste quote, nelle partite passate con quote vicine
-                com'e' andata a finire?" Le cinque quote (1, X, 2, Over 2.5, GG)
-                si confrontano INSIEME, in blocco. Possibile solo dal 27/09/2026:
-                con 432 partite concluse il 76% non ne trovava nemmeno una simile;
-                con 7.855 la mediana e' 52. */}
-            <View style={styles.preBlock}>
-              <View style={styles.preHeader}>
-                <Ionicons name="albums-outline" size={14} color={colors.primary} />
-                <Text style={styles.preTitle}>STORICO QUOTE SIMILI</Text>
-              </View>
-              {!storicoQuote && !caricoStorico && (
-                <TouchableOpacity
-                  testID="storico-quote"
-                  onPress={async () => {
-                    setCaricoStorico(true);
-                    try { setStoricoQuote(await api.similarOdds(String(id))); }
-                    catch (e: any) { notify("Errore", e?.message); }
-                    finally { setCaricoStorico(false); }
-                  }}
-                  style={styles.storicoBtn}
-                >
-                  <Ionicons name="search-outline" size={16} color={colors.primary} />
-                  <Text style={styles.storicoBtnTxt}>Cerca partite con quote simili</Text>
-                </TouchableOpacity>
-              )}
-              {caricoStorico && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
-              {storicoQuote && !storicoQuote.ok && (
-                <Text style={styles.euristicaNota}>{storicoQuote.motivo || storicoQuote.error}</Text>
-              )}
-              {storicoQuote && storicoQuote.ok && (
-                <>
-                  <Text style={styles.euristicaNota}>
-                    {storicoQuote.partite_simili} partite concluse con tutte e cinque le quote entro
-                    ±{storicoQuote.tolleranza.toFixed(2)} da questa, su {storicoQuote.storico_totale} in archivio.
-                    {storicoQuote.allargata ? " Tolleranza allargata: a ±0,15 il campione era troppo piccolo." : ""}
-                    {storicoQuote.media_gol ? ` Media gol ${storicoQuote.media_gol}.` : ""}
-                  </Text>
-                  {(storicoQuote.punteggi_frequenti || []).length > 0 && (
-                    <Text style={styles.storicoPunteggi}>
-                      Punteggi più frequenti: {(storicoQuote.punteggi_frequenti || [])
-                        .map((p) => `${p.punteggio} (${p.pct}%)`).join(" · ")}
-                    </Text>
-                  )}
-                  {(storicoQuote.mercati || []).slice(0, 12).map((m) => (
-                    <View key={m.market} style={styles.storicoRiga}>
-                      <Text style={[styles.storicoPct, { color: (m.pct ?? 0) >= 60 ? colors.success : (m.pct ?? 0) >= 50 ? colors.primary : colors.textDim }]}>
-                        {m.pct}%
-                      </Text>
-                      <Text style={[styles.storicoMercato, !m.giocabile && { color: colors.textDim }]}>
-                        {m.market}{m.giocabile ? "" : "  (non fra i tuoi mercati)"}
-                      </Text>
-                      <Text style={styles.storicoConteggio}>{m.vinte}/{m.valutate}</Text>
-                    </View>
-                  ))}
-                </>
-              )}
-            </View>
-
-            <View style={styles.preBlock}>
-              <View style={styles.preHeader}>
-                <Ionicons name="flash" size={14} color={colors.primary} />
-                <Text style={styles.preTitle}>EURISTICA RAPIDA (solo quote)</Text>
-                <TouchableOpacity onPress={() => setShowLegend(true)} style={styles.helpBtn} testID="open-legend">
-                  <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
-                </TouchableOpacity>
-              </View>
-              {/* 27/09/2026 — Questa lista compariva anche nella card della
-                  Schedina come se fosse un pronostico del sistema. Non lo e':
-                  e' un calcolo fatto sul momento dalle sole quote. Dirlo qui
-                  evita di scambiarla per il verdetto. */}
               <Text style={styles.euristicaNota}>
-                Calcolata sul momento dalle sole quote del bookmaker: non conosce il motore Poisson,
-                né il pronostico AI, né lo storico. Serve come terzo parere indipendente nella fusione,
-                non è il verdetto.
+                {storicoQuote.partite_simili} partite concluse con tutte e cinque le quote entro
+                ±{storicoQuote.tolleranza.toFixed(2)} da questa, su {storicoQuote.storico_totale} in archivio.
+                {storicoQuote.allargata ? " Tolleranza allargata: a ±0,15 il campione era troppo piccolo." : ""}
+                {storicoQuote.media_gol ? ` Media gol ${storicoQuote.media_gol}.` : ""}
               </Text>
-              <Text style={styles.preHint}>Mercati validi ordinati per quota reale del bookmaker e win-rate storico. Questa lista NON tiene conto del pronostico AI: resta un parere indipendente, così la concordanza fra i tre sistemi è reale e non un’eco.</Text>
-
-              {/* RANK #1 - HIGHLIGHTED PICK */}
-              {ranked[0] && (() => {
-                const p = ranked[0];
-                return (
-                  <View style={styles.pickHero}>
-                    <View style={styles.pickStar}><Ionicons name="star" size={18} color="#FFF" /></View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.pickLabel}>★ PICK CONSIGLIATO</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                        <Text style={styles.pickMarket}>{p.market}</Text>
-                        {p.odd > 0 && <Text style={styles.pickOdd}>@ {p.odd.toFixed(2)}</Text>}
-                        <Text style={styles.pickFamily}>{p.family}</Text>
-                        {p.source === "pre+ai" && (
-                          <View style={styles.concordTag}>
-                            <Ionicons name="checkmark-done" size={10} color="#10B981" />
-                            <Text style={styles.concordTxt}>PRE+AI</Text>
-                          </View>
-                        )}
-                        {p.win_rate !== null && (
-                          <View style={[styles.wrTag, p.win_rate >= 60 ? { backgroundColor: "rgba(16,185,129,0.18)" } : { backgroundColor: "rgba(239,68,68,0.18)" }]}>
-                            <Text style={[styles.wrTxt, p.win_rate >= 60 ? { color: "#10B981" } : { color: "#EF4444" }]}>WR {p.win_rate.toFixed(0)}% ({p.total})</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                );
-              })()}
-
-              {/* YELLOW CANDIDATES - opportunità non sfruttate */}
-              {yellowCandidates.map((c, i) => (
-                <View key={`yc-${i}`} style={styles.yellowItem}>
-                  <View style={styles.yellowIcon}><Ionicons name="bulb" size={12} color="#F59E0B" /></View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <Text style={styles.yellowMarket}>{c.market}</Text>
-                      <Text style={styles.yellowFamily}>{c.family}</Text>
-                      <Text style={styles.yellowDetail}>Opportunità non sfruttata: {c.missed}/{c.family_total} ({c.miss_rate}%)</Text>
-                    </View>
-                  </View>
+              {(storicoQuote.punteggi_frequenti || []).length > 0 && (
+                <Text style={styles.storicoPunteggi}>
+                  Punteggi più frequenti: {(storicoQuote.punteggi_frequenti || [])
+                    .map((p) => `${p.punteggio} (${p.pct}%)`).join(" · ")}
+                </Text>
+              )}
+              {(storicoQuote.mercati || []).slice(0, 12).map((m) => (
+                <View key={m.market} style={styles.storicoRiga}>
+                  <Text style={[styles.storicoPct, { color: (m.pct ?? 0) >= 60 ? colors.success : (m.pct ?? 0) >= 50 ? colors.primary : colors.textDim }]}>
+                    {m.pct}%
+                  </Text>
+                  <Text style={[styles.storicoMercato, !m.giocabile && { color: colors.textDim }]}>
+                    {m.market}{m.giocabile ? "" : "  (non fra i tuoi mercati)"}
+                  </Text>
+                  <Text style={styles.storicoConteggio}>{m.vinte}/{m.valutate}</Text>
                 </View>
               ))}
-
-              {/* Alternatives toggle */}
-              {ranked.length > 1 && (
-                <TouchableOpacity testID="toggle-alt" onPress={() => setShowAlternatives(!showAlternatives)} style={styles.altToggle}>
-                  <Ionicons name={showAlternatives ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
-                  <Text style={styles.altToggleTxt}>{showAlternatives ? "Nascondi" : "Mostra"} {ranked.length - 1} alternative</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Alternatives (rank 2..N) */}
-              {showAlternatives && ranked.slice(1).map((p, idx) => {
-                const i = idx + 1;
-                return (
-                <View key={i} style={[styles.preItem, { opacity: 0.7 }, p.source === "pre+ai" && styles.preItemConcord]}>
-                  <View style={styles.preRank}>
-                    <Text style={styles.preRankTxt}>{i + 1}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <Text style={styles.preMarket}>{p.market}</Text>
-                      {p.odd > 0 && <Text style={styles.preOdd}>@ {p.odd.toFixed(2)}</Text>}
-                      <Text style={styles.preFamily}>{p.family}</Text>
-                      {p.source === "pre+ai" && (
-                        <View style={styles.concordTag}>
-                          <Ionicons name="checkmark-done" size={10} color="#10B981" />
-                          <Text style={styles.concordTxt}>PRE+AI</Text>
-                        </View>
-                      )}
-                      {p.source === "ai" && (
-                        <View style={[styles.concordTag, { backgroundColor: colors.aiBg, borderColor: colors.aiText }]}>
-                          <Ionicons name="sparkles" size={10} color={colors.aiText} />
-                          <Text style={[styles.concordTxt, { color: colors.aiText }]}>SOLO AI</Text>
-                        </View>
-                      )}
-                      {p.win_rate !== null && (
-                        <View style={[styles.wrTag, p.win_rate >= 60 ? { backgroundColor: "rgba(16,185,129,0.18)" } : { backgroundColor: "rgba(239,68,68,0.18)" }]}>
-                          <Text style={[styles.wrTxt, p.win_rate >= 60 ? { color: "#10B981" } : { color: "#EF4444" }]}>WR {p.win_rate.toFixed(0)}% ({p.total})</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </View>
-                );
-              })}
-            </View>
             </>
-          );
-        })()}
+          )}
+        </View>
 
         {/* AI prediction block - always visible. Shows result_ok color when result is set */}
         <View style={[
