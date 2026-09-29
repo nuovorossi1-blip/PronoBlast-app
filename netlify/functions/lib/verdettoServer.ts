@@ -55,7 +55,9 @@ async function storicoPartita(matchId: string): Promise<MatchHistory | null> {
       const out: Record<string, any[]> = {};
       for (const r of righe) {
         const f = r.family || "";
-        (out[f] = out[f] || []).push(r);
+        // win_rate ricalcolato dalla fonte di verita' (wins/total), scala 0-100:
+        // la colonna DB non la scrive nessuno nel repo (scala e freschezza ignote).
+        (out[f] = out[f] || []).push({ ...r, win_rate: r.total > 0 ? (r.wins / r.total) * 100 : 0 });
       }
       return out;
     };
