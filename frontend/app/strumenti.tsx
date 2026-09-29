@@ -318,6 +318,14 @@ export default function Strumenti() {
         {/* Sezione temporanea (27/09/2026): serve a riempire i risultati mancanti
             delle 11.565 partite gia' giocate ma senza esito. Quando il database
             sara' completo, questo blocco e app/manutenzione.tsx possono sparire. */}
+        <Tool
+          testID="tool-traccia"
+          icon="stats-chart-outline"
+          title="Traccia dei pronostici"
+          desc="Rigioca il motore sulle partite concluse: cosa avrebbe scelto, quanto ha indovinato, quali occasioni ha perso. Non modifica niente."
+          onPress={() => router.push("/traccia")}
+        />
+
         <Text style={styles.section}>MANUTENZIONE</Text>
         <Tool
           testID="tool-manutenzione"

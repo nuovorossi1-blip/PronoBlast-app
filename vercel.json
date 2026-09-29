@@ -153,6 +153,10 @@
       "destination": "/api/af-probe"
     },
     {
+      "source": "/backtest",
+      "destination": "/api/backtest"
+    },
+    {
       "source": "/apif-probe",
       "destination": "/api/apif-probe"
     },

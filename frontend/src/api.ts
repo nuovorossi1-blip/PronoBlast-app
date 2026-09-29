@@ -233,6 +233,20 @@ export type SimilarOddsResponse = {
   error?: string;
 };
 
+export type BacktestResponse = {
+  ok: boolean;
+  lambda: string;
+  minOdd: number;
+  totale_concluse: number;
+  da: number; elaborate: number; prossimo: number | null; finito: boolean;
+  esaminate: number; con_pick: number; senza_pick: number; scartate: number;
+  vinte: number; perse: number;
+  per_famiglia: Record<string, { partite: number; vinte: number; perse: number; senzaPick: number }>;
+  pick_per_famiglia: Record<string, Record<string, { scelte: number; vinte: number; perse: number }>>;
+  occasioni_perse: Record<string, Record<string, number>>;
+  error?: string;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -242,6 +256,12 @@ export const api = {
     return netlifyReq<Match[]>(`/matches-list${qs ? `?${qs}` : ""}`);
   },
   days: () => netlifyReq<string[]>("/matches-days"),
+
+  /** Traccia: rigioca il motore sulle partite concluse. Non influenza niente. */
+  backtest: (from: number, minOdd: number, lambdaVecchi: boolean, limit = 400) =>
+    netlifyReq<BacktestResponse>(
+      `/backtest?from=${from}&limit=${limit}&minOdd=${minOdd}${lambdaVecchi ? "&lambda=vecchi" : ""}`,
+    ),
 
   /** Storico delle partite concluse con quote vicine a quelle di questa. */
   similarOdds: (matchId: string, tol = 0.15) =>

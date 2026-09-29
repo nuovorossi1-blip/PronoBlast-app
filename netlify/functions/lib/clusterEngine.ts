@@ -254,8 +254,11 @@ export function simulateCluster(odds: Odds, maxGoals = 6, topK = 12): ClusterEnt
  * 34,8% quando la realtà era il 51,2%. Sulla distribuzione completa lo stesso
  * modello dà 49,5% e 51,0% — praticamente centrato.
  */
-export function fullDistribution(odds: Odds, maxGoals = 6): ClusterEntry[] {
-  const [lamH, lamA] = deriveLambdas(odds);
+export function fullDistribution(odds: Odds, maxGoals = 6, lambdaEspliciti?: [number, number]): ClusterEntry[] {
+  // `lambdaEspliciti` serve solo al backtest, per rigiocare le stesse partite
+  // con la formula lineare vecchia e confrontare. In tutti gli altri casi i
+  // lambda si ricavano come sempre.
+  const [lamH, lamA] = lambdaEspliciti ?? deriveLambdas(odds);
   const cells: [number, number, number][] = [];
   let total = 0;
   for (let h = 0; h <= maxGoals; h++) {
@@ -734,7 +737,10 @@ export type StructuralAnalysisResult = {
 export function structuralAnalysis(
   odds: Odds,
   minOdd = 1.4,
-  mlScores?: Record<string, MlScoreEntry> | null
+  mlScores?: Record<string, MlScoreEntry> | null,
+  /** Solo per il backtest: `true` rigioca la partita con la vecchia formula
+   *  lineare invece della ricerca sulla griglia. Non usato in produzione. */
+  lambdaVecchi = false,
 ): StructuralAnalysisResult {
   const structure = classifyFamily(odds);
   const cluster = simulateCluster(odds, 6, 12);
@@ -742,7 +748,7 @@ export function structuralAnalysis(
   // FASE 1 — `central` resta la vista da mostrare all'utente (i risultati più
   // probabili). Il CALCOLO di coverage e fragilità usa invece la distribuzione
   // completa: vedi il commento su `fullDistribution` per il perché.
-  const distribution = fullDistribution(odds, 6);
+  const distribution = fullDistribution(odds, 6, lambdaVecchi ? deriveLambdasFormula(odds) : undefined);
   const lamH = structure.lambda_home;
   const lamA = structure.lambda_away;
   const lamMin = Math.min(lamH, lamA);

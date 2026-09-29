@@ -88,6 +88,41 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (8) — Traccia dei pronostici: il backtest in Strumenti
+
+**Solo una fotografia.** Nessuna scrittura, nessun effetto sul motore. Rigioca
+`selezionaPick` su tutte le partite concluse e riporta, famiglia per famiglia:
+quali pronostici avrebbe scelto, quanti vinti e persi, e quali OCCASIONI PERSE —
+i mercati della whitelist che avrebbero vinto senza essere scelti.
+
+Si usa il pick del MOTORE e non il verdetto della fusione, perche' la fusione ha
+bisogno del pronostico AI, che esiste su ~600 partite su 8.251. Il motore e'
+deterministico dalle quote, quindi copre tutto l'archivio e il confronto e'
+pulito.
+
+**Confronta anche i due lambda** sulle stesse identiche partite: la ricerca
+sulla griglia (attuale) contro la formula lineare vecchia. E' la misura che
+mancava quando i lambda sono stati sostituiti stamattina: sappiamo che i nuovi
+riproducono meglio le probabilita' del bookmaker, non sappiamo se facciano
+uscire piu' spesso il mercato giusto.
+
+Per permetterlo, due parametri opzionali aggiunti senza cambiare il
+comportamento predefinito: `fullDistribution(odds, maxGoals, lambdaEspliciti?)`
+e `structuralAnalysis(odds, minOdd, mlScores, lambdaVecchi = false)`.
+Verificato che la produzione resti invariata (il default usa i lambda cercati).
+
+A blocchi da 400, perche' con i lambda cercati ogni partita costa ~12 ms e 8.000
+partite in una sola richiesta sforerebbero il limite di tempo. Il client cicla,
+somma e mostra l'avanzamento, con tasto FERMA.
+
+Nella schermata: riuscita complessiva, differenza fra i due lambda in punti, e
+per ogni famiglia la percentuale, i pronostici scelti con il loro rendimento e
+le occasioni perse. Con una nota onesta: un numero alto di occasioni perse non
+e' per forza un errore, perche' molti mercati vincono insieme e giocarne uno
+solo e' il punto.
+
+`tsc` 0 errori, eslint 0 errori, build verde.
+
 ### 2026-09-28 (7) — RIPRISTINO: torna tutto com'era, resta solo il lambda nuovo
 
 **Decisione di Rossi.** Le modifiche del pomeriggio (pick locale, voce PRE
