@@ -88,6 +88,27 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (9) — NG, U1.5 e U2.5 fuori dal ranking e dall'euristica
+
+Rossi: "non li gioco e non li giochero' mai". Tolti da:
+- **RANKING STRUTTURALE** nella scheda partita (filtro di visualizzazione);
+- **EURISTICA RAPIDA**, sia nella lista mostrata sia nella voce PRE che entra
+  nella fusione: `preHeuristicRanking` lato server e `quickPredictionFamily`
+  nel frontend, che e' il ripiego quando il server non manda `pre_ranking`.
+
+**COSA NON E' STATO TOCCATO, ed e' importante.** NG resta dentro il motore come
+mercato "solo veto" (`VETO_ONLY_MARKETS`, 19/09): non puo' diventare la giocata,
+ma se sta in alto nel ranking continua a impedire che venga proposto GG, che e'
+il suo opposto. Toglierlo davvero dal calcolo riaprirebbe il buco chiuso il
+19/09, quando in una partita difensiva con NG al 61% il verdetto scivolava su GG
+al 39% appena le alternative finivano sotto soglia. Stessa cosa per U2.5 rispetto
+a O2.5: sparisce dalle liste, resta nei conti.
+
+Detto altrimenti: spariscono da dove Rossi sceglie, restano dove il motore
+ragiona.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime invariati.
+
 ### 2026-09-28 (8) — Traccia dei pronostici: il backtest in Strumenti
 
 **Solo una fotografia.** Nessuna scrittura, nessun effetto sul motore. Rigioca

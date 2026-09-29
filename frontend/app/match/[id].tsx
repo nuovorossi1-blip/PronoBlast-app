@@ -56,6 +56,22 @@ function getMarketStatsCached(): Promise<{ markets: any[] }> {
     .catch(() => ({ markets: marketStatsCache.get() || [] }));
 }
 
+/**
+ * Mercati che Rossi non gioca e non giochera' mai (28/09/2026): non devono
+ * comparire ne' nel RANKING STRUTTURALE ne' nell'EURISTICA RAPIDA.
+ *
+ * Attenzione: e' un filtro di VISUALIZZAZIONE e di proposta, non una rimozione
+ * dal motore. NG in particolare resta nel calcolo come "solo veto": se sta in
+ * alto nel ranking continua a impedire che venga proposto GG, che e' il suo
+ * opposto. Toglierlo davvero dal motore riaprirebbe il buco chiuso il 19/09,
+ * quando il verdetto scivolava su GG al 39% in partite difensive.
+ */
+const MAI_GIOCATI = ["NG", "U1.5", "U2.5"];
+const nonGiocato = (m: string) => {
+  const n = String(m || "").trim().toUpperCase().replace(/\s+/g, "");
+  return MAI_GIOCATI.some((x) => x.replace(/\s+/g, "").toUpperCase() === n);
+};
+
 export default function MatchDetail() {
   const { id, gen } = useLocalSearchParams<{ id: string; gen?: string }>();
   const router = useRouter();
@@ -980,6 +996,7 @@ export default function MatchDetail() {
           // Filter: only show markets with odd >= 1.40 (value threshold)
           // If odd cannot be derived (e.g. MG markets), keep them.
           const filtered = structural.ranking.filter((r) => {
+            if (nonGiocato(r.market)) return false;   // NG, U1.5, U2.5: mai giocati
             const o = getMarketOdd(r.market, match.odds);
             if (o === undefined) return true;
             return o >= 1.40;
@@ -1052,7 +1069,9 @@ export default function MatchDetail() {
           // mostrarli qui contraddice la didascalia — questa lista deve essere
           // il parere del pre-pronostico e basta. I mercati dell'IA hanno gia'
           // la loro sezione piu' sotto.
-          const rankedRaw = rankPicks(fam, llmMarkets, marketStats).filter((r) => r.source !== "ai");
+          const rankedRaw = rankPicks(fam, llmMarkets, marketStats)
+            .filter((r) => r.source !== "ai")
+            .filter((r) => !nonGiocato(r.market));   // NG, U1.5, U2.5: mai giocati
           // ============================================================
           // FILTRO STRUTTURALE: scarta mercati che violano floor/ceiling
           // (es. MG 2-4 quando floor=0, MG 1-3 quando floor=2-tetto=4,

@@ -2,6 +2,9 @@ import { CANDIDATE_MARKETS, type Odds } from "./clusterEngine";
 
 export type PreCandidate = { market: string; odd: number; family: string };
 
+/** Mercati che Rossi non gioca: esclusi dalla voce PRE. */
+const MAI_GIOCATI = new Set(["NG", "U1.5", "U2.5"]);
+
 /**
  * FASE 0 — porto lato server dell'euristica "pre-pronostico" che oggi vive
  * SOLO nel frontend (frontend/src/api.ts -> quickPredictionFamily) e che
@@ -35,6 +38,10 @@ export function preHeuristicRanking(odds: Odds): PreCandidate[] {
     const odd = realOddFor(market, odds);
     if (odd === null) continue;          // astensione: nessun prezzo indipendente
     if (odd < 1.40) continue;            // sotto 1.40 e' solo rischio, niente valore
+    // NG, U1.5 e U2.5 non li gioca e non li giochera' mai (28/09/2026): non
+    // hanno senso nemmeno come voce PRE della fusione. Restano nel motore,
+    // dove NG serve ancora come veto contro GG.
+    if (MAI_GIOCATI.has(market.trim().toUpperCase().replace(/\s+/g, ""))) continue;
     out.push({ market, odd, family: "" });
   }
   out.sort((a, b) => a.odd - b.odd);

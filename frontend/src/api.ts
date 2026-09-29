@@ -517,7 +517,10 @@ export function quickPredictionFamily(odds: Odds): Candidate[] {
 
   // Ordinamento default: dalla quota più bassa (più sicura) alla più alta
   out.sort((a, b) => a.odd - b.odd);
-  return out;
+  // NG, U1.5 e U2.5 non li gioca e non li giocherà mai (28/09/2026): fuori
+  // anche da qui, che è il ripiego quando il server non manda `pre_ranking`.
+  const maiGiocati = new Set(["NG", "U1.5", "U2.5"]);
+  return out.filter((c) => !maiGiocati.has(String(c.market).trim().toUpperCase().replace(/\s+/g, "")));
 }
 
 /**
