@@ -88,6 +88,46 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-28 (7) — RIPRISTINO: torna tutto com'era, resta solo il lambda nuovo
+
+**Decisione di Rossi.** Le modifiche del pomeriggio (pick locale, voce PRE
+cambiata, euristica rimossa, fasce nel verdetto) hanno reso la scheda partita
+confusa e sono state annullate. Del lavoro resta **soltanto** la correzione dei
+lambda, che era imprecisa e andava fatta.
+
+**Cosa e' stato ripristinato** al tag `prima-del-lavoro-sui-pesi` (commit
+d78c554): `api/[route].ts`, `frontend/app/match/[id].tsx`,
+`frontend/src/api.ts`, `netlify.toml`, `preHeuristic.ts`, `vercel.json`.
+Cancellati `PickLocale.tsx`, `lib/pickLocale.ts`, `pick-locale.ts`.
+
+Quindi tornano: il blocco EURISTICA RAPIDA nella scheda, la voce PRE come
+classifica per quota crescente, il verdetto che taglia alla soglia del Profilo
+con un pick solo, la whitelist a 17 mercati. Sparisce l'endpoint
+`/pick-locale`.
+
+**Cosa NON e' stato ripristinato, di proposito:**
+- `netlify/functions/lib/clusterEngine.ts` — `deriveLambdas` resta la RICERCA
+  dei lambda (griglia a due fasi contro le probabilita' depurate di 1, X, 2,
+  O1.5, O2.5, O3.5, GG) e non la formula lineare. Misurata, sbagliava quattro
+  volte tanto: 2,87/0,49 contro 2,80/0,77 sulla partita con la casa favorita a
+  1,15. La formula resta come `deriveLambdasFormula`, usata come ripiego quando
+  manca l'1X2.
+- `CHANGELOG.md` — la storia non si cancella: le voci del pomeriggio restano,
+  con questa in cima che spiega come e' finita.
+
+**Verificato dopo il ripristino**: diff contro il tag ridotto a due soli file
+(CHANGELOG e clusterEngine); `tsc` 0 errori lato server e frontend; eslint 0
+errori; build web verde; `deriveLambdas` restituisce 2,80/0,77 (i cercati) e
+`deriveLambdasFormula` 2,87/0,49 (la vecchia); `structuralAnalysis` gira con 22
+mercati nel ranking; test a runtime del verdetto invariati alle quattro soglie,
+NG mai giocato.
+
+**Attenzione per chi riprende**: i lambda nuovi cambiano cluster, coverage dei
+54 mercati, ranking e quindi il verdetto su TUTTE le partite. Il confronto fra
+vecchi e nuovi sulle 8.251 partite concluse — quale dei due fa uscire piu'
+spesso il mercato giusto — non e' ancora stato fatto, ed e' la prima cosa da
+misurare.
+
 ### 2026-09-28 (6) — Il verdetto parte da 1,35 e mostra il migliore per fascia
 
 **Le fasce erano nel posto sbagliato.** Le avevo messe nel Pick Locale, che

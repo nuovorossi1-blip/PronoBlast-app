@@ -153,10 +153,6 @@
       "destination": "/api/af-probe"
     },
     {
-      "source": "/pick-locale",
-      "destination": "/api/pick-locale"
-    },
-    {
       "source": "/apif-probe",
       "destination": "/api/apif-probe"
     },
