@@ -1,4 +1,5 @@
 import { CANDIDATE_MARKETS, type Odds } from "./clusterEngine";
+import { ammessoDallaStruttura, type StrutturaGol } from "../../../frontend/src/api";
 
 export type PreCandidate = { market: string; odd: number; family: string };
 
@@ -100,7 +101,7 @@ const SINGLE_MARKET_ODD_KEY: Record<string, keyof Odds> = {
   "GG": "odd_GG", "NG": "odd_NG",
 };
 
-export function preHeuristicPick(odds: Odds, minOdd = 1.40): PreCandidate | null {
+export function preHeuristicPick(odds: Odds, minOdd = 1.40, struttura?: StrutturaGol): PreCandidate | null {
   const get = (k: keyof Odds, def = Infinity) => (odds[k] ?? def) as number;
   const o1 = get("odd_1"), o2 = get("odd_2");
   const o1X = get("odd_1X"), oX2 = get("odd_X2"), o12 = get("odd_12");
@@ -131,7 +132,9 @@ export function preHeuristicPick(odds: Odds, minOdd = 1.40): PreCandidate | null
     if (o12 <= 1.40) push("12", o12, "ANTI_X");
   }
 
-  if (oO15 <= 1.40 && oU35 <= 1.40) {
+  // RANGE_CONTROLLATO non propone MG 2-4 se la struttura lo esclude (tetto
+  // aperto: Ticket 6). Stessa regola condivisa del verdetto, violatesStructure.
+  if (oO15 <= 1.40 && oU35 <= 1.40 && ammessoDallaStruttura("MG 2-4 totali", struttura)) {
     push("MG 2-4 totali", Math.max(1.40, (oO15 + oU35) / 2), "RANGE_CONTROLLATO");
   }
   if (oO25 <= 1.85) push("O2.5", oO25, "OFFENSIVA");

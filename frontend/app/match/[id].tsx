@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -229,8 +229,10 @@ export default function MatchDetail() {
         : quickPredictionFamily(match.odds);
       const llmMarkets = prediction?.playable_markets?.map((p) => p.market)
         || (prediction?.main_prediction ? [prediction.main_prediction] : []);
-      const preRanked = rankPicks(fam, llmMarkets, marketStats);
-      const verdictRaw = buildFinalVerdict(structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+      // Filtro strutturale in ingresso (Ticket 6): stesso calcolo del riquadro.
+      const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
+      const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
+      const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
       const verdict = verdictRaw.filter((v) => !(structural.structure && violatesStructure(
         v.market,
         structural.structure.goal_floor,
@@ -485,8 +487,12 @@ export default function MatchDetail() {
             ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
             : quickPredictionFamily(match.odds);
           const llmMarkets = prediction?.playable_markets?.map((p) => p.market) || (prediction?.main_prediction ? [prediction.main_prediction] : []);
-          const preRanked = rankPicks(fam, llmMarkets, marketStats);
-          const verdictRaw = buildFinalVerdict(structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+          // FILTRO STRUTTURALE IN INGRESSO (Ticket 6): motore e PRE senza i mercati
+          // inammissibili PRIMA della fusione, cosi' ordine e "n/3" sono calcolati
+          // solo su mercati giocabili. Il filtro piu' sotto resta come formalita'.
+          const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
+          const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
+          const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -551,7 +557,11 @@ export default function MatchDetail() {
           const altsRaw = verdict
             .slice(1)
             .sort((a, b) => (b.concordance - a.concordance) || (b.score - a.score));
-          const alts = filterCoherentAlternatives(top, altsRaw, structural?.structure, 3);
+          // Se un MG di range e' caduto per il tetto, O2.5 va subito dopo il pick
+          // come "lettura gol" (Ticket 6).
+          const { alts, letturaGolMarket } = conLetturaGol(
+            top, filterCoherentAlternatives(top, altsRaw, structural?.structure, 3), verdictCalcolato, ingresso.letturaGol, 3,
+          );
           const cautionWarning = getMatchCautionWarning(match.manifestazione, match.odds);
 
           const concColor = top.concordance === 3 ? colors.success
@@ -820,6 +830,9 @@ export default function MatchDetail() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <Text style={styles.verdictAltMarket}>{a.market}</Text>
+                          {letturaGolMarket === a.market && (
+                            <Text style={styles.verdictAltNota}>{NOTA_LETTURA_GOL}</Text>
+                          )}
                           {a.odd && a.odd > 0 ? <Text style={styles.verdictAltOdd}>@ {a.odd.toFixed(2)}</Text> : null}
                           <Text style={[styles.verdictConcMini, { color: a.concordance === 3 ? colors.success : a.concordance === 2 ? colors.primary : colors.textDim }]}>{a.concordance}/3</Text>
                           {a.vetoed && (
@@ -1865,6 +1878,7 @@ const styles = StyleSheet.create({
   percheNota: { color: colors.textDim, fontSize: 11, lineHeight: 15, marginTop: 10, fontStyle: "italic" },
 
   // Euristica rapida e storico quote simili
+  verdictAltNota: { color: colors.textDim, fontSize: 10, fontStyle: "italic" },
   congelatoNota: { color: colors.textDim, fontSize: 10, lineHeight: 14, marginTop: 2, fontStyle: "italic" },
   xgRiga: { marginTop: 6, gap: 3 },
   xgScarto: { color: colors.textDim, fontSize: 11, lineHeight: 16 },

@@ -2,7 +2,7 @@ import { pgGet, pgPatch } from "./supabaseRest";
 import { structuralAnalysis, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import {
-  buildFinalVerdict, rankPicks, violatesStructure,
+  buildFinalVerdict, rankPicks, violatesStructure, fusioneInIngresso,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -117,13 +117,20 @@ export async function verdettoDiPartita(
   }
 
   const history = await storicoPartita(match.id);
-  const preFamily = preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd, family: c.family }));
-  const preRanked = rankPicks(preFamily as any, [], []);
+  // Filtro strutturale IN INGRESSO (Ticket 6): motore e PRE vengono ripuliti
+  // dai mercati inammissibili PRIMA della fusione, come nella scheda partita.
+  const ingresso = fusioneInIngresso(
+    structural as any,
+    preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd, family: c.family })),
+    (aiMarkets || []).map((x) => x.market),
+  );
+  const preRanked = rankPicks(ingresso.pre as any, [], []);
 
   const grezzo = buildFinalVerdict(
-    structural as any, preRanked, aiMarkets, odds, history, { minOdd },
+    ingresso.structural, preRanked, aiMarkets, odds, history, { minOdd },
   );
-  // Stesso filtro pavimento/tetto che applica la scheda partita.
+  // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
+  // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
   const s: any = (structural as any)?.structure;
   const verdetto = s
     ? grezzo.filter((v) => !violatesStructure(v.market, s.goal_floor, s.goal_ceiling, !!s.goal_ceiling_open))

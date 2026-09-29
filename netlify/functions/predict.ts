@@ -4,6 +4,7 @@ import {
 } from "./lib/clusterEngine";
 import { pgGet, pgPatch } from "./lib/supabaseRest";
 import { preHeuristicPick, preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
+import type { StrutturaGol } from "../../frontend/src/api";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
 
@@ -77,7 +78,7 @@ export default async (req: Request): Promise<Response> => {
   // FASE 0 — pagella dei tre sistemi. Registriamo cosa avrebbe scelto ciascuno
   // PRIMA di sapere il risultato, così a risultato inserito si può dire chi
   // aveva ragione. Non incide sul pronostico restituito qui sotto.
-  await recordPicks(row, odds, result.pick?.market ?? null);
+  await recordPicks(row, odds, result.pick?.market ?? null, result.structure);
 
   return json({
     min_odd: minOdd,
@@ -121,10 +122,10 @@ export default async (req: Request): Promise<Response> => {
  * né alcun altro campo esistente. Se la partita ha già un risultato non
  * riscrive nulla: registrare un pick dopo il fatto falserebbe la pagella.
  */
-async function recordPicks(row: any, odds: Odds, structuralPick: string | null): Promise<void> {
+async function recordPicks(row: any, odds: Odds, structuralPick: string | null, struttura?: StrutturaGol): Promise<void> {
   if (row.result) return;
 
-  const prePick = preHeuristicPick(odds);
+  const prePick = preHeuristicPick(odds, undefined, struttura);
   const patch: Record<string, unknown> = {};
   if (structuralPick && row.pick_strutturale !== structuralPick) patch.pick_strutturale = structuralPick;
   if (prePick?.market && row.pick_pre !== prePick.market) patch.pick_pre = prePick.market;

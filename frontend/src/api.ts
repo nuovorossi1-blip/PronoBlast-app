@@ -1655,6 +1655,74 @@ export function filterCoherentAlternatives(
   return accepted;
 }
 
+export type StrutturaGol = { goal_floor: number; goal_ceiling: number; goal_ceiling_open?: boolean } | null | undefined;
+
+/** true se il mercato e' strutturalmente giocabile (stessa regola di violatesStructure). */
+export function ammessoDallaStruttura(market: string, s: StrutturaGol): boolean {
+  return !s || !violatesStructure(market, s.goal_floor, s.goal_ceiling, !!s.goal_ceiling_open);
+}
+
+/** true se e' un MG di range escluso per il TETTO (non per il pavimento). */
+function mgScartatoPerTetto(market: string, s: StrutturaGol): boolean {
+  if (!s) return false;
+  const mg = market.trim().toUpperCase().match(_mgRangeRegex);
+  if (!mg) return false;
+  const hi = +mg[2];
+  return s.goal_ceiling_open ? hi <= 5 : hi < s.goal_ceiling;
+}
+
+/**
+ * FILTRO STRUTTURALE IN INGRESSO ALLA FUSIONE (Ticket 6, 30/09/2026).
+ *
+ * `violatesStructure` veniva applicato solo in CODA al verdetto: su
+ * Belgio-Francia (tetto aperto) MG 2-4 totali era primo nella fusione al 62% e
+ * veniva tolto solo alla fine, quindi posizioni, punteggi e "n/3" erano
+ * calcolati su una lista che conteneva un mercato inammissibile. Qui si
+ * filtrano il ranking del motore e la voce PRE PRIMA di rankPicks /
+ * buildFinalVerdict. La regola NON cambia (tetto aperto => MG 2-4 escluso,
+ * confermata da Rossi il 29/09): cambia solo il punto in cui si applica.
+ *
+ * `letturaGol` = un MG di range del verdetto e' caduto per il tetto: il tetto
+ * non garantisce il range, e la lettura gol (O2.5) va mostrata subito dopo il
+ * pick (vedi conLetturaGol).
+ */
+export function fusioneInIngresso<P extends { market: string }>(
+  structural: StructuralAnalysis,
+  pre: P[],
+  aiMarkets: string[] = [],
+): { structural: StructuralAnalysis; pre: P[]; letturaGol: boolean } {
+  const s = structural?.structure;
+  if (!s) return { structural, pre, letturaGol: false };
+  const candidati = [...(structural.ranking || []).map((r) => r.market), ...pre.map((p) => p.market), ...aiMarkets];
+  const letturaGol = candidati.some((m) => isVerdictMarket(m) && mgScartatoPerTetto(m, s));
+  return {
+    structural: { ...structural, ranking: (structural.ranking || []).filter((r) => ammessoDallaStruttura(r.market, s)) },
+    pre: pre.filter((p) => ammessoDallaStruttura(p.market, s)),
+    letturaGol,
+  };
+}
+
+export const NOTA_LETTURA_GOL = "il tetto non garantisce il range → lettura gol";
+
+/**
+ * Se un MG di range e' caduto per il tetto, O2.5 (se ammissibile, sopra soglia
+ * e non in contraddizione col pick) va subito dopo il pick fra le alternative.
+ * `verdetto` contiene gia' solo mercati sopra soglia e ammessi dalla struttura.
+ */
+export function conLetturaGol(
+  pick: VerdictPick,
+  alts: VerdictPick[],
+  verdetto: VerdictPick[],
+  letturaGol: boolean,
+  limit: number = 3,
+): { alts: VerdictPick[]; letturaGolMarket: string | null } {
+  if (!letturaGol || normalizeMarket(pick.market) === "O2.5") return { alts, letturaGolMarket: null };
+  const o25 = verdetto.find((v) => normalizeMarket(v.market) === "O2.5");
+  if (!o25 || areMarketsContradictory(pick.market, o25.market)) return { alts, letturaGolMarket: null };
+  const resto = alts.filter((a) => normalizeMarket(a.market) !== "O2.5" && !areMarketsContradictory(o25.market, a.market));
+  return { alts: [o25, ...resto].slice(0, limit), letturaGolMarket: o25.market };
+}
+
 
 /**
  * Quanti sistemi POTEVANO esprimersi su questo mercato.
