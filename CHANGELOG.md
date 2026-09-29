@@ -88,6 +88,48 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-29 — FASE 0: il verdetto lo calcola il server
+
+**Il problema alla radice.** La fusione girava SOLO nel telefono, dentro la
+scheda partita. Una partita mai aperta non aveva `pick_finale`, e la card della
+lista mostrava il pick di un vecchio algoritmo — senza soglia, senza Poisson,
+senza regole di coerenza. E' il motivo per cui la stessa partita mostrava
+`MG 2-4` in lista e `MG 3-6` nel dettaglio: due calcoli diversi, non una cache
+vecchia.
+
+**UNA SOLA IMPLEMENTAZIONE, NON DUE.** `buildFinalVerdict` sono 471 righe piu'
+undici funzioni di supporto: riscriverle lato server avrebbe creato la stessa
+trappola delle due `VERDICT_WHITELIST` tenute allineate a mano, che e' gia'
+costata un bug a settembre. Verificato invece che `frontend/src/api.ts` non ha
+NESSUN import — niente React Native, niente `window`, niente `document`: e'
+TypeScript puro. Quindi il server importa la stessa identica funzione con
+`import { buildFinalVerdict } from "../../../frontend/src/api"`, e esbuild la
+impacchetta senza problemi.
+
+- `lib/verdettoServer.ts`: mette insieme gli ingredienti lato server
+  (`structuralAnalysis`, `preHeuristicRanking`, i `playable_markets` dell'ultimo
+  pronostico AI se c'e', lo storico da `market_scores`) e chiama la fusione.
+  Applica lo stesso filtro pavimento/tetto della scheda.
+- `GET /verdetto?id=` per una partita, `?day=` per una giornata intera, `&dry=1`
+  per calcolare senza scrivere. Registrato nei tre posti.
+- **Non tocca le partite concluse**: il verdetto di una partita finita resta
+  quello dato prima, altrimenti la pagella misurerebbe pronostici ricostruiti a
+  posteriori (regola del 28/09).
+- Sulla giornata salta le partite che hanno gia' un `pick_finale`, per non
+  rifare lavoro a ogni apertura della lista.
+
+**VERIFICA.** Eseguito sulle quote vere di Georgia - Ucraina (2.75 / 3.10 / 2.70,
+GG 1.75, O2.5 2.10) con database finto: risultato `GG @1.75`, coverage 50%,
+fonte "pre", alternative `O2.5 @2.10` e `GG + O2.5 @2.58` — **le stesse tre
+righe che la scheda mostrava a Rossi**, a tutte e tre le soglie provate.
+
+`tsc` 0 errori, eslint 0 errori, build verde, test a runtime del motore
+invariati.
+
+**RESTA DA FARE per chiudere la fase 0**: chiamare `/verdetto?day=` quando si
+apre la lista, e far leggere alla card `pick_finale` con l'anteprima PRE
+etichettata (opzione B scelta da Rossi) finche' il verdetto non c'e'.
+
 ### 2026-09-28 (9) — NG, U1.5 e U2.5 fuori dal ranking e dall'euristica
 
 Rossi: "non li gioco e non li giochero' mai". Tolti da:

@@ -157,6 +157,10 @@
       "destination": "/api/backtest"
     },
     {
+      "source": "/verdetto",
+      "destination": "/api/verdetto"
+    },
+    {
       "source": "/apif-probe",
       "destination": "/api/apif-probe"
     },

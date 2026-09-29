@@ -193,6 +193,11 @@
   status = 200
 
 [[redirects]]
+  from = "/verdetto"
+  to = "/.netlify/functions/verdetto"
+  status = 200
+
+[[redirects]]
   from = "/apif-probe"
   to = "/.netlify/functions/apif-probe"
   status = 200
