@@ -145,6 +145,10 @@
       "destination": "/api/similar-odds"
     },
     {
+      "source": "/manuale-stats",
+      "destination": "/api/manuale-stats"
+    },
+    {
       "source": "/web-probe",
       "destination": "/api/web-probe"
     },

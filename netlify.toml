@@ -178,6 +178,11 @@
   status = 200
 
 [[redirects]]
+  from = "/manuale-stats"
+  to = "/.netlify/functions/manuale-stats"
+  status = 200
+
+[[redirects]]
   from = "/web-probe"
   to = "/.netlify/functions/web-probe"
   status = 200

@@ -278,6 +278,8 @@ export const api = {
   /** Storico delle partite concluse con quote vicine a quelle di questa. */
   similarOdds: (matchId: string, tol = 0.15) =>
     netlifyReq<SimilarOddsResponse>(`/similar-odds?id=${encodeURIComponent(matchId)}&tol=${tol}`),
+  /** Ticket 8: quanto ha risposto il manuale per scenario (sola lettura). */
+  manualeStats: () => netlifyReq<ManualeStatsResponse>("/manuale-stats"),
 
   // --- MANUTENZIONE (27/09/2026) ---
   /** Partite gia' giocate ma ancora senza risultato. `count` evita di scaricare
@@ -1430,41 +1432,80 @@ export function getMatchCautionWarning(
 // ============================================================
 // VALUTAZIONE MERCATO (vinto/perso) — per colorare i risultati in Schedina
 // ============================================================
-export function evaluateMarketOutcome(market: string, result: string): boolean | null {
+/**
+ * Esito di un mercato dato il risultato. Oltre a vinta/persa conosce i due
+ * casi che non sono ne' l'uno ne' l'altro (Ticket 8, mercati del manuale):
+ *  - "rimborso": DNB con pareggio (la puntata torna indietro)
+ *  - "mezza":    AH -0,75 vinto di un solo gol (meta' vinta, meta' rimborsata)
+ * Nelle percentuali questi due casi vanno contati a parte.
+ */
+export type EsitoMercato = "vinta" | "persa" | "rimborso" | "mezza";
+
+export function esitoMercato(market: string, result: string): EsitoMercato | null {
   const parts = result.split("-").map((n) => parseInt(n.trim(), 10));
   if (parts.length !== 2 || parts.some((n) => isNaN(n))) return null;
   const [home, away] = parts;
   const total = home + away;
-  const m = market.trim().toUpperCase().replace(/\s+/g, "");
+  // Virgola decimale ("Over 2,5", "AH -0,75") e "fisso" ("1 fisso" = segno secco).
+  const pulito = market.replace(/,/g, ".").replace(/\bfisso\b/i, "").trim();
+  const m = pulito.toUpperCase().replace(/\s+/g, "");
+  const bool = (v: boolean): EsitoMercato => (v ? "vinta" : "persa");
+
+  // Combo bookmaker "X oppure GG" (fallback equilibrio): vince col pareggio
+  // (0-0 compreso) OPPURE se segnano entrambe; perde solo sulle vittorie a
+  // rete inviolata. Va riconosciuta prima delle combo con "+".
+  if (m === "XOGG" || m === "XOPPUREGG") return bool(home === away || (home > 0 && away > 0));
 
   if (m.includes("+")) {
-    const results = market.toUpperCase().split("+").map((p) => evaluateMarketOutcome(p.trim(), result));
-    if (results.some((r) => r === null)) return null;
-    return results.every((r) => r === true);
+    const esiti = pulito.split("+").map((p) => esitoMercato(p.trim(), result));
+    if (esiti.some((r) => r === null)) return null;
+    if (esiti.some((r) => r === "persa")) return "persa";
+    if (esiti.every((r) => r === "vinta")) return "vinta";
+    return null;   // combo con rimborsi/mezze: non valutabile in modo netto
   }
 
-  if (m === "1") return home > away;
-  if (m === "X") return home === away;
-  if (m === "2") return away > home;
-  if (m === "1X" || m === "DC1X") return home >= away;
-  if (m === "X2" || m === "DCX2") return away >= home;
-  if (m === "12" || m === "DC12") return home !== away;
+  if (m === "1") return bool(home > away);
+  if (m === "X") return bool(home === away);
+  if (m === "2") return bool(away > home);
+  if (m === "1X" || m === "DC1X") return bool(home >= away);
+  if (m === "X2" || m === "DCX2") return bool(away >= home);
+  if (m === "12" || m === "DC12") return bool(home !== away);
+
+  // DNB: pareggio rimborsato.
+  const dnb = m.match(/^([12])DNB$/);
+  if (dnb) {
+    const d = dnb[1] === "1" ? home - away : away - home;
+    return d > 0 ? "vinta" : d === 0 ? "rimborso" : "persa";
+  }
+  // AH -0,75 sulla favorita: piena con 2+ gol di scarto, mezza con 1.
+  const ah = m.match(/^([12])AH-0\.75$/);
+  if (ah) {
+    const d = ah[1] === "1" ? home - away : away - home;
+    return d >= 2 ? "vinta" : d === 1 ? "mezza" : "persa";
+  }
 
   const overMatch = m.match(/^O(?:VER)?(\d+(?:\.\d+)?)/);
-  if (overMatch) return total > parseFloat(overMatch[1]);
+  if (overMatch) return bool(total > parseFloat(overMatch[1]));
   const underMatch = m.match(/^U(?:NDER)?(\d+(?:\.\d+)?)/);
-  if (underMatch) return total < parseFloat(underMatch[1]);
+  if (underMatch) return bool(total < parseFloat(underMatch[1]));
 
-  if (m === "GG" || m === "BTTS") return home > 0 && away > 0;
-  if (m === "NG" || m === "NOBTTS") return home === 0 || away === 0;
+  if (m === "GG" || m === "BTTS") return bool(home > 0 && away > 0);
+  if (m === "NG" || m === "NOBTTS") return bool(home === 0 || away === 0);
 
-  if (m.includes("MG") && m.includes("2-4")) {
-    if (m.includes("CASA")) return home >= 2 && home <= 4;
-    if (m.includes("OSPITE")) return away >= 2 && away <= 4;
-    return total >= 2 && total <= 4;
+  // Multigol generico: "MG 2-4 totali", "MG casa 1-3", "MG 0-2 ospite", "MG 2-4".
+  const mg = m.match(/^MG(CASA|OSPITE|TOTALI)?(\d+)-(\d+)(CASA|OSPITE|TOTALI)?$/);
+  if (mg) {
+    const lato = mg[1] || mg[4] || "TOTALI";
+    const gol = lato === "CASA" ? home : lato === "OSPITE" ? away : total;
+    return bool(gol >= +mg[2] && gol <= +mg[3]);
   }
 
   return null;
+}
+
+export function evaluateMarketOutcome(market: string, result: string): boolean | null {
+  const e = esitoMercato(market, result);
+  return e === "vinta" ? true : e === "persa" ? false : null;
 }
 
 
@@ -1766,6 +1807,22 @@ export type ScenarioNote = {
   markets: string[];
 };
 
+/** Chiave dello scenario per le statistiche del manuale: Progressione e Gap
+ *  Tecnico hanno mercati diversi a seconda della favorita, quindi si separano. */
+export function chiaveScenario(nota: ScenarioNote): string {
+  return nota.favorita ? `${nota.scenario} ${nota.favorita}` : nota.scenario;
+}
+
+export type ManualeStatsResponse = {
+  ok: boolean;
+  partite_valutate: number;
+  metodo: string;
+  scenari: Record<string, {
+    scenario: string; favorita: string | null; partite: number;
+    mercati: Record<string, { vinte: number; perse: number; rimborsi: number; mezze: number; non_valutabili: number; pct: number | null }>;
+  }>;
+};
+
 export function getScenarioNote(odds: Odds): ScenarioNote | null {
   const q1 = odds.odd_1, qx = odds.odd_X, q2 = odds.odd_2;
   if (q1 == null || qx == null || q2 == null) return null;
@@ -1814,40 +1871,51 @@ export function getScenarioNote(odds: Odds): ScenarioNote | null {
     q2 < SOGLIA_FAVORITA && q2 < q1 ? "2" :
     null;
 
+  // --------------------------------------------------------------------------
+  // IL MANUALE (Ticket 8, specifica finale di Rossi del 29/09, seconda stesura).
+  // I nomi dei mercati sono scritti in modo che `esitoMercato` li sappia
+  // valutare: e' cosi' che /manuale-stats misura quante volte hanno risposto.
+  // --------------------------------------------------------------------------
   if (!favorita) {
-    let markets: string[];
+    // EQUILIBRIO: GG oppure Over 2,5 sempre visibili, a scelta.
+    const markets: string[] = ["GG", "Over 2,5"];
     if (gg != null && o25 != null && gg < 1.5 && o25 < 1.5) {
-      markets = ["MG 3-6 totali (equilibrio con gol molto probabili)"];
-    } else if (gg != null && o25 != null && gg < 1.8 && o25 < 1.8) {
-      markets = ["GG", "Over 2,5"];
-    } else {
-      markets = ["MG 2-4 totali (GG/Over fuori soglia: fallback su multigol)"];
+      // Ramo gol fortissimo: MG 3-6 totali (ripristinato: "era corretto").
+      markets.push("MG 3-6 totali");
+    } else if (!(gg != null && o25 != null && gg < 1.8 && o25 < 1.8)) {
+      // GG e Over fuori soglia: combo bookmaker "X oppure GG" (vince col
+      // pareggio, 0-0 compreso, o se segnano entrambe; perde solo sulle
+      // vittorie a rete inviolata). MG 2-4 totali resta RIMOSSO dal fallback.
+      markets.push("X oppure GG");
     }
     return { scenario: "Equilibrio", markets };
   }
 
-  const casaOspite = favorita === "1"
-    ? { fav: "CASA", sfav: "OSPITE" }
-    : { fav: "OSPITE", sfav: "CASA" };
-
   if (qx >= SOGLIA_GAP) {
+    // GAP TECNICO. AH -0,75 non e' giocabile al palinsesto: il sostituto
+    // giocabile proposto da Rossi e' MG favorita 2-4 (decidera' la pagella).
     return {
       scenario: "Gap Tecnico",
       favorita,
       markets: [
         `${favorita} fisso`,
-        "GG + Over 2,5 (combo)",
         `${favorita} AH -0,75`,
+        "GG + Over 2,5",
       ],
     };
   }
 
+  // PROGRESSIONE (casa o ospite, speculare). DNB non e' giocabile: il
+  // sostituto e' MG favorita 1-3 (equivalenza di Rossi, +-7 pt su Poisson).
+  const fav = favorita === "1" ? "casa" : "ospite";
+  const sfav = favorita === "1" ? "ospite" : "casa";
   return {
     scenario: "Progressione",
     favorita,
     markets: [
-      `MC ${casaOspite.fav} (1-3) + MC ${casaOspite.sfav} (0-2)`,
-      `${favorita} DNB oppure ${favorita} AH +0,75`,
+      `MG ${fav} 1-3 + MG ${sfav} 0-2`,
+      `MG ${fav} 1-3`,
+      `${favorita} DNB`,
     ],
   };
 }

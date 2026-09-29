@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -95,6 +95,15 @@ export default function MatchDetail() {
    *  di ogni scheda. */
   const [storicoQuote, setStoricoQuote] = useState<SimilarOddsResponse | null>(null);
   const [caricoStorico, setCaricoStorico] = useState(false);
+  // Ticket 8: quante volte ogni mercato del manuale e' uscito, per scenario.
+  const [manualeStats, setManualeStats] = useState<ManualeStatsResponse | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.manualeStats()
+      .then((r) => { if (alive) setManualeStats(r); })
+      .catch((e) => { console.error("[manuale-stats]", e); });
+    return () => { alive = false; };
+  }, []);
   const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
   const [showClusterAll, setShowClusterAll] = useState(false);
   const [history, setHistory] = useState<MatchHistory | null>(null);
@@ -471,9 +480,22 @@ export default function MatchDetail() {
             <View style={styles.scenarioNoteBox}>
               <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
               <Text style={styles.scenarioNoteSub}>Mercati da considerare:</Text>
-              {note.markets.map((m, i) => (
-                <Text key={i} style={styles.scenarioNoteMarket}>• {m}</Text>
-              ))}
+              {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
+                  uscito nello storico con QUESTO scenario; a risultato inserito,
+                  VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}
+              {note.markets.map((m, i) => {
+                const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
+                const n = st ? st.vinte + st.perse : 0;
+                const misura = st && n > 0 && st.pct !== null
+                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% (${st.vinte}/${n})`
+                  : "";
+                const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
+                return (
+                  <Text key={i} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto]}>
+                    • {m}{misura}{vinto ? " ✓" : ""}
+                  </Text>
+                );
+              })}
             </View>
           );
         })()}
@@ -1765,6 +1787,7 @@ const styles = StyleSheet.create({
   scenarioNoteTitle: { color: colors.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
   scenarioNoteSub: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
   scenarioNoteMarket: { color: colors.textDim, fontSize: 11, lineHeight: 15 },
+  scenarioNoteMarketVinto: { color: colors.success, fontWeight: "800" },
 
   // ===== VERDETTO FINALE =====
   verdictBlock: {

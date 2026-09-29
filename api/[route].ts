@@ -31,6 +31,7 @@ import results_import from "../netlify/functions/results-import";
 import sync_results from "../netlify/functions/sync-results";
 import rebuild_learning from "../netlify/functions/rebuild-learning";
 import similar_odds from "../netlify/functions/similar-odds";
+import manuale_stats from "../netlify/functions/manuale-stats";
 import web_probe from "../netlify/functions/web-probe";
 import af_probe from "../netlify/functions/af-probe";
 import backtest from "../netlify/functions/backtest";
@@ -73,6 +74,7 @@ const ROUTES: Record<string, Handler> = {
   "sync-results": sync_results,
   "rebuild-learning": rebuild_learning,
   "similar-odds": similar_odds,
+  "manuale-stats": manuale_stats,
   "web-probe": web_probe,
   "af-probe": af_probe,
   "backtest": backtest,

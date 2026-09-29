@@ -1,11 +1,11 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import BottomNav from "@/src/components/BottomNav";
 import { colors } from "@/src/theme";
-import { api, BacktestResponse } from "@/src/api";
+import { api, BacktestResponse, ManualeStatsResponse } from "@/src/api";
 import { notify } from "@/src/utils/platform";
 
 /**
@@ -93,6 +93,16 @@ export default function Traccia() {
 
   const [regola, setRegola] = useState<"motore" | "maxprob" | "pre">("motore");
   const [soloDopoSplit, setSoloDopoSplit] = useState(true);
+
+  // Ticket 8: misura del manuale per scenario (sola lettura, calcolata viva).
+  const [manuale, setManuale] = useState<ManualeStatsResponse | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.manualeStats()
+      .then((r) => { if (alive) setManuale(r); })
+      .catch((e) => { console.error("[manuale-stats]", e); });
+    return () => { alive = false; };
+  }, []);
 
   const gira = async (lambdaVecchi: boolean) => {
     stop.current = false;
@@ -185,6 +195,38 @@ export default function Traccia() {
             ))}
           </View>
           <Text style={st.hint}>{REGOLE.find((r) => r.id === regola)?.spiega}</Text>
+        </View>
+
+        <View style={st.box}>
+          <Text style={st.boxTit}>MANUALE PER SCENARIO — QUANTO HA RISPOSTO FINORA</Text>
+          <Text style={st.hint}>
+            I mercati da manuale del banner in cima alla scheda, valutati su tutte le partite concluse con
+            quello scenario. Solo misura: non tocca il verdetto. Rimborsi (DNB) e mezze (AH -0,75) fuori dal %.
+          </Text>
+          {!manuale ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} />
+          ) : (
+            Object.entries(manuale.scenari || {})
+              .sort(([, a], [, b]) => b.partite - a.partite)
+              .map(([chiave, sc]) => (
+                <View key={chiave}>
+                  <Text style={st.sotto}>
+                    {sc.scenario.toUpperCase()}{sc.favorita ? ` (favorita ${sc.favorita})` : ""} · {sc.partite} partite
+                  </Text>
+                  {Object.entries(sc.mercati).map(([m, c]) => {
+                    const n = c.vinte + c.perse;
+                    const extra = [c.rimborsi ? `${c.rimborsi} rimborsi` : "", c.mezze ? `${c.mezze} mezze` : ""].filter(Boolean).join(", ");
+                    return (
+                      <View key={m} style={st.riga}>
+                        <Text style={[st.rigaPct, { color: colors.primary }]}>{c.pct === null ? "—" : `${c.pct.toFixed(1)}%`}</Text>
+                        <Text style={st.rigaNome}>{m}</Text>
+                        <Text style={st.rigaN}>{c.vinte}/{n}{extra ? ` · ${extra}` : ""}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))
+          )}
         </View>
 
         <TouchableOpacity
