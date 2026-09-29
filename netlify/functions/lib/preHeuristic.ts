@@ -32,12 +32,12 @@ const MAI_GIOCATI = new Set(["NG", "U1.5", "U2.5"]);
  * finta. Su quei mercati l'euristica ASTIENE, e chi calcola la concordanza
  * deve contare solo i sistemi che potevano davvero esprimersi.
  */
-export function preHeuristicRanking(odds: Odds): PreCandidate[] {
+export function preHeuristicRanking(odds: Odds, minOdd = 1.40): PreCandidate[] {
   const out: PreCandidate[] = [];
   for (const market of CANDIDATE_MARKETS) {
     const odd = realOddFor(market, odds);
     if (odd === null) continue;          // astensione: nessun prezzo indipendente
-    if (odd < 1.40) continue;            // sotto 1.40 e' solo rischio, niente valore
+    if (odd < minOdd) continue;          // sotto la soglia (1.40) e' solo rischio, niente valore
     // NG, U1.5 e U2.5 non li gioca e non li giochera' mai (28/09/2026): non
     // hanno senso nemmeno come voce PRE della fusione. Restano nel motore,
     // dove NG serve ancora come veto contro GG.
@@ -100,7 +100,7 @@ const SINGLE_MARKET_ODD_KEY: Record<string, keyof Odds> = {
   "GG": "odd_GG", "NG": "odd_NG",
 };
 
-export function preHeuristicPick(odds: Odds): PreCandidate | null {
+export function preHeuristicPick(odds: Odds, minOdd = 1.40): PreCandidate | null {
   const get = (k: keyof Odds, def = Infinity) => (odds[k] ?? def) as number;
   const o1 = get("odd_1"), o2 = get("odd_2");
   const o1X = get("odd_1X"), oX2 = get("odd_X2"), o12 = get("odd_12");
@@ -111,7 +111,7 @@ export function preHeuristicPick(odds: Odds): PreCandidate | null {
   const out: PreCandidate[] = [];
   const push = (market: string, odd: number, family: string) => {
     if (!isFinite(odd)) return;
-    if (odd < 1.40) return;
+    if (odd < minOdd) return;
     // Stesso filtro di preHeuristicRanking: pick_pre non deve mai registrare
     // mercati che il PRE non gioca, altrimenti la pagella misura un altro PRE.
     if (MAI_GIOCATI.has(market.trim().toUpperCase().replace(/\s+/g, ""))) return;

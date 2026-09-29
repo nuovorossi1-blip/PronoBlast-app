@@ -118,7 +118,8 @@ export default async (req: Request): Promise<Response> => {
         const ammessi = giocateAmmissibili(analisi.ranking, odds, minOdd);
         pick = [...ammessi].sort((a, b) => (b.coverage ?? 0) - (a.coverage ?? 0))[0] ?? null;
       } else {
-        const pre = preHeuristicRanking(odds).filter((c) => c.odd >= minOdd);
+        // Stessa soglia di giocabilita' di motore e maxprob: confronto alla pari.
+        const pre = preHeuristicRanking(odds, minOdd);
         pick = pre[0] ? { market: pre[0].market, odd: pre[0].odd } : null;
       }
       if (!pick) {
