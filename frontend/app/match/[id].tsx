@@ -524,6 +524,11 @@ export default function MatchDetail() {
           // che il sistema aveva DAVVERO consigliato. Il ricalcolo resta solo
           // per le partite ancora da giocare, dove serve.
           const congelato = !!match.result && !!match.pick_finale;
+          // Se il pick congelato non e' fra i ricalcolati si usa un oggetto di
+          // riserva senza componenti (score 0 e nessun dettaglio): NON va mostrato
+          // come "totale 0.0", che sembrerebbe un errore di calcolo.
+          const congelatoSenzaComponenti = congelato
+            && !verdictCalcolato.some((v) => normalizeMarket(v.market) === normalizeMarket(match.pick_finale!));
           const verdict = congelato
             ? [
                 verdictCalcolato.find((v) => normalizeMarket(v.market) === normalizeMarket(match.pick_finale!))
@@ -771,6 +776,16 @@ export default function MatchDetail() {
                 <View style={styles.percheBox}>
                   {[top, ...alts].map((p, idx) => (
                     <View key={`perche-${p.market}-${idx}`} style={idx ? styles.percheAltro : undefined}>
+                      {idx === 0 && congelatoSenzaComponenti ? (
+                        <>
+                          <Text style={styles.percheMercato}>★ {p.market}</Text>
+                          <Text style={styles.percheVoce}>Verdetto congelato prima della partita: componenti non salvate.</Text>
+                          <Text style={styles.percheVoce}>
+                            {p.odd && p.odd > 0 ? `Quota @ ${p.odd.toFixed(2)}` : "Quota non disponibile"}
+                            {p.coverage !== undefined ? ` · Copertura ${Math.round(p.coverage * 100)}%` : ""}
+                          </Text>
+                        </>
+                      ) : (<>
                       <Text style={styles.percheMercato}>
                         {idx === 0 ? "★ " : `${idx + 1}. `}{p.market} — totale {Number(p.score).toFixed(1)}
                       </Text>
@@ -785,10 +800,11 @@ export default function MatchDetail() {
                       {!(p.dettaglio || []).length && (
                         <Text style={styles.percheVoce}>Nessun punto registrato per questo mercato.</Text>
                       )}
+                      </>)}
                     </View>
                   ))}
                   <Text style={styles.percheNota}>
-                    Vince il punteggio più alto, non la posizione nel ranking strutturale. A parità entro 5 punti decide la quota più bassa.
+                    L'ordine segue la classifica della fusione (quante fonti lo mettono in alto). Il punteggio decide solo fra proposte quasi pari (±5 pt): allora vince la quota più bassa.
                   </Text>
                 </View>
               )}
