@@ -5,7 +5,7 @@ import {
 import { parseResult } from "./lib/marketEval";
 import { classifyScenario } from "./lib/scenario";
 import { leagueTier, tierLabel, type LeagueTier } from "./lib/leagueTier";
-import { pgGet, pgPatch, rowToOdds, jsonResponse } from "./lib/supabaseRest";
+import { pgGet, pgGetAll, pgPatch, rowToOdds, jsonResponse } from "./lib/supabaseRest";
 import { readMinOdd } from "./odd-settings";
 
 /**
@@ -309,7 +309,8 @@ export default async (req: Request): Promise<Response> => {
       try {
         const done = await pgGetAll(`matches?manifestazione=eq.${encodeURIComponent(leg.manifestazione)}&result=not.is.null&select=id,result`);
         storicoLega.set(leg.manifestazione, done.map((r: any) => String(r.result || "")));
-      } catch {
+      } catch (e) {
+        console.error("storico lega:", e);
         storicoLega.set(leg.manifestazione, []);   // senza storico si mostra "—"
       }
     }
