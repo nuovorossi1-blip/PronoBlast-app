@@ -1154,6 +1154,12 @@ function buildExplanation(structure: FamilyStructure, ranking: RankedMarket[]): 
  * Mercati che raccontano la partita in modo OPPOSTO l'uno all'altro.
  * Non devono mai sostituirsi a vicenda solo perche' uno e' sotto soglia:
  * sarebbe ribaltare la lettura della partita per una ragione di prezzo.
+ *
+ * Semantica: CONCORRENTI DI DIREZIONE (Ticket 7). 1X e X2 restano qui di
+ * proposito: la direzione dominante vince e la rivale non diventa pick.
+ * Deve restare allineata a `_OPPOSITES` in frontend/src/api.ts (stessa
+ * semantica); NON alla tabella OPPOSTI di api.ts, che contiene solo gli
+ * opposti veri e da cui 1X/X2 e' stata tolta volutamente.
  */
 const OPPOSTI: [string, string][] = [
   ["1", "2"], ["1", "X2"], ["2", "1X"], ["1X", "X2"],

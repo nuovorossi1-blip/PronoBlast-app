@@ -759,13 +759,20 @@ const VERDICT_WHITELIST = new Set([
 ]);
 
 /**
- * Mercati che raccontano la partita in modo OPPOSTO. Non devono mai
- * sostituirsi a vicenda solo perche' uno e' sotto soglia: sarebbe ribaltare la
- * lettura della partita per una ragione di prezzo.
- * Deve restare allineata a OPPOSTI in netlify/functions/lib/clusterEngine.ts.
+ * OPPOSTI VERI: mercati che raccontano la partita in modo OPPOSTO, cioe' senza
+ * nessun esito in comune. Non devono mai sostituirsi a vicenda solo perche' uno
+ * e' sotto soglia, e se sono ravvicinati non c'e' lettura: la famiglia va fuori
+ * (famiglieAmbigue).
+ *
+ * 1X e X2 NON sono qui (Ticket 7, 30/09/2026): si sovrappongono sul pareggio
+ * (0-0 e 1-1 le vincono entrambe). Sono CONCORRENTI DI DIREZIONE, una semantica
+ * DIVERSA che vive in `_OPPOSITES` (sotto) e in OPPOSTI di clusterEngine.ts:
+ * vince la dominante e l'altra si ritira, come il "2" col pick "1". Su
+ * Turchia-Italia la coppia qui dentro aveva cancellato ENTRAMBE dal verdetto.
+ * Questa tabella NON va riallineata a quelle due: divergono per scelta.
  */
 const OPPOSTI: [string, string][] = [
-  ["1", "2"], ["1", "x2"], ["2", "1x"], ["1x", "x2"],
+  ["1", "2"], ["1", "x2"], ["2", "1x"],
   ["gg", "ng"],
   ["o2.5", "u2.5"], ["o1.5", "u1.5"], ["o2.5", "ng"],
 ];
@@ -791,11 +798,12 @@ function famiglia(market: string): "esito" | "gol" | "totali" | null {
 }
 
 /**
- * Famiglie su cui il motore non ha una lettura: i due mercati OPPOSTI piu' alti
- * sono separati da pochi punti. Su Zaglebie - Piast il ranking dava `X2` 65% e
- * `1X` 62%: tre punti fra due scenari opposti non sono una lettura, sono un
- * pareggio. Si salta la famiglia e si scende dove il motore ha qualcosa da dire.
- * Deve restare allineata a famiglieAmbigue in clusterEngine.ts.
+ * Famiglie su cui il motore non ha una lettura: i due mercati OPPOSTI VERI piu'
+ * alti sono separati da pochi punti (1 contro 2 entro 5 punti, GG contro NG
+ * testa a testa). Si salta la famiglia e si scende dove il motore ha qualcosa da
+ * dire. Le doppie chance (X2 65% / 1X 62%, caso Zaglebie - Piast) non rendono
+ * piu' ambigua la famiglia esito: sono rivali di direzione, vince la dominante
+ * (Ticket 7). Per questo NON e' piu' allineata a famiglieAmbigue di clusterEngine.
  */
 function famiglieAmbigue(lista: VerdictPick[], prob: (b: VerdictPick) => number): Set<string> {
   const out = new Set<string>();
@@ -1493,6 +1501,12 @@ function _hasOver(m: string) { return _hasOverRegex.test(m); }
 function _hasGG(m: string) { return _hasGGRegex.test(m); }
 function _hasNG(m: string) { return _hasNGRegex.test(m); }
 
+/**
+ * CONCORRENTI DI DIREZIONE (Ticket 7): stesso slot tattico, vince il dominante
+ * e l'altro non torna come alternativa (il "2" col pick "1", X2 col pick 1X).
+ * Deve restare allineata a OPPOSTI in netlify/functions/lib/clusterEngine.ts
+ * (stessa semantica). NON e' la tabella OPPOSTI VERI di famiglieAmbigue.
+ */
 const _OPPOSITES: [string, string][] = [
   ["1", "X"], ["1", "2"], ["1", "X2"],
   ["2", "X"], ["2", "1X"],
