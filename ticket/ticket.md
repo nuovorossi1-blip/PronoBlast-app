@@ -20,6 +20,7 @@ Indagando due partite reali (Belgio-Francia 0-1 e Turchia-Italia 1-4 del 28/09/2
 6. **Filtro strutturale applicato tardi** (`violatesStructure`): MG 2-4 passava tutta la fusione ed era il primo ammesso (Belgio-Francia, 62%) venendo eliminato SOLO in coda → contatori "n/3" e ordine calcolati su un mercato fantasma. La regola del tetto aperto (MG 2-4 escluso) è **confermata dal proprietario e non si tocca** — va solo applicata anche in ingresso e nel PRE; e quando un MG cade per il tetto, O2.5 deve stare subito dopo come "lettura gol".
 7. **1X e X2 trattate come "esiti opposti"**: si sovrappongono sul pareggio (0-0/1-1 le vince ENTRAMBI) → la tabella dell'ambiguità le ha dichiarate "opposti ravvicinati" e ha cancellato ENTRAMBE dal verdetto di Turchia-Italia, nonostante X2 fosse pick dell'euristica, #3 del ranking, whitelist sì, quota 1.45, storico 81%. La tabella esiste in TRE copie. Regola del proprietario: le doppie chance sono **concorrenti di direzione** — uno solo sopravvive (il dominante), l'altro si ritira COME il 2 col pick 1; ma non si annientano a vicenda.
 8. **Osservazioni NON-bug** (da non "correggere"): MG 1-3 casa/ospite alti nel ranking ma esclusi = whitelist del proprietario ("non fra i tuoi mercati", giusto così); il "12" a 76% nascosto = sotto soglia 1.40, giusto così.
+9. **Il manuale per scenario NON è misurato** (segnalato dal proprietario il 29/09: "quando lo scenario si verifica, i mercati del manuale sono corretti"): il banner usa EQUILIBRIO/GAP TECNICO/PROGRESSIONE (`getScenarioNote`), ma l'apprendimento per scenario (`updateScenarioScores` → `scenario_market_scores`) misura una tassonomia DIVERSA (netta/chiara/leggera di `lib/scenario.ts`). In più il valutatore `evaluateMarketOutcome` non sa valutare AH −0,75/+0,75, DNB e MC casa/ospite — metà dei mercati del manuale. → Ticket 8: misurare il manuale con la sua tassonomia.
 
 ---
 
@@ -225,6 +226,43 @@ Cioè: **come pick (e come alternative) ne sopravvive uno solo — il dominante;
 - ATTUALE: pick MG 2-4 17.5 (strutt+IA), alternative GG, O2.5, GG+O2.5 — **X2 e 1X ovunque assenti** (riproduce la scheda).
 - FIX: pick MG 2-4 invariato; alternative = **X2 @1.45 (16.4, strutt+pre, 2/3)**, GG, O2.5; 1X esclusa dalla catena delle alternative per rivalità (`areMarketsContradictory("X2","1X")=true` tenuto); opposti veri intatti (`("1","2")=true`).
 - Esito reale 1-4: pick MG 2-4 perso; **X2 alternativa vincente** (+ visibile invece che sparita); 1X persa ma correttamente ritirata; O2.5 e GG vincenti.
+
+---
+
+## TICKET 8 🟡 — Misurare il MANUALE per scenario (solo lettura: il proprietario vuole sapere se i suoi mercati da manuale rispondono davvero)
+
+**Contesto (richiesta del proprietario, 29/09):** *"all'inizio della scheda c'è lo scenario (Equilibrio / Progressione / Gap) con i pronostici che ho messo io; ho notato che quando si verifica quello scenario i pronostici sono corretti"*. Oggi questa impressione NON è misurata da nessuna parte: il banner usa `getScenarioNote` (frontend/src/api.ts, ~1660: EQUILIBRIO/GAP TECNICO/PROGRESSIONE), ma l'apprendimento per scenario (`netlify/functions/lib/applyResult.ts`, `updateScenarioScores` → `scenario_market_scores`) usa `classifyScenario` di `lib/scenario.ts` (netta/chiara/leggera) — **due tassonomie che non si parlano**. I mercati del manuale non hanno statistiche.
+
+**Obiettivo:** una misura, NON una nuova voce del verdetto. Output = tabella scenario × mercato del manuale: quante volte si è verificato lo scenario, quante volte ogni mercato del manuale è uscito, %. Poi il proprietario decide se il manuale merita un ruolo (es. quarta voce etichettata): QUESTO ticket non tocca il verdetto.
+
+**Dove (file da creare/modificare):**
+0. **Riscrivere il manuale in `getScenarioNote`** (~1690-1760) secondo la SPECIFICA FINALE del proprietario (29/09, seconda stesura — sostituisce la proposta precedente):
+   - **EQUILIBRIO**: **GG oppure Over 2,5** (sempre visibili, a scelta). Ramo gol fortissimo (GG < 1.5 e O2.5 < 1.5): **MG 3-6 totali** (RIPRISTINATO su indicazione del proprietario: "era corretto"). Fallback (quando GG e O2.5 sono fuori soglia, ≥1.8): **combo "X oppure GG"** (mercato reale di alcuni bookmaker: vince se la partita finisce 0-0 OPPURE con entrambe le squadre che segnano; perde SOLO sulle vittorie a rete inviolata). Misurato su Poisson: X-oppure-GG 59,7-65,3% sui profili equilibrio (vs 60,7-61,6% del vecchio MG 2-4 totali: +3,5 pt sul profilo tipico, e copre lo 0-0). **MG 2-4 totali RESTA RIMOSSO dal fallback** (decisione proprietario).
+   - **GAP TECNICO**: **favorita fisso** · **AH −0,75 favorita** · **GG + Over 2,5**. Nota a commento: AH −0,75 non giocabile al palinsesto → sostituto giocabile **MG favorita 2-4** (conversione proposta dal proprietario, pagella deciderà).
+   - **PROGRESSIONE CASA**: **combo MG casa 1-3 + MG ospite 0-2** · **MG casa 1-3** · **1 DNB**. Nota: DNB non giocabile → sostituto **MG casa 1-3** (equivalenza del proprietario, ±7 pt su Poisson).
+   - **PROGRESSIONE OSPITE** (speculare): **combo MG ospite 1-3 + MG casa 0-2** · **MG ospite 1-3** · **2 DNB** (sostituto: MG ospite 1-3).
+1. **Estendere `evaluateMarketOutcome`** (frontend/src/api.ts ~1418) per i mercati del manuale oggi NON valutabili:
+   - **MG generico**: regex `MG (\d+)-(\d+)( casa| ospite)?` → vince se i gol (della squadra o totali) cadono nel range (oggi è hardcoded SOLO "MG 2-4" totali).
+   - **"X oppure GG"** (combo bookmaker, fallback equilibrio): vince se `home === away` (pareggio, 0-0 compreso) OPPURE `home > 0 && away > 0` (entrambe segnano); perde solo su vittorie a rete inviolata (1-0, 2-0, 0-1, 0-3…). Accettare le diciture "X o GG" / "X oppure GG".
+   - **DNB** ("1 DNB"/"2 DNB"): vince se la favorita non pareggia; il pareggio è rimborsato → conteggiato a parte (né vinto né perso), e segnalarlo nel metodo.
+   - **AH −0,75 favorita** ("1 AH -0,75"/"2 AH -0,75"): vinta piena se vince di 2+, metà se vince di 1 (per la % contare solo vinta/persa, mezze escluse e segnalate).
+   - **Normalizzare la virgola**: `market.replace(",", ".")` prima dei parse (oggi "Over 2,5" funziona solo per un caso fortunato dei totali interi).
+2. **Nuova aggregazione** (server, read-only): per OGNI partita conclusa con quote (`matches?result=not.is.null`), calcolare `getScenarioNote(odds)` (importabile da `frontend/src/api.ts`, stessa strada di verdettoServer), valutare OGNI mercato del manuale restituito con `evaluateMarketOutcome`, aggregare per (scenario, mercato): vinte, totali, pct. Una sola query, nessuna scrittura.
+3. **Esposizione — NEL BANNER DELLO SCENARIO, in cima alla scheda (richiesta esplicita e corretta del proprietario: "se io apro una partita vedo lo scenario, accanto allo scenario ci stanno le proposte; accanto ai pronostici di quello scenario ci devono essere le percentuali con i numeri di quante volte è uscito quel pronostico relativo a quel scenario sullo storico; una volta inserito il risultato deve diventare verde il pronostico indovinato"):**
+   a. **Banner SCENARIO** (`match/[id].tsx` ~448-479, il blocco "SCENARIO: EQUILIBRIO / Mercati da considerare"): accanto a OGNI mercato del manuale aggiungere la misura dallo storico: `• GG — 64,1% (88/137)` dove 137 = partite concluse in archivio con QUESTO scenario e 88 = quante volte GG è uscito. Il dato arriva da `/api/manuale-stats` (scelto lo scenario della partita, una riga); per le partite FUTURE mostra solo le percentuali; per le partite CON RISULTATO valutare ogni mercato del manuale con `evaluateMarketOutcome(market, result)` e **colorare in VERDE i pronostici indovinati** (gli altri restano neutri). ATTENZIONE: la valutazione è PER MERCATO — PIÙ pronostici possono essere verdi insieme (es. 1-4: GG ✅ E Over 2,5 ✅ entrambi verdi); non va colorato solo il migliore. NON va messo nella sezione STORICO QUOTE SIMILI: sta nel banner, accanto ai pronostici.
+   b. **Traccia**, sotto i chip REGOLE: "MANUALE PER SCENARIO — quanto ha risposto finora", tabella globale scenario → mercato → % su n.
+   Endpoint unico GET `/api/manuale-stats` (registrarlo nelle 3 sedi: `api/[route].ts`, `vercel.json`, `netlify.toml`).
+   **Aggiornamento automatico** (parole del proprietario: "si aggiorna in base a più lo storico è ampio"; archivio attuale ~8.000+ partite concluse): la misura è calcolata VIVA sull'archivio intero (nessun contatore incrementale da tenere al passo): ogni risultato inserito — o riscaricato in blocco — entra da solo nelle percentuali alla successiva apertura.
+
+**Non fare:** NON toccare `classifyScenario`/`lib/scenario.ts` (alimenta altra cosa), NON toccare `updateScenarioScores`, NON usare i risultati per cambiare il verdetto o il PRE, NON usare quote dei mercati (qui conta solo l'esito; il ROI non è un obiettivo).
+
+**Test di accettazione:**
+- Unitari valutatore: ("MG casa 1-3", "2-1")→true, ("MG casa 1-3", "0-0")→false, ("MG ospite 1-3", "1-4")→true, ("MG 0-2 ospite", "2-1")→true, ("MG 2-4 totali", "3-2")→true, ("MG 2-4 totali", "3-3")→false, ("MG 3-6 totali", "4-1")→true, ("MG 3-6 totali", "2-1")→false; combo ("MG casa 1-3 + MG ospite 0-2", "2-1")→true, ("…", "3-1")→false; ("X o GG", "0-0")→true, ("X o GG", "1-1")→true, ("X o GG", "2-1")→true, ("X o GG", "1-0")→false, ("X o GG", "0-2")→false; ("1 DNB", "1-1")→rimborso a parte, ("1 DNB", "2-1")→true; ("1 AH -0,75", "2-0")→true, ("1 AH -0,75", "1-0")→mezza a parte, ("1 AH -0,75", "0-0")→false; ("Over 2,5" con virgola, "2-1")→true.
+- Il manuale aggiornato NON contiene più MG 2-4 in EQUILIBRIO; contiene MG 3-6 nel ramo gol fortissimo e la combo "X oppure GG" come fallback.
+- Sanity check sul noto: sulle partite di profilo EQUILIBRIO simili a Turchia-Italia (1 e 2 entrambe ~2.55-2.85), GG e O2.5 devono uscire intorno al 60-66% (coerente con lo storico quote-simili: GG 62,3% e O2.5 66% su 53 partite).
+- L'endpoint non scrive nulla (solo GET, nessuna pgPatch/pgRpc).
+
+**Cosa aspettarsi:** la prima tabella reale del manuale. Se uno scenario mostra un mercato stabile ≥65% con n≥50, sarà candidato (decisione del proprietario) a quarta voce etichettata della fusione — con pagella, come sempre. Se scende sotto ~55%, il manuale resta promemoria e lo si dice onestamente.
 
 ---
 
