@@ -257,6 +257,12 @@ export const api = {
   },
   days: () => netlifyReq<string[]>("/matches-days"),
 
+  /** Fa calcolare al server i verdetti mancanti di una giornata (fase 0). */
+  verdettiDelGiorno: (day: string) =>
+    netlifyReq<{ ok: boolean; calcolati: number; salvati: number; senza_pick: number }>(
+      `/verdetto?day=${encodeURIComponent(day)}`,
+    ),
+
   /** Traccia: rigioca il motore sulle partite concluse. Non influenza niente. */
   backtest: (from: number, minOdd: number, lambdaVecchi: boolean, limit = 400) =>
     netlifyReq<BacktestResponse>(

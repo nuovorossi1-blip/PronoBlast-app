@@ -9,7 +9,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, quickPrediction, quickPredictionFamily, rankPicks, pickFinal, RankedPick } from "@/src/api";
+import { api, Match, quickPredictionFamily } from "@/src/api";
 import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useBottomNav } from "@/src/components/BottomNavContext";
@@ -41,7 +41,7 @@ function fmtDayShort(d: string) { const dt = parseISO(d); const today = todayISO
 function fmtDayLong(d: string) { const dt = parseISO(d); return `${DAY_FULL_IT[dt.getDay()]} ${dt.getDate()} ${MONTH_FULL_IT[dt.getMonth()]}`; }
 function fmtDateBadge(d: string) { const dt = parseISO(d); return `${dt.getDate()} ${MONTH_LONG_IT[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`; }
 
-function predLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null } {
+function predLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean } {
   // Build pre-pronostic family + LLM markets list, compute final ranking.
   // La card mostra il VERDETTO FINALE salvato, lo stesso che si vede aprendo la
   // partita. Prima ricalcolava un pick per conto suo con una logica diversa da
@@ -63,31 +63,27 @@ function predLabel(m: Match, stats: { market: string; win_rate: number; total: n
     };
   }
 
+  // ANTEPRIMA PRE (29/09/2026, fase 0 — opzione scelta da Rossi).
+  //
+  // Finche' il verdetto non c'e', la card NON inventa piu' un pick con un
+  // algoritmo diverso: mostra il pre-pronostico DICHIARANDOLO tale, con un
+  // badge suo. Prima qui girava una catena rankPicks + pickFinal che non
+  // conosce la soglia, ne' Poisson, ne' le regole di coerenza, e finiva per
+  // consigliare un mercato diverso da quello del dettaglio (visto su
+  // Sandnes - Kongsvinger e su Patronato). Il verdetto vero lo calcola ora il
+  // server: vedi /verdetto e lib/verdettoServer.ts.
   const fam = quickPredictionFamily(m.odds);
-  const llmMarkets: string[] = m.playable_markets?.map((p) => p.market) || (m.main_prediction ? [m.main_prediction] : []);
-  const ranked = rankPicks(fam, llmMarkets, stats);
-  const { pick, isNoBet } = pickFinal(ranked, llmMarkets);
-  const map: Record<string, string> = { "O1.5": "Ov1.5", "O2.5": "Ov2.5", "O3.5": "Ov3.5", "U1.5": "Un1.5", "U2.5": "Un2.5", "U3.5": "Un3.5" };
-
-  // Evaluate "isCorrect": does the chosen market win vs the inserted result?
-  let isCorrect: boolean | null = null;
-  if (m.result && pick) {
-    const parts = m.result.split("-").map((x) => parseInt(x, 10));
-    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-      isCorrect = evalLocal(pick.market, parts[0], parts[1]);
-    }
+  const anteprima = fam[0];
+  if (anteprima) {
+    const map: Record<string, string> = { "O1.5": "Ov1.5", "O2.5": "Ov2.5", "O3.5": "Ov3.5", "U3.5": "Un3.5" };
+    return {
+      label: map[anteprima.market] || anteprima.market,
+      isAi: false, isConcord: false, isCandidate: false, isNoBet: false,
+      isCorrect: null,          // un'anteprima non si giudica: non e' il verdetto
+      isAnteprima: true,
+    };
   }
-  if (isNoBet) return { label: "NO BET", isAi: false, isConcord: false, isCandidate: false, isNoBet: true, isCorrect: null };
-  if (pick) {
-    const label = map[pick.market] || pick.market;
-    return { label, isAi: pick.source !== "pre", isConcord: pick.source === "pre+ai", isCandidate: pick.isCandidate, isNoBet: false, isCorrect };
-  }
-  // Fallback: lowest 1X2
-  const o = m.odds;
-  const arr: [string, number?][] = [["1", o.odd_1], ["X", o.odd_X], ["2", o.odd_2]];
-  let best = "1X2", low = Infinity;
-  for (const [l, v] of arr) if (v && v < low) { low = v; best = l; }
-  return { label: best, isAi: false, isConcord: false, isCandidate: false, isNoBet: false, isCorrect: null };
+  return { label: "—", isAi: false, isConcord: false, isCandidate: false, isNoBet: false, isCorrect: null, isAnteprima: true };
 }
 
 /** Local market evaluator (mirror of backend logic for live display) */
@@ -236,7 +232,24 @@ export default function Home() {
       matchesCache.set(day, ms);
       daysCache.set(ds);
       marketStatsCache.set(stats?.markets || []);
-      setMatches(ms); setDays(ds); setMarketStats(stats?.markets || []); return ds;
+      setMatches(ms); setDays(ds); setMarketStats(stats?.markets || []);
+
+      // FASE 0 (29/09/2026): se in questa giornata ci sono partite ancora senza
+      // verdetto, lo fa calcolare al server e ricarica. Cosi' la card mostra il
+      // pronostico VERO invece dell'anteprima, senza che Rossi debba aprire la
+      // scheda una per una. Gira in sottofondo: se fallisce, restano le
+      // anteprime e non si rompe niente.
+      if (day && ms.some((m) => !m.pick_finale && !m.result)) {
+        api.verdettiDelGiorno(day)
+          .then(async (r) => {
+            if (!r?.salvati) return;
+            const aggiornate = await api.matches(day);
+            matchesCache.set(day, aggiornate);
+            setMatches(aggiornate);
+          })
+          .catch(() => {});
+      }
+      return ds;
     } catch { return []; } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
@@ -610,6 +623,9 @@ export default function Home() {
                             colors={
                               pred.isCorrect === true ? ["#10B981", "#059669"] :
                               pred.isCorrect === false ? ["#EF4444", "#DC2626"] :
+                              // L'anteprima PRE ha un colore tutto suo: non deve
+                              // essere scambiata per il verdetto (29/09/2026).
+                              pred.isAnteprima ? ["#3F3F46", "#27272A"] :
                               pred.isNoBet ? ["#71717A", "#52525B"] :
                               pred.isCandidate ? ["#F59E0B", "#D97706"] :
                               pred.isConcord ? ["#60A5FA", "#3B82F6"] :
@@ -623,7 +639,8 @@ export default function Home() {
                             {pred.isConcord && pred.isCorrect === null && <Ionicons name="checkmark-done" size={10} color="#FFF" style={{ marginRight: 2 }} />}
                             {pred.isCandidate && <Ionicons name="bulb" size={10} color="#FFF" style={{ marginRight: 2 }} />}
                             {pred.isNoBet && <Ionicons name="close" size={10} color="#FFF" style={{ marginRight: 2 }} />}
-                            <Text style={styles.predTxt}>{pred.label}</Text>
+                            {pred.isAnteprima && <Ionicons name="eye-outline" size={10} color="#A1A1AA" style={{ marginRight: 3 }} />}
+                            <Text style={[styles.predTxt, pred.isAnteprima && { color: "#A1A1AA" }]}>{pred.label}</Text>
                             {hasRes && (
                               <>
                                 <View style={styles.predSep} />

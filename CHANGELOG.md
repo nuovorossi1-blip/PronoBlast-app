@@ -88,6 +88,35 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-29 (2) — FASE 0 chiusa: un solo pronostico, in lista e nel dettaglio
+
+**La card non inventa piu' niente.** `predLabel` in `app/index.tsx` aveva un
+ramo che, quando mancava `pick_finale`, rifaceva il pronostico con
+`rankPicks` + `pickFinal`: una catena che non conosce la soglia di Rossi, ne'
+Poisson, ne' le regole di coerenza. Da li' nascevano le contraddizioni viste su
+Sandnes - Kongsvinger e su Patronato: card e dettaglio consigliavano mercati
+diversi sulla stessa partita. Aveva anche un ripiego finale che sceglieva "la
+quota 1X2 piu' bassa", cioe' un pronostico inventato dal nulla.
+
+Ora, senza verdetto, la card mostra **l'anteprima PRE dichiarata tale**
+(opzione B scelta da Rossi): badge grigio con l'icona dell'occhio invece dei
+colori del verdetto, e `isCorrect` sempre `null` — un'anteprima non si giudica,
+perche' non e' il pronostico del sistema. Senza nemmeno quella, "—".
+
+**E i verdetti si riempiono da soli.** Aprendo una giornata, se ci sono partite
+senza `pick_finale`, la lista chiama `/verdetto?day=` in sottofondo e poi
+ricarica. Gira senza bloccare la schermata: se fallisce restano le anteprime e
+non si rompe niente.
+
+Verifiche: `tsc` 0 errori, eslint 0 errori (warning da 16 a 12, tolti gli import
+rimasti senza uso), build verde, test a runtime del motore invariati, e il
+verdetto lato server ridà ancora `GG @1.75` su Georgia - Ucraina.
+
+**Fase 0 chiusa.** La stessa partita mostra adesso lo stesso pronostico
+ovunque, oppure dichiara che quello che vedi e' solo un'anteprima. Prossimo
+passo: Fase 1, la pagella comparativa con la divisione temporale
+addestramento/verifica.
+
 ### 2026-09-29 — FASE 0: il verdetto lo calcola il server
 
 **Il problema alla radice.** La fusione girava SOLO nel telefono, dentro la
