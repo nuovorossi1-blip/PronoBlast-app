@@ -112,6 +112,9 @@ export function preHeuristicPick(odds: Odds): PreCandidate | null {
   const push = (market: string, odd: number, family: string) => {
     if (!isFinite(odd)) return;
     if (odd < 1.40) return;
+    // Stesso filtro di preHeuristicRanking: pick_pre non deve mai registrare
+    // mercati che il PRE non gioca, altrimenti la pagella misura un altro PRE.
+    if (MAI_GIOCATI.has(market.trim().toUpperCase().replace(/\s+/g, ""))) return;
     if (out.find((c) => c.market === market)) return;
     out.push({ market, odd, family });
   };
