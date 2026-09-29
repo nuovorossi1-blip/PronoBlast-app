@@ -88,6 +88,39 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-09-29 (3) — FASE 1: pagella comparativa con divisione temporale
+
+Il backtest confronta ora tre regole sulle stesse partite:
+- **Motore** — primo mercato ammesso del ranking, con la regola della direzione
+  (quello che l'app usa oggi)
+- **Max probabilita'** — la probabilita' piu' alta fra i mercati ammessi, senza
+  regola di direzione
+- **Pre-pronostico** — il primo della voce PRE
+
+**La fusione completa NON e' fra queste, di proposito**: ha bisogno del
+pronostico AI, che esiste su ~600 partite delle 8.251 concluse. Misurarla qui
+darebbe un numero calcolato su un campione diverso dagli altri, quindi
+inconfrontabile — sembrerebbe un paragone e non lo sarebbe.
+
+**LA DIVISIONE TEMPORALE, che e' il punto della fase.** Le tabelle di
+apprendimento (`market_scores`, `scenario_market_scores`) sono state costruite
+DA queste stesse partite. Misurare su tutto l'archivio significa far rispondere
+le regole a domande di cui hanno gia' visto le risposte: i numeri escono belli e
+non reggono sul futuro. E' l'errore classico di chi valuta un modello sui dati
+con cui l'ha addestrato.
+
+Quindi `split=YYYY-MM-DD` misura **solo sulle partite successive** a quella data
+(31/08/2026 di default). L'interruttore nella schermata permette di vedere anche
+il confronto "sporco", ma dichiarandolo: "include le partite con cui il sistema
+ha imparato, i numeri usciranno piu' belli di quanto siano".
+
+Le tre regole attuali non leggono lo storico, quindi per loro la divisione non
+cambia il risultato — ma l'infrastruttura serve pronta per quando si aggiungera'
+una regola che lo usa, e intanto fissa l'insieme di partite su cui tutti i
+confronti futuri andranno fatti.
+
+`tsc` 0 errori, eslint 0 errori, build verde.
+
 ### 2026-09-29 (2) — FASE 0 chiusa: un solo pronostico, in lista e nel dettaglio
 
 **La card non inventa piu' niente.** `predLabel` in `app/index.tsx` aveva un

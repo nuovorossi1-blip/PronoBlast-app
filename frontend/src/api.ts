@@ -236,6 +236,8 @@ export type SimilarOddsResponse = {
 export type BacktestResponse = {
   ok: boolean;
   lambda: string;
+  regola?: string;
+  split?: string | null;
   minOdd: number;
   totale_concluse: number;
   da: number; elaborate: number; prossimo: number | null; finito: boolean;
@@ -264,9 +266,13 @@ export const api = {
     ),
 
   /** Traccia: rigioca il motore sulle partite concluse. Non influenza niente. */
-  backtest: (from: number, minOdd: number, lambdaVecchi: boolean, limit = 400) =>
+  backtest: (
+    from: number, minOdd: number, lambdaVecchi: boolean,
+    regola: "motore" | "maxprob" | "pre" = "motore", split = "", limit = 400,
+  ) =>
     netlifyReq<BacktestResponse>(
-      `/backtest?from=${from}&limit=${limit}&minOdd=${minOdd}${lambdaVecchi ? "&lambda=vecchi" : ""}`,
+      `/backtest?from=${from}&limit=${limit}&minOdd=${minOdd}&regola=${regola}`
+      + `${lambdaVecchi ? "&lambda=vecchi" : ""}${split ? `&split=${split}` : ""}`,
     ),
 
   /** Storico delle partite concluse con quote vicine a quelle di questa. */

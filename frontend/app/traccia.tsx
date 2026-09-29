@@ -65,6 +65,23 @@ function accumula(t: Somma, r: BacktestResponse): Somma {
 
 const SOGLIE = [1.35, 1.40, 1.50, 1.60];
 
+/** Le regole a confronto. La fusione completa non c'e': ha bisogno del
+ *  pronostico AI, che esiste su ~600 partite su 8.251, quindi darebbe numeri
+ *  su un campione diverso dagli altri e inconfrontabile. */
+const REGOLE: { id: "motore" | "maxprob" | "pre"; nome: string; spiega: string }[] = [
+  { id: "motore", nome: "Motore", spiega: "primo mercato ammesso del ranking, con la regola della direzione" },
+  { id: "maxprob", nome: "Max probabilità", spiega: "la probabilità più alta fra i mercati ammessi, senza regola di direzione" },
+  { id: "pre", nome: "Pre-pronostico", spiega: "il primo della voce PRE" },
+];
+
+/**
+ * DIVISIONE TEMPORALE. Le tabelle di apprendimento sono state costruite DA
+ * queste stesse partite: senza dividere, una regola che le usa risponde a
+ * domande di cui ha gia' visto le risposte, e i numeri escono belli senza
+ * reggere sul futuro. Misurando solo dopo questa data il confronto e' onesto.
+ */
+const SPLIT = "2026-08-31";
+
 export default function Traccia() {
   const [minOdd, setMinOdd] = useState(1.4);
   const [nuovi, setNuovi] = useState<Somma | null>(null);
@@ -74,6 +91,9 @@ export default function Traccia() {
   const [apri, setApri] = useState<string | null>(null);
   const stop = useRef(false);
 
+  const [regola, setRegola] = useState<"motore" | "maxprob" | "pre">("motore");
+  const [soloDopoSplit, setSoloDopoSplit] = useState(true);
+
   const gira = async (lambdaVecchi: boolean) => {
     stop.current = false;
     setLavoro(lambdaVecchi ? "vecchi" : "nuovi");
@@ -82,7 +102,7 @@ export default function Traccia() {
       let da = 0;
       for (;;) {
         if (stop.current) break;
-        const r = await api.backtest(da, minOdd, lambdaVecchi);
+        const r = await api.backtest(da, minOdd, lambdaVecchi, regola, soloDopoSplit ? SPLIT : "");
         accumula(tot, r);
         setAvanzamento(`${da + r.elaborate} di ${r.totale_concluse} partite`);
         if (lambdaVecchi) setVecchi({ ...tot }); else setNuovi({ ...tot });
@@ -149,6 +169,38 @@ export default function Traccia() {
             ))}
           </View>
         </View>
+
+        <View style={st.box}>
+          <Text style={st.boxTit}>REGOLA DA PROVARE</Text>
+          <View style={st.chips}>
+            {REGOLE.map((r) => (
+              <TouchableOpacity
+                key={r.id}
+                onPress={() => { setRegola(r.id); setNuovi(null); setVecchi(null); }}
+                disabled={occupato}
+                style={[st.chip, regola === r.id && st.chipOn]}
+              >
+                <Text style={[st.chipTxt, regola === r.id && st.chipTxtOn]}>{r.nome}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={st.hint}>{REGOLE.find((r) => r.id === regola)?.spiega}</Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={() => { setSoloDopoSplit(!soloDopoSplit); setNuovi(null); setVecchi(null); }}
+          disabled={occupato}
+          style={st.box}
+        >
+          <Text style={st.boxTit}>
+            {soloDopoSplit ? `SOLO PARTITE DOPO IL ${SPLIT}` : "TUTTO L'ARCHIVIO"}
+          </Text>
+          <Text style={st.hint}>
+            {soloDopoSplit
+              ? "Misura onesta: le tabelle di apprendimento sono state costruite dalle partite precedenti, quindi misurare anche su quelle gonfierebbe i numeri. Tocca per cambiare."
+              : "Attenzione: include le partite con cui il sistema ha imparato. I numeri usciranno più belli di quanto siano. Tocca per tornare alla misura onesta."}
+          </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity onPress={() => gira(false)} disabled={occupato} style={[st.tasto, occupato && { opacity: 0.5 }]}>
           {lavoro === "nuovi" ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="play" size={16} color={colors.primary} />}
