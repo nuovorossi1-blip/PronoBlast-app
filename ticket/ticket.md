@@ -237,7 +237,10 @@ Cioè: **come pick (e come alternative) ne sopravvive uno solo — il dominante;
 
 **Dove (file da creare/modificare):**
 0. **Riscrivere il manuale in `getScenarioNote`** (~1690-1760) secondo la SPECIFICA FINALE del proprietario (29/09, seconda stesura — sostituisce la proposta precedente):
-   - **EQUILIBRIO**: **GG oppure Over 2,5** (sempre visibili, a scelta). Ramo gol fortissimo (GG < 1.5 e O2.5 < 1.5): **MG 3-6 totali** (RIPRISTINATO su indicazione del proprietario: "era corretto"). Fallback (quando GG e O2.5 sono fuori soglia, ≥1.8): **combo "X oppure GG"** (mercato reale di alcuni bookmaker: vince se la partita finisce 0-0 OPPURE con entrambe le squadre che segnano; perde SOLO sulle vittorie a rete inviolata). Misurato su Poisson: X-oppure-GG 59,7-65,3% sui profili equilibrio (vs 60,7-61,6% del vecchio MG 2-4 totali: +3,5 pt sul profilo tipico, e copre lo 0-0). **MG 2-4 totali RESTA RIMOSSO dal fallback** (decisione proprietario).
+   - **EQUILIBRIO** (SPECIFICA CORRETTA, 2ª stesura del 29/09 + correzione 30/09 — tre rami con le SOGLIE INVARIATE della vecchia regola):
+     • ramo gol fortissimo (GG < 1.5 e O2.5 < 1.5): **MG 3-6 totali** (come la vecchia regola);
+     • equilibrio normale (GG < 1.8 e O2.5 < 1.8): **GG · Over 2,5 · MG 3-6 totali** (il terzo torna: richiesta esplicita del proprietario). ATTENZIONE: tre mercati SEPARATI in lista, ognuno considerato e misurato da solo — NON la combo "GG + Over 2,5";
+     • fallback (GG e O2.5 fuori soglia, ≥1.8): **"X oppure GG"** SOLO QUI, al posto del vecchio MG 2-4. MAI negli altri rami (vincolo 30/09: "XoGG solo quando compariva MG tot 2-4").
    - **GAP TECNICO**: **favorita fisso** · **AH −0,75 favorita** · **GG + Over 2,5**. Nota a commento: AH −0,75 non giocabile al palinsesto → sostituto giocabile **MG favorita 2-4** (conversione proposta dal proprietario, pagella deciderà).
    - **PROGRESSIONE CASA**: **combo MG casa 1-3 + MG ospite 0-2** · **MG casa 1-3** · **1 DNB**. Nota: DNB non giocabile → sostituto **MG casa 1-3** (equivalenza del proprietario, ±7 pt su Poisson).
    - **PROGRESSIONE OSPITE** (speculare): **combo MG ospite 1-3 + MG casa 0-2** · **MG ospite 1-3** · **2 DNB** (sostituto: MG ospite 1-3).
@@ -337,6 +340,35 @@ Cioè: **come pick (e come alternative) ne sopravvive uno solo — il dominante;
 - Vecchia prediction senza il campo: scheda identica a oggi (fallback testo), zero errori.
 - Tavily assente: `statistiche_squadre` può mancare o avere campi vuoti; il pronostico esce comunque.
 - Regressione: fusione e verdetto invariati (il JSON aggiunge SOLO un campo opzionale).
+
+11. **Correzione all'esecuzione del Ticket 8 (30/09)**: in produzione la combo "X oppure GG" compare SEMPRE in ogni equilibrio insieme a GG e O2.5; doveva stare SOLO nel ramo di fallback (al posto del vecchio MG 2-4), e nell'equilibrio normale deve tornare il terzo MG 3-6 totali. → Ticket 8-bis.
+
+---
+
+## TICKET 8-BIS 🔴 — Correzione all'esecuzione del Ticket 8: "X oppure GG" SOLO nel fallback; MG 3-6 torna nell'equilibrio normale
+
+**Dove:** `getScenarioNote` in `frontend/src/api.ts`, i TRE rami di EQUILIBRIO (soglie 1.5/1.8: non si toccano).
+
+**Sintomo in produzione (segnalato dal proprietario il 30/09):** la combo "X oppure GG" compare **sempre** in ogni equilibrio, insieme a GG e Over 2,5. La specifica era: la combo sostituisce MG 2-4 **solo nel ramo di fallback** ("tu dovevi solo modificare il nome da MG 2-4 a XoGG, solo quando veniva applicata la regola a equilibrato").
+
+**Regola vecchia (riferimento — condizioni esatte da preservare):**
+- GG < 1.5 E O2.5 < 1.5 → `[MG 3-6 totali]`
+- GG < 1.8 E O2.5 < 1.8 → `[GG, Over 2,5]`
+- altrimenti → `[MG 2-4 totali]` (il fallback che toglieva tutto)
+
+**Regola nuova (SOLO questi due cambi):**
+- ramo gol fortissimo: **INVARIATO** → `[MG 3-6 totali]`;
+- equilibrio normale: `[GG, Over 2,5]` → `[GG, Over 2,5, MG 3-6 totali]` (il terzo torna, richiesta del proprietario);
+- fallback: `[MG 2-4 totali]` → `["X oppure GG"]` — sola riga, nient'altro. In NESSUN altro ramo deve comparire la combo.
+
+**Non fare:** NON toccare le soglie (1.5/1.8), NON toccare gli altri scenari (GAP/PROGRESSIONE), NON toccare il valutatore né le percentuali del Ticket 8 (MG 3-6 e "X oppure GG" sono già valutabili).
+
+**Test di accettazione:**
+- GG 1.60 / O2.5 1.70 (normale) → banner = GG, Over 2,5, MG 3-6 totali. NIENTE "X oppure GG".
+- GG 2.00 / O2.5 1.95 (fallback) → banner = SOLO "X oppure GG". NIENTE GG, niente O2.5, niente MG 3-6.
+- GG 1.40 / O2.5 1.45 (fortissimo) → banner = SOLO MG 3-6 totali.
+- Le percentuali nel banner continuano a funzionare per tutte le righe (inclusi MG 3-6 e la combo).
+- GAP TECNICO e PROGRESSIONE: nessun cambiamento.
 
 ---
 
