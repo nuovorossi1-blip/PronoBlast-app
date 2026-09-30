@@ -179,3 +179,89 @@ export function parseAiJson(text: string): AiPrediction {
   }
   return { family: "INSTABILE", analysis: text.slice(0, 300), playable_markets: [], main_prediction: null, confidence: "Bassa" };
 }
+
+/**
+ * SCENARIO DI QUOTE E MANUALE NEL PROMPT (Ticket 9, richiesta di Rossi del
+ * 29/09: "in base alla partita e al tipo di scenario l'AI deve prendere in
+ * considerazione anche i relativi pronostici presenti nello scenario").
+ *
+ * Solo orientamento: il formato JSON non cambia e il filtro post-AI resta la
+ * garanzia. Un mercato del manuale fuori catalogo (fuori whitelist o sotto
+ * soglia) puo' essere solo CITATO nell'analysis, mai proposto.
+ */
+export type VoceManuale = {
+  /** nome come lo scrive il manuale (es. "1 fisso", "Over 2,5") */
+  manuale: string;
+  /** misura dall'archivio: vinte / (vinte + perse) sulle partite con questo scenario */
+  vinte?: number;
+  valutate?: number;
+  pct?: number | null;
+  /** "catalogo" = proponibile; "soglia" = in whitelist ma quota sotto la soglia; "fuori" = fuori whitelist */
+  stato: "catalogo" | "soglia" | "fuori";
+  /** nome del mercato nel catalogo, se esiste */
+  nomeCatalogo?: string;
+  quota?: number | null;
+};
+
+const pct1 = (v: number) => v.toFixed(1).replace(".", ",");
+
+export function bloccoScenarioManuale(args: {
+  scenario: string;
+  favorita?: string | null;
+  voci: VoceManuale[];
+  minOdd: number;
+  profiloDifensivo: boolean;
+  /** % da manuale di "GG + Over 2,5" in questo scenario (solo GAP TECNICO) */
+  ggO25Manuale?: number | null;
+}): string {
+  const nomeScenario = args.scenario.toUpperCase() + (args.favorita ? ` (favorita: ${args.favorita})` : "");
+  const righe = args.voci.map((v) => {
+    const misura = v.valutate
+      ? ` — ${pct1(v.pct ?? 0)}% (${v.vinte}/${v.valutate})`
+      : " — nessuna partita misurata in archivio";
+    const stato =
+      v.stato === "catalogo" ? ` [nel CATALOGO come "${v.nomeCatalogo}"]` :
+      v.stato === "soglia" ? ` [SOTTO SOGLIA: "${v.nomeCatalogo}" quota ${v.quota?.toFixed(2) ?? "n/d"} < ${args.minOdd.toFixed(2)}]` :
+      " [fuori dai mercati giocabili: solo lettura]";
+    return `• ${v.manuale}${misura}${stato}`;
+  });
+
+  const gapTecnico = args.scenario.toLowerCase().startsWith("gap");
+  const clausola = gapTecnico
+    ? `
+CLAUSOLA DI COERENZA (caso Belgio-Galles 1-0): il veicolo deve preservare la
+NATURA della lettura del manuale. Il manuale del GAP TECNICO e' direzione pura
+(favorita fisso, AH -0,75): un veicolo che aggiunge rischio gol (DC 1X + O2.5,
+1 + O2.5, e speculari) va proposto SOLO se la componente gol non e' sconsigliata
+dallo scenario stesso (GG + Over 2,5 da manuale >= 50%: qui ${args.ggO25Manuale != null ? pct1(args.ggO25Manuale) + "%" : "non misurato"}) ne' dal
+profilo strutturale (qui: ${args.profiloDifensivo ? "DIFENSIVA → componente gol SCONSIGLIATA" : "non DIFENSIVA"}).
+Se la direzione pura e' tutta sotto soglia E il gol e' sconsigliato: l'analysis
+dichiara "nessuna giocata coerente col manuale sopra soglia" e playable_markets
+resta vuoto o ridotto — meglio nessun endorsement che un surrogato goloso
+(casi-specchio: Spagna-Croazia 4-1, veicolo ok e vincente; Belgio-Galles 1-0,
+veicolo perso: la differenza stava nel profilo, leggilo PRIMA di proporre).`
+    : "";
+
+  return `
+
+============================================================
+🎯 SCENARIO DI QUOTE (manuale del proprietario)
+============================================================
+Questa partita e' di scenario: ${nomeScenario}
+Mercati da manuale per questo scenario, con quanto hanno risposto
+storicamente in partite con questo stesso scenario (dall'archivio):
+${righe.join("\n")}
+
+Istruzione: se un mercato del manuale e' presente nel CATALOGO, valutalo
+con priorita' e motivalo nell'analysis. Se NON e' nel catalogo (fuori
+whitelist o sotto soglia), NON proporlo come playable_market: nominalo
+solo nell'analysis come "lettura da manuale non giocabile oggi".
+Se e' escluso SOLO dalla soglia, l'analysis deve dirlo esplicitamente:
+"lettura da manuale non giocabile con la soglia attuale: si sblocca
+abbassando la Quota minima" — e poi valutare il veicolo piu' vicino DENTRO
+il catalogo.${clausola}
+L'analysis puo' aprirsi citando lo scenario (es. "scenario ${args.scenario.toUpperCase()}: il manuale
+indica ..."): i mercati del manuale con storico forte sono la prima lettura.
+============================================================
+`;
+}

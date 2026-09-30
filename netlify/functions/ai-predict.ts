@@ -5,10 +5,11 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, type VoceManuale } from "./lib/predictionPrompt";
+import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
-import { underAmmessiATettoAperto } from "../../frontend/src/api";
+import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -99,6 +100,15 @@ REGOLE OBBLIGATORIE basate sul PIN:
     // se il PIN fallisce, procediamo comunque senza (come nell'originale)
   }
 
+  // SCENARIO DI QUOTE E MANUALE (Ticket 9): prima del catalogo, cosi' l'IA lo
+  // legge come prima lettura. Non dipende dal web: c'e' anche senza Tavily.
+  const minOdd = await readMinOdd();
+  try {
+    prompt = prompt + await scenarioManuale(rowToOdds(match), minOdd);
+  } catch (e) {
+    console.error("[ai-predict] scenario manuale", e);
+  }
+
   // Catalogo completo con i numeri gia' calcolati.
   // Prima l'IA proponeva 3-5 mercati scegliendoli a memoria: i multigol non li
   // nominava quasi mai, e nella fusione risultavano "poco condivisi" solo
@@ -108,10 +118,11 @@ REGOLE OBBLIGATORIE basate sul PIN:
     prompt = prompt + buildMarketTable(
       rowToOdds(match),
       await scenarioRates(rowToOdds(match)),
-      await readMinOdd(),
+      minOdd,
     );
-  } catch {
+  } catch (e) {
     // se la tabella fallisce si procede senza: il pronostico resta possibile
+    console.error("[ai-predict] catalogo", e);
   }
 
   // DATI DAL WEB (27/09/2026). Fino a ieri il modello riceveva SOLO quote,
@@ -307,9 +318,8 @@ function buildMarketTable(
   // proporre perche' glielo suggeriva una vecchia sezione del testo.
   const AMMESSI = CANDIDATE_MARKETS.filter((m) => isVerdictMarket(m));
   const voci = AMMESSI.map((m) => {
-    const reale = comboOdd(m, odds);
-    const quota = reale ?? estimateMarketOdd(m, odds);
-    return { m, p: coverageForMarket(m, dist).coverage, quota, stimata: reale === null };
+    const { quota, stimata } = quotaCatalogo(m, odds);
+    return { m, p: coverageForMarket(m, dist).coverage, quota, stimata };
   })
     // I mercati sotto la soglia dell'utente vengono TOLTI, non marcati.
     // Marcarli non bastava: su Vasco Da Gama - Mirassol l'IA ha scelto lo
@@ -339,7 +349,8 @@ function buildMarketTable(
 Legenda: "prob" e' la probabilita' calcolata dal motore Poisson sulla
 distribuzione completa dei risultati. "quota" con la tilde (~) e' stimata da
 noi perche' il bookmaker non la fornisce. "storico" e' quante volte quel
-mercato ha vinto in partite con lo stesso profilo di quote.
+mercato ha vinto in partite con lo stesso profilo di favorita (tassonomia del
+motore); il manuale dello scenario 1X2 e' la sezione dedicata sopra.
 
 ${righe.join("\n")}
 
@@ -357,4 +368,56 @@ REGOLE PER LA SCELTA:
    quale dei due dai piu' peso e perche'.
 ============================================================
 `;
+}
+
+/** Quota di un mercato del catalogo: reale se il bookmaker la da', altrimenti stimata. */
+function quotaCatalogo(m: string, odds: Odds): { quota: number | null; stimata: boolean } {
+  const reale = comboOdd(m, odds);
+  return { quota: reale ?? estimateMarketOdd(m, odds), stimata: reale === null };
+}
+
+/** Nome nel catalogo di un mercato scritto come nel manuale ("1 fisso" -> "1"). */
+function nomeCatalogoManuale(market: string): string {
+  return market
+    .replace(/\bfisso\b/i, "")
+    .replace(/Over\s*(\d),(\d)/gi, "O$1.$2")
+    .replace(/Under\s*(\d),(\d)/gi, "U$1.$2")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Sezione "SCENARIO DI QUOTE" del prompt (Ticket 9): scenario 1X2 della
+ * partita, mercati del manuale con la misura dall'archivio (stessa
+ * aggregazione di /manuale-stats) e, per ciascuno, se e' nel catalogo, sotto
+ * soglia o fuori dai mercati giocabili. Senza archivio si mostra lo scenario
+ * senza percentuali.
+ */
+export async function scenarioManuale(odds: Odds, minOdd: number): Promise<string> {
+  const nota = getScenarioNote(odds as any);
+  if (!nota) return "";
+  let misura: ManualeStats["scenari"][string] | undefined;
+  try {
+    misura = (await calcolaManualeStats()).scenari[chiaveScenario(nota)];
+  } catch (e) {
+    console.error("[ai-predict] misura manuale", e);
+  }
+  const voci: VoceManuale[] = nota.markets.map((m) => {
+    const c = misura?.mercati[m];
+    const nome = nomeCatalogoManuale(m);
+    const base = { manuale: m, vinte: c?.vinte, valutate: c ? c.vinte + c.perse : undefined, pct: c?.pct };
+    if (!isVerdictMarket(nome)) return { ...base, stato: "fuori" as const };
+    const { quota } = quotaCatalogo(nome, odds);
+    const stato = quota !== null && quota >= minOdd ? "catalogo" as const : "soglia" as const;
+    return { ...base, stato, nomeCatalogo: nome, quota };
+  });
+  const ggO25 = nota.markets.find((m) => nomeCatalogoManuale(m) === "GG + O2.5");
+  return bloccoScenarioManuale({
+    scenario: nota.scenario,
+    favorita: nota.favorita ?? null,
+    voci,
+    minOdd,
+    profiloDifensivo: underAmmessiATettoAperto(structuralAnalysis(odds).structure),
+    ggO25Manuale: ggO25 ? misura?.mercati[ggO25]?.pct ?? null : null,
+  });
 }
