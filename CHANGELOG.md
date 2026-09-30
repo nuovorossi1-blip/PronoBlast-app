@@ -9,6 +9,51 @@
 > banale al progetto, aggiungere una voce in cima alla sezione "Log" (più
 > recente in cima), con data, cosa è cambiato, perché, e il commit
 > corrispondente. Non riscrivere la cronologia passata — solo aggiungere.
+> Se la modifica richiede SQL su Supabase (colonna, tabella, funzione), la
+> riga va ANCHE in `docs/database.sql`, che e' lo schema completo e
+> rilanciabile. Se cambia l'obiettivo o lo stato, aggiornare la sezione
+> "Obiettivo e stato attuale" qui sotto (quella si' si riscrive: e' una foto).
+
+---
+
+## 🎯 Obiettivo e stato attuale (aggiornato il 2026-09-30)
+
+**Obiettivo finale.** Per ogni partita, un pronostico giocabile (quota sopra la
+soglia scelta: 1,40 / 1,50 / 1,60 / 1,75) con la percentuale di indovinati piu'
+alta possibile, misurata sul serio e non stimata. Per arrivarci:
+1. **L'AI e' la regista del verdetto**: legge dati web, tattica, Poisson e
+   mercato (in quest'ordine di peso), stila la classifica per fascia di quota e
+   sceglie; la fusione con motore Poisson e PRE resta come rete di sicurezza.
+2. **Il manuale di Rossi** (scenari 1X2, mercati per scenario) entra come
+   candidato alla pari degli altri, solo nel suo scenario e solo se l'archivio
+   lo conferma (>50%) e la quota rispetta la soglia.
+3. **Ogni numero e' misurato**: verdetto congelato a fine partita
+   (`pick_finale`, la prova che non si tocca), pagella per sistema, ricalcolo
+   storico con le regole di oggi in ordine di data (walk-forward), cosi' si vede
+   se una regola nuova migliora davvero.
+4. **Niente contaminazione**: un pronostico fatto dopo il calcio d'inizio non
+   conta; l'AI non deve mai vedere il risultato.
+
+**Dove siamo (PR #2…#7, 30/09).** AI regista per fasce con paletto 58%, scheda
+AI leggibile, pronostici post-partita esclusi, manuale per scenario, quote combo
+corrette, ricalcolo storico con tasto in Strumenti (PR #7 in attesa di merge e
+della colonna `matches.ricalcolo`).
+
+**Prossimi passi.**
+- Lanciare il ricalcolo e leggere la curva per mese e la pagella per fascia in
+  Traccia: e' la prima misura vera delle regole di oggi.
+- Accumulare pronostici AI pre-partita per avere una pagella AI con campione
+  sufficiente (oggi l'AI c'e' su poche centinaia di partite).
+- Archiviare in `docs/database.sql` le definizioni delle 6 funzioni RPC (oggi
+  esistono solo dentro Supabase).
+
+**Decisioni di Rossi da non riaprire senza chiederglielo.**
+- AH -0,75: resta com'e' (vale come 1X per la quota; X2 se e' 2AH).
+- Regola strutturale MG casa/ospite: resta com'e'.
+- Ticket 6-bis: under a tetto aperto solo col profilo DIFENSIVA (niente
+  criterio λ ≤ 3,5).
+- Il motore conta anche i mercati sotto 1,40 nel suo ranking (#12): va bene.
+- Il merge in produzione si fa solo quando Rossi scrive "merge".
 
 ---
 
@@ -77,6 +122,11 @@ esaurito il ciclo. Quindi:
    `docs/`, `.gitignore` o `LICENSE`, la build viene annullata da sola. E' una
    rete di sicurezza per quando ci si dimentica del punto 1, non un sostituto.
 
+3. **Traccia di ogni modifica**: ogni PR aggiunge la sua voce nel Log qui
+   sotto (cosa, perche', file, SQL, decisioni di Rossi) e, se tocca il
+   database, la riga in `docs/database.sql`. Un LLM che riprende il lavoro deve
+   poter capire obiettivo e stato leggendo solo questo file.
+
 Logica dell'ignore: e' un comando di shell, **exit 0 = build annullata**,
 **exit 1 = build eseguita**. `git diff --quiet` esce 0 quando non trova
 differenze, quindi confrontando i due commit ed escludendo la documentazione,
@@ -87,6 +137,91 @@ Verificato su un repo di prova: solo `.md` -> annulla; codice -> costruisce;
 codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
+
+> Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
+> Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
+> in `ticket/ticket.md`.
+
+### 2026-09-30 (7) — Ricalcolo storico con le regole di oggi, anteprima card = scheda (PR #7)
+
+**Perche'.** I verdetti congelati misurano le regole di quando sono stati fatti.
+Per sapere se le regole di oggi sono migliori serve rifare tutto lo storico con
+esse, **senza barare**: ogni partita va giudicata solo con cio' che si sapeva
+prima di lei.
+
+**Cosa.**
+- `netlify/functions/ricalcolo.ts` (nuovo, rotta `/ricalcolo`): scorre le
+  partite concluse in ordine `day,time,id`, blocchi da 150; l'apprendimento
+  (contatori scenario/manuale) cresce man mano (walk-forward). Stato in
+  `settings.ricalcolo_stato` (posizione, contatori, curva per mese, pagella per
+  fascia); ripresa con 409 se lo stato non combacia. Scrive SOLO
+  `matches.ricalcolo`, mai `pick_finale`. `VERSIONE_RICALCOLO` va alzata quando
+  cambiano le regole.
+- Strumenti (`manutenzione.tsx`): tasto "Ricalcola tutto con le regole di oggi".
+- Traccia (`traccia.tsx`): box REGOLE DI OGGI con pagella per fascia e curva.
+- Card (`index.tsx`) e scheda (`match/[id].tsx`): verdetto congelato e
+  ricalcolato, **entrambi verdi se presi e rossi se sbagliati**; nelle partite
+  senza verdetto congelato il pronostico mostrato e' "ricalcolata con le regole
+  di oggi".
+- `matches-list.ts`: `anteprima_pre` = primo mercato del PRE, cosi' l'occhio
+  della card mostra lo stesso pronostico della scheda.
+
+**SQL.** `ALTER TABLE matches ADD COLUMN IF NOT EXISTS ricalcolo jsonb;`
+
+### 2026-09-30 (6) — Manuale solo nel suo scenario, quota GG + O2.5 (PR #6)
+
+- I mercati del manuale sono candidati **solo nel loro scenario**, solo se
+  l'archivio li da' >50% e la quota rispetta la soglia; poi competono "come gli
+  altri" (`candidatiManuale`, `quotaManuale` in `frontend/src/api.ts`). Nato da
+  Belgio-Galles: "X oppure GG" era finito in uno scenario non suo.
+- Quota GG + O2.5 = 1 / (1/GG − P(1-1)), P(1-1) da Poisson (`comboOdd` in
+  `clusterEngine.ts`), se il denominatore e' > 0,02.
+- AH -0,75: la quota vale come 1X (X2 se 2AH) — decisione di Rossi.
+
+### 2026-09-30 (5) — Percentuali a un decimale, "X oppure GG" giocabile (PR #5)
+
+- `pctProb`: 57,8% e non "58% · sotto il 58%".
+- "X oppure GG" diventa giocabile con quota = GG −10% (`quotaXoppureGG`),
+  valutato in `evaluateMarketStrict`; non e' nella whitelist generale ma entra
+  dal suo scenario (vedi PR #6).
+
+### 2026-09-30 (4) — Pronostico AI dopo il calcio d'inizio (PR #4)
+
+Un pronostico generato a partita iniziata leggeva dal web il risultato ("reduce
+da 1-0"). Ora: `inizioPartitaMs` (ora di Roma), Tavily filtra per data
+(`contestoPartita` in `lib/webSearch.ts`), la riga si salva con
+`post_partita = true` e non conta ne' nel verdetto (`verdettoServer.ts`) ne'
+nella pagella (`manuale.ts`). La scheda mostra l'avviso.
+
+**SQL.** `ALTER TABLE predictions ADD COLUMN IF NOT EXISTS post_partita boolean;`
+
+### 2026-09-30 (3) — AI regista del verdetto per fascia, scheda AI leggibile (PR #3)
+
+- Il prompt (`lib/predictionPrompt.ts`) ordina la gerarchia: qualita' dei dati
+  web → tattica → Poisson → mercato; gli xG solo se qualificati; mai il
+  risultato. L'AI restituisce `fasce`: classifica e scelta per 1,40 / 1,50 /
+  1,60 / 1,75 (`FASCE_AI`, `validaFasce`, `verdettoDaAI`).
+- Paletto `PROB_AFFIDABILE = 0,58`: sotto, il pick non e' "affidabile".
+- Scheda AI: tab per fascia, tabella casa | ospite, riquadri lettura/perche',
+  fonti compatte, classifica con gli scartati.
+- Pagella dei sistemi e GAP TECNICO per profilo in Traccia (sola lettura).
+
+**SQL.** `fasce jsonb`, `fonti_web jsonb` su `predictions`.
+
+### 2026-09-30 (2) — Ticket 8-bis, 6-bis, 9, 10 (PR #2)
+
+- 8-bis: "X oppure GG" solo nel fallback; MG 3-6 torna nell'equilibrio normale.
+- 6-bis (opzione C): under a tetto aperto col profilo DIFENSIVA; "1 + U4.5" in
+  whitelist (`underAmmessiATettoAperto`).
+- 9: scenario 1X2 e manuale dentro il prompt AI (`bloccoScenarioManuale`).
+- 10: tabella casa | ospite (`statistiche_squadre`), analisi in ordine fisso.
+- Prima (stesso giorno): ticket 4–8 — soglia PRE parametrica, scheda congelata
+  senza "totale 0.0", filtro strutturale in ingresso alla fusione, 1X/X2
+  concorrenti di direzione, misura del manuale per scenario.
+
+**SQL.** `statistiche_squadre jsonb` su `predictions`; mancavano in produzione
+anche `xg_casa`, `xg_ospite`, `h2h_over_pct` (tutto in `docs/database.sql`).
+
 
 ### 2026-09-29 (3) — FASE 1: pagella comparativa con divisione temporale
 
@@ -3461,6 +3596,9 @@ sullo storico entro 1-2 punti) va quindi anticipata subito dopo la Fase 1.
 ---
 
 ## Roadmap / prossimi passi noti (non ancora fatti)
+
+> I prossimi passi correnti sono nella sezione "Obiettivo e stato attuale" in
+> cima; qui sotto restano le voci storiche.
 
 - Valutare se e come collegare il meccanismo `ml_adjustment` dormiente in
   `clusterEngine.ts` (lato server) senza sovrapporlo al correttivo storico
