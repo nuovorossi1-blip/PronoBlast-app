@@ -1877,16 +1877,22 @@ export function getScenarioNote(odds: Odds): ScenarioNote | null {
   // valutare: e' cosi' che /manuale-stats misura quante volte hanno risposto.
   // --------------------------------------------------------------------------
   if (!favorita) {
-    // EQUILIBRIO: GG oppure Over 2,5 sempre visibili, a scelta.
-    const markets: string[] = ["GG", "Over 2,5"];
+    // EQUILIBRIO (Ticket 8-bis, 30/09): tre rami con le SOGLIE della vecchia
+    // regola. Rispetto a prima cambiano solo due cose: nell'equilibrio normale
+    // torna MG 3-6 totali (tre mercati SEPARATI, non la combo GG + Over 2,5),
+    // e nel fallback "X oppure GG" prende il posto di MG 2-4 totali. La combo
+    // non compare in NESSUN altro ramo.
+    let markets: string[];
     if (gg != null && o25 != null && gg < 1.5 && o25 < 1.5) {
-      // Ramo gol fortissimo: MG 3-6 totali (ripristinato: "era corretto").
-      markets.push("MG 3-6 totali");
-    } else if (!(gg != null && o25 != null && gg < 1.8 && o25 < 1.8)) {
+      // Ramo gol fortissimo: invariato.
+      markets = ["MG 3-6 totali"];
+    } else if (gg != null && o25 != null && gg < 1.8 && o25 < 1.8) {
+      markets = ["GG", "Over 2,5", "MG 3-6 totali"];
+    } else {
       // GG e Over fuori soglia: combo bookmaker "X oppure GG" (vince col
       // pareggio, 0-0 compreso, o se segnano entrambe; perde solo sulle
-      // vittorie a rete inviolata). MG 2-4 totali resta RIMOSSO dal fallback.
-      markets.push("X oppure GG");
+      // vittorie a rete inviolata), al posto del vecchio MG 2-4 totali.
+      markets = ["X oppure GG"];
     }
     return { scenario: "Equilibrio", markets };
   }
