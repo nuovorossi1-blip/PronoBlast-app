@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, dividiAnalisi, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -230,6 +230,11 @@ export default function MatchDetail() {
     </View>
   );
 
+  // Un pronostico AI generato dopo il calcio d'inizio (puo' conoscere il
+  // risultato) si mostra, ma non entra mai nel verdetto.
+  const aiPostPartita = pronosticoPostPartita(prediction, match);
+  const predVerdetto = aiPostPartita ? null : prediction;
+
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
     if (!match || !structural || match.result) return;
@@ -239,14 +244,14 @@ export default function MatchDetail() {
       const fam = structural?.pre_ranking?.length
         ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
         : quickPredictionFamily(match.odds);
-      const llmMarkets = prediction?.playable_markets?.map((p) => p.market)
-        || (prediction?.main_prediction ? [prediction.main_prediction] : []);
+      const llmMarkets = predVerdetto?.playable_markets?.map((p) => p.market)
+        || (predVerdetto?.main_prediction ? [predVerdetto.main_prediction] : []);
       // Filtro strutturale in ingresso (Ticket 6): stesso calcolo del riquadro.
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
       // Con le fasce AI il verdetto e' la classifica dell'AI (stessa funzione del server).
-      const daAI = verdettoDaAI(prediction, structural, match.odds, minOdd);
-      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+      const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match);
+      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd });
       const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
@@ -298,8 +303,21 @@ export default function MatchDetail() {
     return () => clearInterval(interval);
   }, [aiPending, id]);
 
-  const runPrediction = (forceRegen: boolean = false) => {
+  const runPrediction = (forceRegen: boolean = false, confermato = false) => {
     if (!id) return;
+    // Partita gia' iniziata: il pronostico puo' conoscere il risultato. Si
+    // puo' generare lo stesso (per vedere la scheda), ma lo si dice prima.
+    const inizio = inizioPartitaMs(match?.day, match?.time);
+    if (!confermato && (!!match?.result || (inizio !== null && Date.now() >= inizio))) {
+      confirmAction({
+        title: "PARTITA GIÀ INIZIATA",
+        message: "Un pronostico generato adesso può essere influenzato dal risultato (la ricerca web lo trova). Verrà marcato \"dopo la partita\": lo vedi, ma non conta per il verdetto né per la pagella.",
+        confirmText: "Genera comunque",
+        cancelText: "Annulla",
+        onConfirm: () => runPrediction(forceRegen, true),
+      });
+      return;
+    }
     // FIRE-AND-FORGET: la richiesta viene avviata e tracciata dalla queue globale.
     // L'utente può tornare alla home; quando la risposta arriva, lo stato si aggiorna.
     setAiPending(true);
@@ -508,7 +526,7 @@ export default function MatchDetail() {
           const fam = structural?.pre_ranking?.length
             ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
             : quickPredictionFamily(match.odds);
-          const llmMarkets = prediction?.playable_markets?.map((p) => p.market) || (prediction?.main_prediction ? [prediction.main_prediction] : []);
+          const llmMarkets = predVerdetto?.playable_markets?.map((p) => p.market) || (predVerdetto?.main_prediction ? [predVerdetto.main_prediction] : []);
           // FILTRO STRUTTURALE IN INGRESSO (Ticket 6): motore e PRE senza i mercati
           // inammissibili PRIMA della fusione, cosi' ordine e "n/3" sono calcolati
           // solo su mercati giocabili. Il filtro piu' sotto resta come formalita'.
@@ -518,8 +536,8 @@ export default function MatchDetail() {
           // verdetto e' la sua classifica validata per la fascia della Quota
           // minima; motore e PRE restano come badge di accordo. Senza fasce
           // (pronostici vecchi o nessun pronostico) resta la fusione.
-          const daAI = verdettoDaAI(prediction, structural, match.odds, minOdd);
-          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+          const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match);
+          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -1367,6 +1385,13 @@ export default function MatchDetail() {
                 // mostrano i mercati giocabili come prima.
                 // ============================================================
                 const fasceV = validaFasce(prediction.fasce, { odds: match.odds as any, structural });
+                const avvisoPost = aiPostPartita ? (
+                  <View style={styles.palettoBox}>
+                    <Text style={styles.palettoTxt}>
+                      ⚠ Generato dopo il calcio d'inizio: può conoscere il risultato. Solo dimostrazione, non conta per verdetto e pagella.
+                    </Text>
+                  </View>
+                ) : null;
                 const sogliaAttiva = fasciaAI ?? minOdd;
                 const fascia: FasciaValidata | null = fasceV?.find((f) => Math.abs(f.soglia - sogliaAttiva) < 0.001) ?? null;
                 const maxOk = sogliaMassimaAffidabile(fasceV);
@@ -1387,6 +1412,7 @@ export default function MatchDetail() {
                 ];
                 return (
                   <>
+                    {avvisoPost}
                     {fasceV && (
                       <View style={styles.fasceRow}>
                         {fasceV.map((f) => {

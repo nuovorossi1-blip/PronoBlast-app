@@ -1,5 +1,5 @@
 import { pgGetAll, rowToOdds } from "./supabaseRest";
-import { getScenarioNote, esitoMercato, chiaveScenario, underAmmessiATettoAperto } from "../../../frontend/src/api";
+import { getScenarioNote, esitoMercato, chiaveScenario, underAmmessiATettoAperto, inizioPartitaMs } from "../../../frontend/src/api";
 import { classifyFamily } from "./clusterEngine";
 
 /**
@@ -39,9 +39,31 @@ export const METODO_MANUALE = "vinte / (vinte + perse) sulle partite concluse co
 
 export async function calcolaManualeStats(): Promise<ManualeStats> {
   const righe = await pgGetAll(
-    "matches?result=not.is.null&select=id,result,pick_finale,pick_strutturale,pick_pre,main_prediction,odd_1,odd_x,odd_2,odd_1x,odd_x2,odd_12,odd_u15,odd_o15,odd_u25,odd_o25,odd_u35,odd_o35,odd_gg,odd_ng",
+    "matches?result=not.is.null&select=id,day,time,result,pick_finale,pick_strutturale,pick_pre,main_prediction,odd_1,odd_x,odd_2,odd_1x,odd_x2,odd_12,odd_u15,odd_o15,odd_u25,odd_o25,odd_u35,odd_o35,odd_gg,odd_ng",
     "id.asc",
   );
+
+  // Pagella dell'AI: vale solo se l'ULTIMO pronostico della partita (quello
+  // che ha scritto main_prediction) e' nato prima del calcio d'inizio. Un
+  // pronostico rigenerato dopo puo' conoscere il risultato.
+  const ultimoPronostico = new Map<string, number>();
+  let pronosticiLetti = true;
+  try {
+    const preds = await pgGetAll("predictions?select=match_id,created_at", "created_at.asc");
+    for (const p of preds) {
+      const t = Date.parse(p.created_at);
+      if (isFinite(t)) ultimoPronostico.set(String(p.match_id), Math.max(t, ultimoPronostico.get(String(p.match_id)) ?? 0));
+    }
+  } catch (e) {
+    console.error("[manuale] pronostici AI", e);
+    pronosticiLetti = false;
+  }
+  const aiValido = (r: any) => {
+    if (!pronosticiLetti) return false;
+    const creato = ultimoPronostico.get(String(r.id));
+    const inizio = inizioPartitaMs(r.day, r.time);
+    return creato !== undefined && inizio !== null && creato < inizio;
+  };
 
   const scenari: ManualeStats["scenari"] = {};
   let valutate = 0;
@@ -66,6 +88,7 @@ export async function calcolaManualeStats(): Promise<ManualeStats> {
     for (const [k, col] of Object.entries(SISTEMI)) {
       const pick = r[col];
       if (!pick) continue;
+      if (k === "AI" && !aiValido(r)) continue;
       const e = esitoMercato(String(pick), risultato);
       esitiSistemi[k] = e;
       if (e === "vinta" || e === "persa") { conta(pagella.sistemi[k], e); pagella.sistemi[k].partite++; }

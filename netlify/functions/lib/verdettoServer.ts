@@ -2,7 +2,7 @@ import { pgGet, pgPatch } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import {
-  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI,
+  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -108,7 +108,9 @@ export async function verdettoDiPartita(
     const preds = await pgGet(
       `predictions?match_id=eq.${encodeURIComponent(match.id)}&select=*&order=created_at.desc&limit=1`,
     );
-    if (preds.length) {
+    // Un pronostico generato dopo il calcio d'inizio non entra nel verdetto
+    // (potrebbe conoscere il risultato): si procede come senza AI.
+    if (preds.length && !pronosticoPostPartita(preds[0], match)) {
       fasceAI = preds[0].fasce || null;
       aiMarkets = preds[0].playable_markets || [];
       if (preds[0].main_prediction && !(aiMarkets || []).some((x: any) => x.market === preds[0].main_prediction)) {
@@ -116,8 +118,9 @@ export async function verdettoDiPartita(
       }
       base.aveva_ai = true;
     }
-  } catch {
+  } catch (e) {
     // senza pronostico AI si procede con due voci
+    console.error("[verdettoServer] pronostico AI", e);
   }
 
   const history = await storicoPartita(match.id);
