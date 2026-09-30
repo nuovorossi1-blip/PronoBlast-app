@@ -235,8 +235,8 @@ export default function Traccia() {
           <View style={st.box}>
             <Text style={st.boxTit}>PAGELLA DEI SISTEMI — % DI PRONOSTICI INDOVINATI</Text>
             <Text style={st.hint}>
-              Pick salvati prima della partita. "Stesse partite" confronta i quattro solo dove tutti avevano un pick:
-              è il confronto alla pari.
+              Pick salvati prima della partita (l'AI conta solo se il pronostico è nato prima del calcio d'inizio).
+              "Stesse partite" confronta i quattro solo dove tutti avevano un pick: è il confronto alla pari.
             </Text>
             <Text style={st.sotto}>Tutte le partite con un pick</Text>
             {Object.entries(manuale.pagella.sistemi).map(([k, t]) => (

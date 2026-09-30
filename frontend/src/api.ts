@@ -100,6 +100,10 @@ export type Match = {
 export type Prediction = {
   id?: string;
   match_id: string;
+  created_at?: string;
+  /** true se generato DOPO il calcio d'inizio: puo' essere contaminato dal
+   *  risultato (ricerca web), quindi non conta per verdetto e pagella. */
+  post_partita?: boolean | null;
   family?: string;
   analysis?: string;
   playable_markets?: { market: string; reasoning: string }[];
@@ -1858,6 +1862,53 @@ export function conLetturaGol(
 
 
 // ============================================================
+// PRONOSTICO GENERATO DOPO LA PARTITA (01/10/2026)
+// ============================================================
+/**
+ * Ora di inizio della partita in millisecondi UTC. `day` (AAAA-MM-GG) e `time`
+ * (HH:MM) sono l'ora italiana del palinsesto: si converte col fuso
+ * Europe/Rome, ora legale compresa. null se la data manca o e' illeggibile.
+ */
+export function inizioPartitaMs(day?: string | null, time?: string | null): number | null {
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [h, m] = String(time || "00:00").split(":").map((x) => parseInt(x, 10));
+  const hh = String(isFinite(h) ? h : 0).padStart(2, "0");
+  const mm = String(isFinite(m) ? m : 0).padStart(2, "0");
+  const comeUtc = Date.parse(`${day}T${hh}:${mm}:00Z`);
+  if (!isFinite(comeUtc)) return null;
+  try {
+    const parti = Object.fromEntries(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Rome", hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      }).formatToParts(new Date(comeUtc)).map((p) => [p.type, p.value]),
+    );
+    const romaComeUtc = Date.UTC(+parti.year, +parti.month - 1, +parti.day, +parti.hour % 24, +parti.minute);
+    return comeUtc - (romaComeUtc - comeUtc);
+  } catch (e) {
+    console.error("[inizioPartitaMs]", e);
+    return comeUtc;
+  }
+}
+
+/**
+ * true se il pronostico AI e' stato generato dopo il calcio d'inizio: la
+ * ricerca web puo' aver trovato il risultato (successo su Belgio-Galles: "reduce
+ * da 1-0 sul Galles"). Vale anche per i pronostici vecchi senza il flag: si
+ * confronta la data di creazione con l'ora della partita.
+ */
+export function pronosticoPostPartita(
+  prediction: { post_partita?: boolean | null; created_at?: string } | null | undefined,
+  match: { day?: string | null; time?: string | null } | null | undefined,
+): boolean {
+  if (!prediction) return false;
+  if (prediction.post_partita === true) return true;
+  const inizio = inizioPartitaMs(match?.day, match?.time);
+  const creato = prediction.created_at ? Date.parse(prediction.created_at) : NaN;
+  return inizio !== null && isFinite(creato) && creato >= inizio;
+}
+
+// ============================================================
 // L'AI STILA LA CLASSIFICA PER FASCIA DI QUOTA (01/10/2026)
 // ============================================================
 /**
@@ -2027,11 +2078,14 @@ export function sogliaMassimaAffidabile(fasce: FasciaValidata[] | null): number 
  * Unica sede della regola: la usano scheda e verdettoServer.
  */
 export function verdettoDaAI(
-  prediction: { fasce?: Record<string, FasciaAI> | null } | null | undefined,
+  prediction: { fasce?: Record<string, FasciaAI> | null; post_partita?: boolean | null; created_at?: string } | null | undefined,
   structural: StructuralAnalysis | null | undefined,
   odds: Odds,
   minOdd: number,
+  match?: { day?: string | null; time?: string | null } | null,
 ): { picks: VerdictPick[]; fascia: FasciaValidata } | null {
+  // Un pronostico generato dopo il calcio d'inizio non decide mai il verdetto.
+  if (pronosticoPostPartita(prediction, match)) return null;
   const fasce = validaFasce(prediction?.fasce, { odds, structural });
   const fascia = fasce?.find((f) => Math.abs(f.soglia - minOdd) < 0.001);
   // Senza fasce (o senza questa fascia) decide la fusione. Con la fascia ma

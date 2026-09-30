@@ -10,7 +10,7 @@ import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
-import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia } from "../../frontend/src/api";
+import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -146,17 +146,27 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // modello SA, non come risponde.
   let fontiWeb: { titolo: string; url: string }[] = [];
   let webDisponibile = false;
+  // PARTITA GIA' INIZIATA (01/10/2026): la ricerca web potrebbe trovare il
+  // risultato. Si cerca solo fino al giorno prima, si avvisa il modello e il
+  // pronostico viene marcato post_partita: non conta per verdetto e pagella.
+  const inizio = inizioPartitaMs(match.day, match.time);
+  const postPartita = !!match.result || (inizio !== null && Date.now() >= inizio);
   try {
     const ctx = await contestoPartita(
       match.squadra1, match.squadra2, match.manifestazione || "",
       (process.env.TAVILY_API_KEY || "").trim(),
+      inizio,
     );
     fontiWeb = ctx.fonti;
     webDisponibile = ctx.disponibile;
     prompt = prompt + blocoTesto(ctx);
-  } catch {
+  } catch (e) {
     // La ricerca web non deve MAI impedire un pronostico: senza, si lavora
     // come prima.
+    console.error("[ai-predict] ricerca web", e);
+  }
+  if (postPartita) {
+    prompt += `\n⚠ Questa partita e' GIA' INIZIATA o finita. Ragiona come se fossi prima del calcio d'inizio: ignora qualsiasi informazione su risultato, marcatori o andamento di QUESTA partita, anche se compare nei dati web.\n`;
   }
 
   let prediction;
@@ -223,6 +233,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
     ...(statistiche ? { statistiche_squadre: statistiche } : {}),
     ...(fonti ? { fonti_web: fonti } : {}),
     ...(fasce ? { fasce } : {}),
+    post_partita: postPartita,
   };
   let saved;
   for (let tentativo = 0; ; tentativo++) {
@@ -258,6 +269,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
     statistiche_squadre: statistiche, statistiche_salvate: statisticheSalvate,
     fasce, fasce_salvate: fasceSalvate,
     fonti_web: fonti,
+    post_partita: postPartita,
     xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb,
   });
 }
