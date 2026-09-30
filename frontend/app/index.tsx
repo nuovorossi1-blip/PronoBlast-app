@@ -9,12 +9,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, quickPredictionFamily } from "@/src/api";
+import { api, Match, quickPredictionFamily, evaluateMarketOutcome, FASCE_AI, chiaveFascia } from "@/src/api";
 import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
-import { matchesCache, daysCache, marketStatsCache, selectedListCache } from "@/src/utils/cache";
+import { matchesCache, daysCache, marketStatsCache, selectedListCache, oddSettingsCache } from "@/src/utils/cache";
 import { confirmAction } from "@/src/utils/platform";
 import { parseLeagueCode, isMainLeague, isFirstDivision } from "@/src/utils/leagues";
 import { predictionQueue } from "@/src/utils/predictionQueue";
@@ -41,7 +41,7 @@ function fmtDayShort(d: string) { const dt = parseISO(d); const today = todayISO
 function fmtDayLong(d: string) { const dt = parseISO(d); return `${DAY_FULL_IT[dt.getDay()]} ${dt.getDate()} ${MONTH_FULL_IT[dt.getMonth()]}`; }
 function fmtDateBadge(d: string) { const dt = parseISO(d); return `${dt.getDate()} ${MONTH_LONG_IT[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`; }
 
-function predLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean } {
+function predLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean; isRicalcolato?: boolean } {
   // Build pre-pronostic family + LLM markets list, compute final ranking.
   // La card mostra il VERDETTO FINALE salvato, lo stesso che si vede aprendo la
   // partita. Prima ricalcolava un pick per conto suo con una logica diversa da
@@ -50,17 +50,30 @@ function predLabel(m: Match, stats: { market: string; win_rate: number; total: n
   // diceva "DC X2 + O1.5", il dettaglio "GG + O2.5").
   if (m.pick_finale) {
     const mapFin: Record<string, string> = { "O1.5": "Ov1.5", "O2.5": "Ov2.5", "U1.5": "Un1.5", "U2.5": "Un2.5", "U3.5": "Un3.5" };
-    let corretto: boolean | null = null;
-    if (m.result) {
-      const parts = m.result.split("-").map((x) => parseInt(x, 10));
-      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        corretto = evalLocal(m.pick_finale, parts[0], parts[1]);
-      }
-    }
+    // Verde se indovinato, rosso se sbagliato: stessa valutazione della
+    // scheda (conosce anche AH -0,75, X oppure GG, multigol casa/ospite).
+    const corretto = m.result ? evaluateMarketOutcome(m.pick_finale, m.result) : null;
     return {
       label: mapFin[m.pick_finale] || m.pick_finale,
       isAi: false, isConcord: true, isCandidate: false, isNoBet: false, isCorrect: corretto,
     };
+  }
+
+  // PARTITA CONCLUSA SENZA CONGELATO, MA RICALCOLATA (01/10/2026): si mostra
+  // il ricalcolo con le regole di oggi, alla Quota minima scelta, con un badge
+  // suo ("R") perche' non e' un pronostico dato prima della partita.
+  if (m.result && m.ricalcolo?.fasce) {
+    const soglia = oddSettingsCache.get()?.min_odd ?? FASCE_AI[0];
+    const r = m.ricalcolo.fasce[chiaveFascia(soglia)];
+    if (r) {
+      const mapRic: Record<string, string> = { "O1.5": "Ov1.5", "O2.5": "Ov2.5", "U3.5": "Un3.5" };
+      return {
+        label: mapRic[r.market] || r.market,
+        isAi: false, isConcord: false, isCandidate: false, isNoBet: false,
+        isCorrect: r.esito === "vinta" ? true : r.esito === "persa" ? false : null,
+        isRicalcolato: true,
+      };
+    }
   }
 
   // ANTEPRIMA PRE (29/09/2026, fase 0 — opzione scelta da Rossi).
@@ -72,6 +85,18 @@ function predLabel(m: Match, stats: { market: string; win_rate: number; total: n
   // consigliare un mercato diverso da quello del dettaglio (visto su
   // Sandnes - Kongsvinger e su Patronato). Il verdetto vero lo calcola ora il
   // server: vedi /verdetto e lib/verdettoServer.ts.
+  // Anteprima = primo mercato del PRE del server, lo stesso della scheda
+  // (matches-list lo calcola con preHeuristicRanking). L'euristica locale resta
+  // solo come riserva se il server non lo manda.
+  if (m.anteprima_pre) {
+    const map: Record<string, string> = { "O1.5": "Ov1.5", "O2.5": "Ov2.5", "O3.5": "Ov3.5", "U3.5": "Un3.5" };
+    return {
+      label: map[m.anteprima_pre] || m.anteprima_pre,
+      isAi: false, isConcord: false, isCandidate: false, isNoBet: false,
+      isCorrect: null,
+      isAnteprima: true,
+    };
+  }
   const fam = quickPredictionFamily(m.odds);
   const anteprima = fam[0];
   if (anteprima) {
@@ -640,6 +665,7 @@ export default function Home() {
                             {pred.isCandidate && <Ionicons name="bulb" size={10} color="#FFF" style={{ marginRight: 2 }} />}
                             {pred.isNoBet && <Ionicons name="close" size={10} color="#FFF" style={{ marginRight: 2 }} />}
                             {pred.isAnteprima && <Ionicons name="eye-outline" size={10} color="#A1A1AA" style={{ marginRight: 3 }} />}
+                            {pred.isRicalcolato && <Ionicons name="refresh-circle" size={11} color="#FFF" style={{ marginRight: 2 }} />}
                             <Text style={[styles.predTxt, pred.isAnteprima && { color: "#A1A1AA" }]}>{pred.label}</Text>
                             {hasRes && (
                               <>

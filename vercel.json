@@ -141,6 +141,10 @@
       "destination": "/api/rebuild-learning"
     },
     {
+      "source": "/ricalcolo",
+      "destination": "/api/ricalcolo"
+    },
+    {
       "source": "/similar-odds",
       "destination": "/api/similar-odds"
     },

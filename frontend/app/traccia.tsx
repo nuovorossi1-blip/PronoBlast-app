@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import BottomNav from "@/src/components/BottomNav";
 import { colors } from "@/src/theme";
-import { api, BacktestResponse, ManualeStatsResponse } from "@/src/api";
+import { api, BacktestResponse, ManualeStatsResponse, RicalcoloStato } from "@/src/api";
 import { notify } from "@/src/utils/platform";
 
 /**
@@ -93,6 +93,16 @@ export default function Traccia() {
 
   const [regola, setRegola] = useState<"motore" | "maxprob" | "pre">("motore");
   const [soloDopoSplit, setSoloDopoSplit] = useState(true);
+
+  // Ricalcolo storico con le regole di oggi (tasto in Manutenzione).
+  const [ricalcolo, setRicalcolo] = useState<RicalcoloStato | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.ricalcoloStato()
+      .then((r) => { if (alive) setRicalcolo(r.stato); })
+      .catch((e) => { console.error("[ricalcolo]", e); });
+    return () => { alive = false; };
+  }, []);
 
   // Ticket 8: misura del manuale per scenario (sola lettura, calcolata viva).
   const [manuale, setManuale] = useState<ManualeStatsResponse | null>(null);
@@ -228,6 +238,55 @@ export default function Traccia() {
               ))
           )}
         </View>
+
+        {/* RICALCOLO STORICO CON LE REGOLE DI OGGI: pagella per fascia contro i
+            verdetti congelati, e curva mese per mese (sale col crescere dello
+            storico?). Ricalcolo in ordine di data, senza sbirciare il futuro. */}
+        {ricalcolo && (
+          <View style={st.box}>
+            <Text style={st.boxTit}>REGOLE DI OGGI — RICALCOLO STORICO</Text>
+            <Text style={st.hint}>
+              {ricalcolo.finito
+                ? `${ricalcolo.totale.toLocaleString("it-IT")} partite rigiocate in ordine di data (versione regole ${ricalcolo.versione}).`
+                : `Ricalcolo incompleto: ${ricalcolo.pos.toLocaleString("it-IT")} di ${ricalcolo.totale.toLocaleString("it-IT")}. Rilancialo da Manutenzione.`}
+              {" "}Il pronostico AI non è incluso.
+            </Text>
+            <Text style={st.sotto}>Pagella per fascia</Text>
+            {Object.entries(ricalcolo.pagella).sort(([a], [b]) => a.localeCompare(b)).map(([f, p]) => {
+              const n = p.oggi.v + p.oggi.p;
+              const pct = (v: number, t: number) => (t ? `${((v / t) * 100).toFixed(1)}%` : "—");
+              return (
+                <View key={f}>
+                  <View style={st.riga}>
+                    <Text style={[st.rigaPct, { color: colors.primary }]}>{pct(p.oggi.v, n)}</Text>
+                    <Text style={st.rigaNome}>{f} · regole di oggi</Text>
+                    <Text style={st.rigaN}>{p.oggi.v}/{n}</Text>
+                  </View>
+                  {p.stesse > 0 && (
+                    <Text style={st.hint}>
+                      Stesse {p.stesse} partite: congelato {pct(p.congelatoStesse, p.stesse)} · regole di oggi {pct(p.oggiStesse, p.stesse)}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+            <Text style={st.sotto}>Curva mese per mese (% indovinati)</Text>
+            <View style={st.riga}>
+              <Text style={st.rigaNome}>Mese</Text>
+              {["1.40", "1.50", "1.60", "1.75"].map((f) => <Text key={f} style={st.rigaN}>{f}</Text>)}
+            </View>
+            {Object.entries(ricalcolo.curva).sort(([a], [b]) => a.localeCompare(b)).map(([mese, fasce]) => (
+              <View key={mese} style={st.riga}>
+                <Text style={st.rigaNome}>{mese}</Text>
+                {["1.40", "1.50", "1.60", "1.75"].map((f) => {
+                  const t = fasce[f];
+                  const n = t ? t.v + t.p : 0;
+                  return <Text key={f} style={st.rigaN}>{n ? `${Math.round((t!.v / n) * 100)}% (${n})` : "—"}</Text>;
+                })}
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* PAGELLA DEI SISTEMI (01/10/2026): l'AI al comando migliora la %?
             Pick registrati PRIMA della partita, valutati col risultato. */}

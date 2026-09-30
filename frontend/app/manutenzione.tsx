@@ -100,6 +100,46 @@ export default function Manutenzione() {
     },
   });
 
+  // --- 0bis. RICALCOLO STORICO CON LE REGOLE DI OGGI (01/10/2026) --------
+  // Rigioca tutte le partite concluse IN ORDINE DI DATA: ogni partita usa solo
+  // lo storico precedente. Scrive solo `ricalcolo`: il verdetto congelato non
+  // si tocca. Ripartire da capo e' sempre sicuro (sovrascrive solo il ricalcolo).
+  const ricalcolaTutto = () => confirmAction({
+    title: "Ricalcolare tutto con le regole di oggi?",
+    message: "Rigioca tutte le partite concluse in ordine di data, ognuna solo con lo storico che c'era prima. Il verdetto congelato NON viene toccato: il ricalcolo va in una riga a parte. Il pronostico AI resta fuori. Ci vogliono alcuni minuti.",
+    confirmText: "Ricalcola",
+    onConfirm: async () => {
+      stop.current = false;
+      setLavoro("ricalcolo");
+      setAvanzamento("Riparto dalla partita più vecchia…");
+      try {
+        let da = 0, primo = true, tot = 0, scritte = 0, saltate = 0;
+        for (;;) {
+          if (stop.current) break;
+          const r = await api.ricalcolo(da, primo);
+          primo = false;
+          tot = r.totale_concluse;
+          scritte += r.scritte;
+          saltate += r.saltate;
+          setAvanzamento(`${(da + r.elaborate).toLocaleString("it-IT")} di ${tot.toLocaleString("it-IT")} partite ricalcolate`);
+          if (r.finito || r.prossimo === null) break;
+          da = r.prossimo;
+        }
+        notify(
+          stop.current ? "Ricalcolo fermato" : "Ricalcolo completato",
+          stop.current
+            ? `Ricalcolate ${scritte} partite. Per completare va rilanciato da capo (in ordine di data non si riprende a metà).`
+            : `Partite ricalcolate: ${scritte} su ${tot}${saltate ? ` (${saltate} saltate: risultato o quote illeggibili)` : ""}.\nCurva e pagella sono in Traccia.`,
+        );
+      } catch (e: any) {
+        notify("Errore", `${e?.message || e}\n\nSe dice che manca la colonna 'ricalcolo', va creata su Supabase.`);
+      } finally {
+        setLavoro(null);
+        setAvanzamento("");
+      }
+    },
+  });
+
   // --- 1. RECUPERO AUTOMATICO -------------------------------------------
   const recuperaAuto = async () => {
     stop.current = false;
@@ -300,6 +340,16 @@ export default function Manutenzione() {
           attivo={lavoro === "rebuild"}
           disabilitato={occupato}
           onPress={ricostruisci}
+        />
+
+        <Passo
+          numero="R"
+          titolo="Ricalcola tutto con le regole di oggi"
+          testo="Rigioca tutte le partite concluse in ordine di data, ognuna solo con lo storico che c'era prima. Il verdetto congelato resta com'è: il ricalcolo compare come seconda riga, verde se indovinato e rosso se sbagliato. Curva e pagella in Traccia."
+          icona="git-compare-outline"
+          attivo={lavoro === "ricalcolo"}
+          disabilitato={occupato}
+          onPress={ricalcolaTutto}
         />
 
         <View style={styles.box}>

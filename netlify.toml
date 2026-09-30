@@ -173,6 +173,11 @@
   status = 200
 
 [[redirects]]
+  from = "/ricalcolo"
+  to = "/.netlify/functions/ricalcolo"
+  status = 200
+
+[[redirects]]
   from = "/similar-odds"
   to = "/.netlify/functions/similar-odds"
   status = 200
