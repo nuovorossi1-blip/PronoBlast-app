@@ -2111,6 +2111,13 @@ export type ManualeStatsResponse = {
     scenario: string; favorita: string | null; partite: number;
     mercati: Record<string, { vinte: number; perse: number; rimborsi: number; mezze: number; non_valutabili: number; pct: number | null }>;
   }>;
+  /** Pagella dei sistemi sulle partite concluse (01/10/2026). */
+  pagella?: {
+    sistemi: Record<string, { vinte: number; perse: number; pct: number | null; partite: number }>;
+    stesse_partite: { partite: number; sistemi: Record<string, { vinte: number; perse: number; pct: number | null }> };
+  };
+  /** GAP TECNICO diviso per profilo (DIFENSIVA / altro). */
+  confronto_profilo?: Record<string, { partite: number; mercati: Record<string, { vinte: number; perse: number; pct: number | null }> }>;
 };
 
 export function getScenarioNote(odds: Odds): ScenarioNote | null {
