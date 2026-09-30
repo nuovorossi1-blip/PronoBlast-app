@@ -315,6 +315,78 @@ export type BacktestResponse = {
   error?: string;
 };
 
+/** Totale della pagella (Traccia) sommato blocco per blocco. Condiviso: lo
+ *  somma il server nel lavoro "pagella" (`/lavori`), lo legge l'app. */
+export type SommaBacktest = {
+  esaminate: number; con_pick: number; senza_pick: number; vinte: number; perse: number;
+  per_famiglia: Record<string, { partite: number; vinte: number; perse: number; senzaPick: number }>;
+  pick_per_famiglia: Record<string, Record<string, { scelte: number; vinte: number; perse: number }>>;
+  occasioni_perse: Record<string, Record<string, number>>;
+};
+
+export const sommaBacktestVuota = (): SommaBacktest => ({
+  esaminate: 0, con_pick: 0, senza_pick: 0, vinte: 0, perse: 0,
+  per_famiglia: {}, pick_per_famiglia: {}, occasioni_perse: {},
+});
+
+/** Somma un blocco nel totale: il server ne restituisce uno per volta. */
+export function accumulaBacktest(t: SommaBacktest, r: BacktestResponse): SommaBacktest {
+  t.esaminate += r.esaminate; t.con_pick += r.con_pick;
+  t.senza_pick += r.senza_pick; t.vinte += r.vinte; t.perse += r.perse;
+  for (const [fam, v] of Object.entries(r.per_famiglia || {})) {
+    const f = t.per_famiglia[fam] || { partite: 0, vinte: 0, perse: 0, senzaPick: 0 };
+    f.partite += v.partite; f.vinte += v.vinte; f.perse += v.perse; f.senzaPick += v.senzaPick;
+    t.per_famiglia[fam] = f;
+  }
+  for (const [fam, mercati] of Object.entries(r.pick_per_famiglia || {})) {
+    t.pick_per_famiglia[fam] = t.pick_per_famiglia[fam] || {};
+    for (const [m, c] of Object.entries(mercati)) {
+      const x = t.pick_per_famiglia[fam][m] || { scelte: 0, vinte: 0, perse: 0 };
+      x.scelte += c.scelte; x.vinte += c.vinte; x.perse += c.perse;
+      t.pick_per_famiglia[fam][m] = x;
+    }
+  }
+  for (const [fam, mercati] of Object.entries(r.occasioni_perse || {})) {
+    t.occasioni_perse[fam] = t.occasioni_perse[fam] || {};
+    for (const [m, n] of Object.entries(mercati)) {
+      t.occasioni_perse[fam][m] = (t.occasioni_perse[fam][m] || 0) + n;
+    }
+  }
+  return t;
+}
+
+// --- LAVORI IN BACKGROUND (01/10/2026) -------------------------------------
+// I lavori lunghi girano sul server (`/lavori`), non piu' in un ciclo dentro
+// l'app: continuano anche a schermo spento o in un'altra app. Uno alla volta.
+export type TipoLavoro = "ricalcolo" | "ricostruzione" | "pagella" | "import_risultati" | "sync_risultati";
+
+export const NOMI_LAVORO: Record<TipoLavoro, string> = {
+  ricalcolo: "Ricalcolo con le regole di oggi",
+  ricostruzione: "Ricostruzione dell'apprendimento",
+  pagella: "Pagella dei pronostici",
+  import_risultati: "Caricamento risultati dal foglio",
+  sync_risultati: "Aggiornamento risultati dal server",
+};
+
+export type Lavoro = {
+  id: string;
+  tipo: TipoLavoro;
+  /** Parametri del lavoro (per l'import, senza l'elenco delle righe). */
+  parametri: Record<string, any>;
+  stato: "in_corso" | "completato" | "annullato" | "errore";
+  /** Partite/righe fatte e totale (0 finche' il primo blocco non l'ha contato). */
+  pos: number;
+  totale: number;
+  /** Somme dei blocchi: dipendono dal tipo (per "pagella" e' una SommaBacktest). */
+  parziale: Record<string, any>;
+  errore?: string | null;
+  avviato: string;
+  aggiornato: string;
+  finito_il?: string | null;
+  /** true se e' in corso ma nessuno ci sta lavorando da un po': l'app da' una spinta. */
+  fermo?: boolean;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -379,6 +451,15 @@ export const api = {
     netlifyReq<{ ok: boolean; totale_concluse: number; elaborate: number; scritte: number; saltate: number; prossimo: number | null; finito: boolean; error?: string }>(
       `/ricalcolo?from=${from}${reset ? "&reset=1" : ""}`, { method: "POST" }),
   ricalcoloStato: () => netlifyReq<{ ok: boolean; stato: RicalcoloStato | null }>("/ricalcolo"),
+
+  /** Lavori in background: avvio, stato, spinta, annullamento. */
+  lavoroAvvia: (tipo: TipoLavoro, parametri: Record<string, any> = {}) =>
+    netlifyReq<{ ok: boolean; lavoro: Lavoro }>("/lavori", { method: "POST", body: JSON.stringify({ tipo, parametri }) }),
+  lavoroStato: () => netlifyReq<{ ok: boolean; lavoro: Lavoro | null }>("/lavori"),
+  /** Fa lavorare il server subito, senza aspettare l'orologio. Non si aspetta
+   *  la risposta: se il telefono si addormenta, il server va avanti lo stesso. */
+  lavoroSpinta: () => { fetch("/lavori?passo=1", { method: "POST" }).catch(() => {}); },
+  lavoroAnnulla: () => netlifyReq<{ ok: boolean }>("/lavori?annulla=1", { method: "POST" }),
 
   /** Caricamento massivo dei risultati dal foglio compilato. */
   resultsImport: (items: { id: string; result: string }[], overwrite = false) =>

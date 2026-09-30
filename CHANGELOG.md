@@ -37,7 +37,9 @@ alta possibile, misurata sul serio e non stimata. Per arrivarci:
 **Dove siamo (PR #2…#7, 30/09).** AI regista per fasce con paletto 58%, scheda
 AI leggibile, pronostici post-partita esclusi, manuale per scenario, quote combo
 corrette, ricalcolo storico con tasto in Strumenti (PR #7 in attesa di merge e
-della colonna `matches.ricalcolo`).
+della colonna `matches.ricalcolo`). Dal 01/10 i lavori lunghi girano sul server
+(`/lavori`, PR #8): continuano a schermo spento, tenuti in moto dall'orologio in
+Supabase.
 
 **Prossimi passi.**
 - Lanciare il ricalcolo e leggere la curva per mese e la pagella per fascia in
@@ -126,6 +128,9 @@ esaurito il ciclo. Quindi:
    sotto (cosa, perche', file, SQL, decisioni di Rossi) e, se tocca il
    database, la riga in `docs/database.sql`. Un LLM che riprende il lavoro deve
    poter capire obiettivo e stato leggendo solo questo file.
+4. **Lavori lunghi solo sul server**: tutto cio' che richiede piu' di una
+   chiamata diventa un tipo di `/lavori` (`netlify/functions/lavori.ts`), mai un
+   ciclo nell'app, che si ferma quando il telefono si addormenta.
 
 Logica dell'ignore: e' un comando di shell, **exit 0 = build annullata**,
 **exit 1 = build eseguita**. `git diff --quiet` esce 0 quando non trova
@@ -141,6 +146,48 @@ codice + `.md` insieme -> costruisce.
 > Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
+
+### 2026-10-01 — Lavori lunghi sul server: continuano a schermo spento (PR #8)
+
+**Perche'.** Ricalcolo, ricostruzione, pagella e caricamento risultati erano un
+ciclo dentro l'app: a schermo spento, in un'altra app o su un'altra pagina si
+fermavano a meta' (il ricalcolo andava rifatto da capo). Rossi: "una volta
+lanciato deve continuare fino al completamento".
+
+**Cosa.**
+- `netlify/functions/lavori.ts` (nuovo, rotta `/lavori`): un lavoro alla volta
+  in `settings.lavoro_corrente`. `POST {tipo, parametri}` avvia (409 se ce n'e'
+  gia' uno), `POST ?passo=1` lavora ~4 minuti blocco per blocco salvando dopo
+  ogni blocco, `POST ?annulla=1`, `GET` per lo schermo. Lucchetto con
+  confronta-e-scambia su PostgREST (`value->>lucchetto=eq.<vecchio>`): due passi
+  non lavorano mai insieme; l'annullamento toglie il lucchetto e il passo si
+  ferma al blocco dopo. 5 errori di fila = lavoro fallito, prima si riprova.
+- Tipi: `ricalcolo` (riparte dalla posizione del ricalcolo stesso),
+  `ricostruzione`, `pagella` (totali sommati sul server con
+  `accumulaBacktest`, spostato in `frontend/src/api.ts`), `import_risultati`
+  (righe del foglio spedite una volta), `sync_risultati`. Ognuno chiama il
+  gestore che esisteva gia'.
+- **Orologio**: `pg_cron` + `pg_net` in Supabase chiamano `/lavori?passo=1` ogni
+  minuto (SQL in `docs/database.sql`, sezione 5). Il cron di Vercel Hobby gira
+  una volta al giorno: non basta.
+- App: `src/components/LavoroBox.tsx` (`useLavoro` legge lo stato ogni 3 s,
+  da' una spinta se il lavoro e' fermo; riquadro con avanzamento, Ferma,
+  riepilogo). Manutenzione e Traccia avviano i lavori invece dei cicli;
+  Strumenti mostra il lavoro in corso.
+- Limite noto: se un passo muore a meta' di un blocco della ricostruzione,
+  quel blocco si rigioca e conta due volte (il ricalcolo invece no: tiene la
+  sua posizione). Il tempo di lavoro e' stimato sul blocco precedente per
+  evitarlo.
+
+**Verifica.** Simulazione con Supabase finto, 21 prove: avvio e 409, lucchetto
+con due passi insieme, annullamento durante il passo, errore a meta' e ripresa
+dal blocco salvato, lucchetto scaduto, lavoro "fermo", 5 errori -> fallito,
+pagella/import/sync.
+
+**Regola.** Un nuovo lavoro lungo diventa un tipo di `/lavori`, non un ciclo
+nell'app.
+
+**SQL.** Sezione 5 di `docs/database.sql` (orologio).
 
 ### 2026-09-30 (7) — Ricalcolo storico con le regole di oggi, anteprima card = scheda (PR #7)
 
