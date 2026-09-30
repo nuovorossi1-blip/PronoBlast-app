@@ -1,10 +1,10 @@
 import {
-  structuralAnalysis, CANDIDATE_MARKETS, comboOdd, estimateMarketOdd,
+  structuralAnalysis, quoteCatalogo,
   type Odds, type MlScoreEntry,
 } from "./lib/clusterEngine";
 import { pgGet, pgPatch } from "./lib/supabaseRest";
 import { preHeuristicPick, preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
-import type { StrutturaGol } from "../../frontend/src/api";
+import { PROB_AFFIDABILE, FASCE_AI, type StrutturaGol } from "../../frontend/src/api";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
 
@@ -94,7 +94,7 @@ export default async (req: Request): Promise<Response> => {
     // Serve al frontend per non lasciare mai un pick senza prezzo: un mercato
     // senza quota sfuggiva al filtro di soglia e finiva a schermo senza che si
     // sapesse quanto paga.
-    market_odds: allMarketOdds(odds),
+    market_odds: quoteCatalogo(odds),
     // Fino a che soglia conviene spingersi SU QUESTA partita (vedi sotto).
     ...sogliaConsigliata(odds, mlScores),
     structure: result.structure,
@@ -180,19 +180,8 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Quota di ogni mercato del catalogo: reale se il bookmaker la fornisce, altrimenti stimata. */
-function allMarketOdds(odds: Odds): Record<string, { odd: number; estimated: boolean }> {
-  const out: Record<string, { odd: number; estimated: boolean }> = {};
-  for (const m of CANDIDATE_MARKETS) {
-    const reale = comboOdd(m, odds);
-    const q = reale ?? estimateMarketOdd(m, odds);
-    if (q && q > 1) out[m] = { odd: Math.round(q * 100) / 100, estimated: reale === null };
-  }
-  return out;
-}
-
-/** Soglie che l'utente puo' scegliere nell'app. */
-const SOGLIE = [1.40, 1.50, 1.60, 1.75];
+/** Soglie che l'utente puo' scegliere nell'app (le stesse fasce dell'AI). */
+const SOGLIE = FASCE_AI;
 
 /**
  * Fino a che quota minima conviene spingersi su QUESTA partita.
@@ -211,7 +200,7 @@ function sogliaConsigliata(
   odds: Odds,
   mlScores: Record<string, MlScoreEntry>,
 ): { soglia_consigliata: number | null; soglie_dettaglio: { soglia: number; market: string; prob: number }[] } {
-  const MIN_PROB = 0.58;
+  const MIN_PROB = PROB_AFFIDABILE;   // stesso paletto delle fasce AI
   const dettaglio: { soglia: number; market: string; prob: number }[] = [];
   let consigliata: number | null = null;
 

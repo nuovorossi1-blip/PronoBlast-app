@@ -118,7 +118,34 @@ export type Prediction = {
     casa?: Record<string, string>;
     ospite?: Record<string, string>;
   } | null;
+  /** Classifica dell'AI per fascia di quota (1.40 / 1.50 / 1.60 / 1.75).
+   *  Assente nei pronostici vecchi: allora il verdetto resta la fusione. */
+  fasce?: Record<string, FasciaAI> | null;
+  /** Fonti web consultate, tenute fuori dal testo dell'analisi. */
+  fonti_web?: { titolo?: string; url: string }[] | null;
 };
+
+/** Una fascia della classifica AI, cosi' come la restituisce il modello. */
+export type FasciaAI = { classifica: string[]; perche?: string };
+
+/**
+ * Divide l'analysis dell'AI nei due riquadri della scheda (LETTURA DELLA
+ * PARTITA / PERCHE' QUESTA SCELTA) e separa le fonti web che i pronostici
+ * vecchi avevano in coda al testo. Senza marcatori tutto va in "lettura".
+ */
+export function dividiAnalisi(testo: string | null | undefined): { lettura: string; perche: string; fonti: string[] } {
+  let t = String(testo || "");
+  let fonti: string[] = [];
+  const f = t.search(/Fonti web consultate:/i);
+  if (f >= 0) {
+    fonti = t.slice(f).replace(/Fonti web consultate:/i, "").split("|").map((x) => x.trim()).filter((x) => /^https?:\/\//.test(x));
+    t = t.slice(0, f);
+  }
+  const p = t.search(/PERCH(?:E'|É|E)\s+QUESTA\s+SCELTA\s*:?/i);
+  const lettura = (p >= 0 ? t.slice(0, p) : t).replace(/^\s*\(?1?\)?\s*LETTURA DELLA PARTITA\s*:?\s*/i, "").trim();
+  const perche = p >= 0 ? t.slice(p).replace(/^PERCH(?:E'|É|E)\s+QUESTA\s+SCELTA\s*:?\s*/i, "").trim() : "";
+  return { lettura, perche, fonti };
+}
 
 /** Righe della tabella casa | ospite del pronostico AI (Ticket 10), in ordine. */
 export const RIGHE_STATISTICHE: { chiave: string; etichetta: string }[] = [
@@ -877,6 +904,8 @@ export type VerdictPick = {
    *  partita: il verdetto nasce da una somma di undici correttivi, e senza
    *  questa traccia non e' ricostruibile guardando lo schermo. */
   dettaglio?: { voce: string; punti: number }[];
+  /** "ai" = verdetto dalla classifica AI per fascia (niente punteggio di fusione) */
+  origine?: "ai" | "fusione";
 };
 
 const SRC_WEIGHTS: Record<VerdictSource, { top: number; decay: number; bonus: number }> = {
@@ -1828,6 +1857,218 @@ export function conLetturaGol(
 }
 
 
+// ============================================================
+// L'AI STILA LA CLASSIFICA PER FASCIA DI QUOTA (01/10/2026)
+// ============================================================
+/**
+ * Decisione di Rossi del 30/09: l'AI e' la fonte piu' forte (ha il web) e
+ * stila classifica e verdetto; motore Poisson e PRE sono dati e controlli, non
+ * voti alla pari. Il caso che l'ha motivata e' Belgio-Galles (1-0): favorita
+ * netta, profilo DIFENSIVA, e il verdetto era O2.5 come in Spagna-Croazia (4-1).
+ *
+ * L'AI restituisce una classifica per ciascuna fascia. Il codice NON si fida:
+ * `validaFasce` tiene per ogni fascia solo i mercati giocabili davvero
+ * (whitelist, quota >= fascia, struttura) e applica la regola di coerenza
+ * `letturaDirezionale`. Il paletto di affidabilita' e' lo stesso 58% misurato
+ * per la soglia consigliata (predict.ts): sotto, la fascia e' segnalata.
+ */
+export const FASCE_AI = [1.40, 1.50, 1.60, 1.75];
+
+/** Probabilita' minima di un pick "affidabile": misurata su 583 partite di
+ *  test (dentro il 58% si vince il 59,7%, oltre il 55,7%). */
+export const PROB_AFFIDABILE = 0.58;
+
+export const chiaveFascia = (s: number) => s.toFixed(2);
+
+/**
+ * LETTURA DIREZIONALE: GAP TECNICO (favorita netta, X alta) + profilo
+ * DIFENSIVA. La direzione e' forte ma i gol sono incerti o contenuti: il
+ * primo posto va a un mercato di sola direzione o direzione + limite ai gol
+ * (1, 1X, 1 + U4.5, DC 1X + U3.5 e speculari), mai a un mercato che scommette
+ * sui gol (O2.5, MG 3-6, GG, GG + O2.5, DC 1X + O2.5...).
+ * Criterio sulle quote e sul profilo, mai sui risultati.
+ */
+export function letturaDirezionale(odds: Odds | null | undefined, s: StrutturaGol): "1" | "2" | null {
+  if (!odds || !s) return null;
+  const nota = getScenarioNote(odds);
+  if (!nota || nota.scenario !== "Gap Tecnico" || !nota.favorita) return null;
+  return underAmmessiATettoAperto(s) ? (nota.favorita as "1" | "2") : null;
+}
+
+/** true se il mercato esprime la direzione `fav` senza scommettere sui gol. */
+export function coerenteConDirezione(market: string, fav: "1" | "2"): boolean {
+  const m = normalizeMarket(market).replace(/^DC /, "");
+  const dir = fav === "1" ? ["1", "1X"] : ["2", "X2"];
+  const [segno, resto] = m.split("+").map((x) => x.trim());
+  if (!dir.includes(segno)) return false;
+  if (!resto) return true;
+  return /^U\d/.test(resto);
+}
+
+export type VoceFascia = {
+  market: string;
+  odd: number | null;
+  stimata: boolean;
+  /** probabilita' Poisson del motore, se il mercato e' nel suo ranking */
+  prob: number | null;
+  rankAI: number;
+  rankMotore: number | null;
+  rankPre: number | null;
+  /** aggiunto dal controllo di coerenza, non proposto dall'AI */
+  aggiunto?: boolean;
+};
+
+export type FasciaValidata = {
+  soglia: number;
+  perche: string;
+  voci: VoceFascia[];
+  scartati: { market: string; motivo: string }[];
+  pick: VoceFascia | null;
+  affidabile: boolean;
+  /** favorita della lettura direzionale, se attiva */
+  direzionale: "1" | "2" | null;
+};
+
+type ContestoFasce = {
+  odds: Odds;
+  structural: StructuralAnalysis | null | undefined;
+};
+
+function quotaMercato(market: string, ctx: ContestoFasce): { odd: number | null; stimata: boolean } {
+  const mappa = ctx.structural?.market_odds || {};
+  const chiave = Object.keys(mappa).find((k) => normalizeMarket(k) === normalizeMarket(market));
+  if (chiave) return { odd: mappa[chiave].odd, stimata: mappa[chiave].estimated };
+  const reale = getMarketOdd(market, ctx.odds);
+  return { odd: reale ?? null, stimata: false };
+}
+
+/**
+ * Valida la classifica AI di ogni fascia. Per ogni mercato proposto:
+ * whitelist, quota >= fascia, ammesso dalla struttura, coerente con la lettura
+ * direzionale. Se la lettura direzionale lascia la fascia vuota, il controllo
+ * aggiunge i mercati coerenti del catalogo (per probabilita' del motore),
+ * marcati come "aggiunto": la regola e' una garanzia, non un suggerimento.
+ */
+export function validaFasce(
+  fasce: Record<string, FasciaAI> | null | undefined,
+  ctx: ContestoFasce,
+): FasciaValidata[] | null {
+  if (!fasce || typeof fasce !== "object") return null;
+  const s = ctx.structural?.structure;
+  const ranking = ctx.structural?.ranking || [];
+  const pre = ctx.structural?.pre_ranking || [];
+  const pos = <T extends { market: string }>(lista: T[], m: string) => {
+    const i = lista.findIndex((r) => normalizeMarket(r.market) === normalizeMarket(m));
+    return i >= 0 ? i + 1 : null;
+  };
+  const probDi = (m: string) => {
+    const r = ranking.find((x) => normalizeMarket(x.market) === normalizeMarket(m));
+    return r ? r.coverage : null;
+  };
+  const dir = letturaDirezionale(ctx.odds, s);
+  const out: FasciaValidata[] = [];
+
+  for (const soglia of FASCE_AI) {
+    const f = fasce[chiaveFascia(soglia)];
+    if (!f) continue;
+    const voci: VoceFascia[] = [];
+    const scartati: { market: string; motivo: string }[] = [];
+    const lista = Array.isArray(f.classifica) ? f.classifica.map(String) : [];
+    lista.forEach((market, i) => {
+      if (voci.some((v) => normalizeMarket(v.market) === normalizeMarket(market))) return;
+      const { odd, stimata } = quotaMercato(market, ctx);
+      let motivo = "";
+      if (!isVerdictMarket(market)) motivo = "fuori dai mercati giocati";
+      else if (odd === null || odd < soglia) motivo = `quota ${odd?.toFixed(2) ?? "n/d"} sotto ${soglia.toFixed(2)}`;
+      else if (!ammessoDallaStruttura(market, s)) motivo = "incoerente con pavimento/tetto";
+      else if (ranking.length && pos(ranking, market) === null) motivo = "escluso dal motore (struttura della partita)";
+      else if (dir && !coerenteConDirezione(market, dir)) motivo = "scommette sui gol: favorita netta con profilo DIFENSIVA";
+      if (motivo) { scartati.push({ market, motivo }); return; }
+      voci.push({ market, odd, stimata, prob: probDi(market), rankAI: i + 1, rankMotore: pos(ranking, market), rankPre: pos(pre, market) });
+    });
+
+    if (dir && voci.length === 0) {
+      // Garanzia della regola: se l'AI non ha proposto nulla di coerente, si
+      // prendono i mercati coerenti giocabili a questa fascia, per probabilita'.
+      const candidati = ranking
+        .filter((r) => isVerdictMarket(r.market) && coerenteConDirezione(r.market, dir) && ammessoDallaStruttura(r.market, s))
+        .map((r) => ({ r, q: quotaMercato(r.market, ctx) }))
+        .filter(({ q }) => q.odd !== null && q.odd >= soglia)
+        .sort((a, b) => b.r.coverage - a.r.coverage);
+      for (const { r, q } of candidati.slice(0, 3)) {
+        voci.push({ market: r.market, odd: q.odd, stimata: q.stimata, prob: r.coverage, rankAI: 0, rankMotore: pos(ranking, r.market), rankPre: pos(pre, r.market), aggiunto: true });
+      }
+    }
+
+    const pick = voci[0] || null;
+    out.push({
+      soglia,
+      perche: typeof f.perche === "string" ? f.perche : "",
+      voci, scartati, pick,
+      affidabile: !!pick && pick.prob !== null && pick.prob >= PROB_AFFIDABILE,
+      direzionale: dir,
+    });
+  }
+  return out.length ? out : null;
+}
+
+/** La fascia piu' alta con un pick affidabile (>= 58%): oltre, "non superare". */
+export function sogliaMassimaAffidabile(fasce: FasciaValidata[] | null): number | null {
+  let max: number | null = null;
+  for (const f of fasce || []) if (f.affidabile) max = f.soglia;
+  return max;
+}
+
+/**
+ * VERDETTO DALL'AI: se il pronostico ha le fasce, il verdetto e' la classifica
+ * validata della fascia pari alla Quota minima scelta. Motore e PRE diventano
+ * badge di accordo (STRUTT #n, PRE #n), non voti. null = niente fasce (o
+ * fascia vuota): il chiamante usa la fusione di sempre.
+ * Unica sede della regola: la usano scheda e verdettoServer.
+ */
+export function verdettoDaAI(
+  prediction: { fasce?: Record<string, FasciaAI> | null } | null | undefined,
+  structural: StructuralAnalysis | null | undefined,
+  odds: Odds,
+  minOdd: number,
+): { picks: VerdictPick[]; fascia: FasciaValidata } | null {
+  const fasce = validaFasce(prediction?.fasce, { odds, structural });
+  const fascia = fasce?.find((f) => Math.abs(f.soglia - minOdd) < 0.001);
+  // Senza fasce (o senza questa fascia) decide la fusione. Con la fascia ma
+  // senza pick: nessuna giocata, NON la fusione, che riproporrebbe proprio
+  // cio' che l'AI e il controllo di coerenza hanno scartato.
+  if (!fascia) return null;
+  const ranking = structural?.ranking || [];
+  const picks: VerdictPick[] = fascia.voci.map((v, i) => {
+    const r = ranking.find((x) => normalizeMarket(x.market) === normalizeMarket(v.market));
+    const sources: VerdictSource[] = ["ai"];
+    const ranks: Partial<Record<VerdictSource, number>> = {};
+    if (v.rankAI) ranks.ai = v.rankAI;
+    if (v.rankMotore !== null && v.rankMotore <= 6) { sources.push("structural"); ranks.structural = v.rankMotore; }
+    if (v.rankPre !== null) { sources.push("pre"); ranks.pre = v.rankPre; }
+    const concordance = sources.length;
+    return {
+      market: v.market,
+      score: 0,
+      sources, ranks,
+      odd: v.odd ?? undefined,
+      oddEstimated: v.stimata,
+      coverage: v.prob ?? undefined,
+      fragility: r?.fragility,
+      concordance,
+      agreementLabel: concordance === 3 ? "piena" : concordance === 2 ? "forte" : "parziale",
+      origine: "ai",
+      dettaglio: [
+        { voce: v.aggiunto ? "Aggiunto dal controllo di coerenza (favorita netta + profilo DIFENSIVA)" : `AI #${v.rankAI} nella fascia ${fascia.soglia.toFixed(2)}`, punti: 0 },
+        { voce: v.rankMotore !== null ? `Motore Poisson #${v.rankMotore}${v.prob !== null ? ` (${Math.round(v.prob * 100)}%)` : ""}` : "Motore Poisson: fuori dal suo ranking", punti: 0 },
+        { voce: v.rankPre !== null ? `PRE #${v.rankPre}` : "PRE: non lo propone", punti: 0 },
+        ...(i === 0 && !fascia.affidabile ? [{ voce: `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: a questa quota non e' affidabile`, punti: 0 }] : []),
+      ],
+    } as VerdictPick;
+  });
+  return { picks, fascia };
+}
+
 /**
  * Quanti sistemi POTEVANO esprimersi su questo mercato.
  *
@@ -1870,6 +2111,13 @@ export type ManualeStatsResponse = {
     scenario: string; favorita: string | null; partite: number;
     mercati: Record<string, { vinte: number; perse: number; rimborsi: number; mezze: number; non_valutabili: number; pct: number | null }>;
   }>;
+  /** Pagella dei sistemi sulle partite concluse (01/10/2026). */
+  pagella?: {
+    sistemi: Record<string, { vinte: number; perse: number; pct: number | null; partite: number }>;
+    stesse_partite: { partite: number; sistemi: Record<string, { vinte: number; perse: number; pct: number | null }> };
+  };
+  /** GAP TECNICO diviso per profilo (DIFENSIVA / altro). */
+  confronto_profilo?: Record<string, { partite: number; mercati: Record<string, { vinte: number; perse: number; pct: number | null }> }>;
 };
 
 export function getScenarioNote(odds: Odds): ScenarioNote | null {

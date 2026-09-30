@@ -1,5 +1,6 @@
 import { pgGetAll, rowToOdds } from "./supabaseRest";
-import { getScenarioNote, esitoMercato, chiaveScenario } from "../../../frontend/src/api";
+import { getScenarioNote, esitoMercato, chiaveScenario, underAmmessiATettoAperto } from "../../../frontend/src/api";
+import { classifyFamily } from "./clusterEngine";
 
 /**
  * Misura del MANUALE per scenario (Ticket 8): per ogni partita conclusa con
@@ -14,8 +15,20 @@ import { getScenarioNote, esitoMercato, chiaveScenario } from "../../../frontend
 
 export type Conteggio = { vinte: number; perse: number; rimborsi: number; mezze: number; non_valutabili: number };
 
+type Tasso = { vinte: number; perse: number; pct: number | null };
+
 export type ManualeStats = {
   partite_valutate: number;
+  /** Pagella dei sistemi (01/10/2026): % di pick indovinati sulle partite
+   *  concluse. "stesse_partite" = solo le partite in cui tutti e quattro
+   *  avevano un pick, cosi' il confronto e' alla pari. */
+  pagella: {
+    sistemi: Record<string, Tasso & { partite: number }>;
+    stesse_partite: { partite: number; sistemi: Record<string, Tasso> };
+  };
+  /** GAP TECNICO diviso per profilo: la regola direzionale regge oltre il
+   *  singolo 1-0 di Belgio-Galles? Mercati riferiti alla favorita. */
+  confronto_profilo: Record<string, { partite: number; mercati: Record<string, Tasso> }>;
   scenari: Record<string, {
     scenario: string; favorita: string | null; partite: number;
     mercati: Record<string, Conteggio & { pct: number | null }>;
@@ -26,18 +39,63 @@ export const METODO_MANUALE = "vinte / (vinte + perse) sulle partite concluse co
 
 export async function calcolaManualeStats(): Promise<ManualeStats> {
   const righe = await pgGetAll(
-    "matches?result=not.is.null&select=id,result,odd_1,odd_x,odd_2,odd_1x,odd_x2,odd_12,odd_u15,odd_o15,odd_u25,odd_o25,odd_u35,odd_o35,odd_gg,odd_ng",
+    "matches?result=not.is.null&select=id,result,pick_finale,pick_strutturale,pick_pre,main_prediction,odd_1,odd_x,odd_2,odd_1x,odd_x2,odd_12,odd_u15,odd_o15,odd_u25,odd_o25,odd_u35,odd_o35,odd_gg,odd_ng",
     "id.asc",
   );
 
   const scenari: ManualeStats["scenari"] = {};
   let valutate = 0;
 
+  const SISTEMI: Record<string, string> = {
+    "AI": "main_prediction", "Verdetto": "pick_finale", "Motore": "pick_strutturale", "PRE": "pick_pre",
+  };
+  const conta = (t: Tasso, e: string | null) => { if (e === "vinta") t.vinte++; else if (e === "persa") t.perse++; };
+  const nuovo = (): Tasso => ({ vinte: 0, perse: 0, pct: null });
+  const pagella: ManualeStats["pagella"] = { sistemi: {}, stesse_partite: { partite: 0, sistemi: {} } };
+  for (const k of Object.keys(SISTEMI)) {
+    pagella.sistemi[k] = { ...nuovo(), partite: 0 };
+    pagella.stesse_partite.sistemi[k] = nuovo();
+  }
+  const confronto: ManualeStats["confronto_profilo"] = {};
+
   for (const r of righe) {
     const risultato = String(r.result || "");
     if (esitoMercato("1", risultato) === null) continue;   // risultato illeggibile
-    const nota = getScenarioNote(rowToOdds(r) as any);
+    // Pagella dei sistemi: ogni pick registrato prima della partita.
+    const esitiSistemi: Record<string, string | null> = {};
+    for (const [k, col] of Object.entries(SISTEMI)) {
+      const pick = r[col];
+      if (!pick) continue;
+      const e = esitoMercato(String(pick), risultato);
+      esitiSistemi[k] = e;
+      if (e === "vinta" || e === "persa") { conta(pagella.sistemi[k], e); pagella.sistemi[k].partite++; }
+    }
+    if (Object.keys(SISTEMI).every((k) => esitiSistemi[k] === "vinta" || esitiSistemi[k] === "persa")) {
+      pagella.stesse_partite.partite++;
+      for (const k of Object.keys(SISTEMI)) conta(pagella.stesse_partite.sistemi[k], esitiSistemi[k]);
+    }
+
+    const odds = rowToOdds(r) as any;
+    const nota = getScenarioNote(odds);
     if (!nota) continue;                                     // quote 1X2 mancanti
+
+    // GAP TECNICO per profilo: direzione + pochi gol contro O2.5.
+    if (nota.scenario === "Gap Tecnico" && nota.favorita) {
+      const f = nota.favorita;
+      const profilo = underAmmessiATettoAperto(classifyFamily(odds)) ? "GAP TECNICO · DIFENSIVA" : "GAP TECNICO · altro profilo";
+      const g = confronto[profilo] = confronto[profilo] || { partite: 0, mercati: {} };
+      g.partite++;
+      const mercati: Record<string, string> = {
+        "O2.5": "O2.5",
+        "favorita + U4.5": `${f} + U4.5`,
+        "DC favorita + U3.5": `DC ${f === "1" ? "1X" : "X2"} + U3.5`,
+        "favorita fisso": f,
+      };
+      for (const [etichetta, m] of Object.entries(mercati)) {
+        const t = g.mercati[etichetta] = g.mercati[etichetta] || nuovo();
+        conta(t, esitoMercato(m, risultato));
+      }
+    }
     const chiave = chiaveScenario(nota);
     const s = scenari[chiave] = scenari[chiave] || {
       scenario: nota.scenario, favorita: nota.favorita ?? null, partite: 0, mercati: {},
@@ -62,5 +120,10 @@ export async function calcolaManualeStats(): Promise<ManualeStats> {
     }
   }
 
-  return { partite_valutate: valutate, scenari };
+  const pct = (t: Tasso) => { const n = t.vinte + t.perse; t.pct = n > 0 ? Math.round((t.vinte / n) * 1000) / 10 : null; };
+  Object.values(pagella.sistemi).forEach(pct);
+  Object.values(pagella.stesse_partite.sistemi).forEach(pct);
+  Object.values(confronto).forEach((g) => Object.values(g.mercati).forEach(pct));
+
+  return { partite_valutate: valutate, scenari, pagella, confronto_profilo: confronto };
 }

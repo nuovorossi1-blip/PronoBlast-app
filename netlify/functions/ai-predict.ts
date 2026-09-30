@@ -5,11 +5,12 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, type VoceManuale } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, type VoceManuale } from "./lib/predictionPrompt";
 import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
+import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
-import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario } from "../../frontend/src/api";
+import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -102,7 +103,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
 
   // SCENARIO DI QUOTE E MANUALE (Ticket 9): prima del catalogo, cosi' l'IA lo
   // legge come prima lettura. Non dipende dal web: c'e' anche senza Tavily.
-  const minOdd = await readMinOdd();
+  // Il catalogo parte dalla fascia piu' bassa (1.40): l'AI stila una classifica
+  // per OGNI fascia 1.40 / 1.50 / 1.60 / 1.75, non solo per la soglia scelta.
+  const minOdd = Math.min(await readMinOdd(), FASCE_AI[0]);
   try {
     prompt = prompt + await scenarioManuale(rowToOdds(match), minOdd);
   } catch (e) {
@@ -123,6 +126,14 @@ REGOLE OBBLIGATORIE basate sul PIN:
   } catch (e) {
     // se la tabella fallisce si procede senza: il pronostico resta possibile
     console.error("[ai-predict] catalogo", e);
+  }
+
+  // PARERE DEL PRE (01/10/2026): la classifica dell'euristica sulle sole quote
+  // reali, come dato di confronto. Prima l'AI non la vedeva affatto.
+  try {
+    prompt = prompt + bloccoPre(rowToOdds(match));
+  } catch (e) {
+    console.error("[ai-predict] blocco PRE", e);
   }
 
   // DATI DAL WEB (27/09/2026). Fino a ieri il modello riceveva SOLO quote,
@@ -164,13 +175,18 @@ REGOLE OBBLIGATORIE basate sul PIN:
     /* non bloccante */
   }
 
-  // Le fonti si accodano all'analisi invece di finire in una colonna nuova:
-  // `predictions` ha colonne fisse e una migrazione, per mostrare dei link,
-  // non vale il rischio. Cosi' Rossi le vede nel dettaglio partita e restano
-  // salvate insieme al pronostico che hanno contribuito a formare.
-  const analisiConFonti = webDisponibile && fontiWeb.length
-    ? `${prediction.analysis}\n\nFonti web consultate: ${fontiWeb.map((f) => f.url).join(" | ")}`
+  // Le fonti vanno nella colonna `fonti_web` (riga compatta in scheda), non
+  // piu' in coda al testo. Se la colonna non esiste ancora, si torna a
+  // accodarle all'analisi, come prima, per non perderle.
+  const fonti = webDisponibile && fontiWeb.length ? fontiWeb : null;
+  const analisiConFonti = fonti
+    ? `${prediction.analysis}\n\nFonti web consultate: ${fonti.map((f) => f.url).join(" | ")}`
     : prediction.analysis;
+
+  // Classifica per fascia (01/10/2026). Il primo della fascia 1.40 e' anche il
+  // main_prediction, per chi legge ancora i campi vecchi.
+  const fasce = normalizzaFasce((prediction as any).fasce);
+  if (fasce && !prediction.main_prediction) prediction.main_prediction = fasce[chiaveFascia(FASCE_AI[0])]?.classifica[0] ?? null;
 
   // I tre campi nuovi (28/09/2026) esistono solo se Rossi ha aggiunto le colonne
   // con la ALTER TABLE. Se non ci sono, PostgREST rifiuta TUTTA la riga: si
@@ -191,7 +207,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   const riga = {
     match_id: matchId,
     family: prediction.family,
-    analysis: analisiConFonti,
+    analysis: prediction.analysis,
     playable_markets: prediction.playable_markets,
     main_prediction: prediction.main_prediction,
     confidence: prediction.confidence,
@@ -199,24 +215,36 @@ REGOLE OBBLIGATORIE basate sul PIN:
     max_goals: prediction.max_goals ?? null,
   };
 
+  // Colonne facoltative: esistono solo se Rossi ha lanciato la ALTER TABLE.
+  // PostgREST rifiuta TUTTA la riga se ne manca una e nell'errore la nomina:
+  // la si toglie e si riprova, cosi' il pronostico si salva sempre.
+  const facoltative: Record<string, unknown> = {
+    ...extra,
+    ...(statistiche ? { statistiche_squadre: statistiche } : {}),
+    ...(fonti ? { fonti_web: fonti } : {}),
+    ...(fasce ? { fasce } : {}),
+  };
   let saved;
-  let xgSalvati = true;
-  let statisticheSalvate = !!statistiche;
-  try {
-    saved = await pgPost("predictions", { ...riga, ...extra, ...(statistiche ? { statistiche_squadre: statistiche } : {}) }, "return=representation");
-  } catch (e) {
-    console.error("[ai-predict] salvataggio completo", e);
+  for (let tentativo = 0; ; tentativo++) {
     try {
-      // Manca la colonna statistiche_squadre: si riprova con i soli xG.
-      statisticheSalvate = false;
-      saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
-    } catch (e2) {
-      // Colonne non ancora create: si salva il pronostico senza gli xG.
-      console.error("[ai-predict] salvataggio con xG", e2);
-      xgSalvati = false;
-      saved = await pgPost("predictions", riga, "return=representation");
+      const analysis = fonti && !("fonti_web" in facoltative) ? analisiConFonti : prediction.analysis;
+      saved = await pgPost("predictions", { ...riga, analysis, ...facoltative }, "return=representation");
+      break;
+    } catch (e: any) {
+      console.error("[ai-predict] salvataggio", e);
+      const manca = String(e?.message || "").match(/'([a-z_0-9]+)' column/)?.[1];
+      if (tentativo < 8 && manca && manca in facoltative) { delete facoltative[manca]; continue; }
+      if (tentativo < 8 && Object.keys(facoltative).length) {
+        // Errore senza nome di colonna: si riprova con la sola riga base.
+        for (const k of Object.keys(facoltative)) delete facoltative[k];
+        continue;
+      }
+      throw e;
     }
   }
+  const xgSalvati = "xg_casa" in facoltative;
+  const statisticheSalvate = "statistiche_squadre" in facoltative;
+  const fasceSalvate = "fasce" in facoltative;
 
   await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}`, {
     family: prediction.family,
@@ -225,7 +253,13 @@ REGOLE OBBLIGATORIE basate sul PIN:
   });
 
   const uscita = Array.isArray(saved) ? saved[0] : saved;
-  return jsonResponse({ ...uscita, ...extra, statistiche_squadre: statistiche, statistiche_salvate: statisticheSalvate, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
+  return jsonResponse({
+    ...uscita, ...extra,
+    statistiche_squadre: statistiche, statistiche_salvate: statisticheSalvate,
+    fasce, fasce_salvate: fasceSalvate,
+    fonti_web: fonti,
+    xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb,
+  });
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {
@@ -331,6 +365,8 @@ function buildMarketTable(
   // garanzia: e' la stessa lezione del 18/09 su NG, che il prompt continuava a
   // proporre perche' glielo suggeriva una vecchia sezione del testo.
   const AMMESSI = CANDIDATE_MARKETS.filter((m) => isVerdictMarket(m));
+  // Posizione nel ranking del motore Poisson: e' un controllo, non un voto.
+  const rankingMotore = structuralAnalysis(odds).ranking.map((r) => r.market);
   const voci = AMMESSI.map((m) => {
     const { quota, stimata } = quotaCatalogo(m, odds);
     return { m, p: coverageForMarket(m, dist).coverage, quota, stimata };
@@ -348,9 +384,11 @@ function buildMarketTable(
     // Sotto la soglia scelta dall'utente il mercato verrebbe scartato a valle:
     // segnalarlo evita che l'IA sprechi la sua prima scelta su qualcosa che
     // non arrivera' mai allo schermo (successo con O1.5 @1.33 su Vasco-Mirassol).
+    const pos = rankingMotore.indexOf(v.m);
     return (
       `${v.m} | prob ${Math.round(v.p * 100)}% | ` +
       `quota ${v.quota ? v.quota.toFixed(2) + (v.stimata ? "~" : "") : "n/d"}` +
+      ` | motore ${pos >= 0 ? "#" + (pos + 1) : "fuori ranking"}` +
       (h ? ` | storico ${h.rate}% su ${h.total} partite simili` : "")
     );
   });
@@ -362,7 +400,8 @@ function buildMarketTable(
 ============================================================
 Legenda: "prob" e' la probabilita' calcolata dal motore Poisson sulla
 distribuzione completa dei risultati. "quota" con la tilde (~) e' stimata da
-noi perche' il bookmaker non la fornisce. "storico" e' quante volte quel
+noi perche' il bookmaker non la fornisce. "motore #n" e' la posizione nel
+ranking del motore Poisson (controllo, non verdetto). "storico" e' quante volte quel
 mercato ha vinto in partite con lo stesso profilo di favorita (tassonomia del
 motore); il manuale dello scenario 1X2 e' la sezione dedicata sopra.
 
@@ -434,4 +473,25 @@ export async function scenarioManuale(odds: Odds, minOdd: number): Promise<strin
     profiloDifensivo: underAmmessiATettoAperto(structuralAnalysis(odds).structure),
     ggO25Manuale: ggO25 ? misura?.mercati[ggO25]?.pct ?? null : null,
   });
+}
+
+/**
+ * Parere del PRE (euristica sulle sole quote reali) come dato di confronto
+ * per l'AI: la sua classifica e i mercati su cui non puo' esprimersi.
+ */
+function bloccoPre(odds: Odds): string {
+  const ranking = preHeuristicRanking(odds);
+  const eleggibili = new Set(preEligibleMarkets(odds));
+  const muti = CANDIDATE_MARKETS.filter((m) => isVerdictMarket(m) && !eleggibili.has(m));
+  return `
+
+============================================================
+⚡ PARERE DEL PRE (euristica sulle sole quote reali del bookmaker)
+============================================================
+${ranking.length ? ranking.map((c, i) => `${i + 1}. ${c.market} @${c.odd.toFixed(2)} (${c.family})`).join("\n") : "Nessun mercato proposto."}
+Non puo' esprimersi (manca una quota reale): ${muti.join(", ") || "nessuno"}.
+E' un parere indipendente: non conosce profilo, web ne' Poisson. Usalo come
+confronto, non come decisione.
+============================================================
+`;
 }

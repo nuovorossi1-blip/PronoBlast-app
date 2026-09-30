@@ -229,6 +229,58 @@ export default function Traccia() {
           )}
         </View>
 
+        {/* PAGELLA DEI SISTEMI (01/10/2026): l'AI al comando migliora la %?
+            Pick registrati PRIMA della partita, valutati col risultato. */}
+        {manuale?.pagella && (
+          <View style={st.box}>
+            <Text style={st.boxTit}>PAGELLA DEI SISTEMI — % DI PRONOSTICI INDOVINATI</Text>
+            <Text style={st.hint}>
+              Pick salvati prima della partita. "Stesse partite" confronta i quattro solo dove tutti avevano un pick:
+              è il confronto alla pari.
+            </Text>
+            <Text style={st.sotto}>Tutte le partite con un pick</Text>
+            {Object.entries(manuale.pagella.sistemi).map(([k, t]) => (
+              <View key={k} style={st.riga}>
+                <Text style={[st.rigaPct, { color: colors.primary }]}>{t.pct === null ? "—" : `${t.pct.toFixed(1)}%`}</Text>
+                <Text style={st.rigaNome}>{k}</Text>
+                <Text style={st.rigaN}>{t.vinte}/{t.vinte + t.perse}</Text>
+              </View>
+            ))}
+            <Text style={st.sotto}>Stesse partite · {manuale.pagella.stesse_partite.partite}</Text>
+            {Object.entries(manuale.pagella.stesse_partite.sistemi).map(([k, t]) => (
+              <View key={k} style={st.riga}>
+                <Text style={[st.rigaPct, { color: colors.primary }]}>{t.pct === null ? "—" : `${t.pct.toFixed(1)}%`}</Text>
+                <Text style={st.rigaNome}>{k}</Text>
+                <Text style={st.rigaN}>{t.vinte}/{t.vinte + t.perse}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* GAP TECNICO PER PROFILO: la regola direzionale (favorita netta +
+            DIFENSIVA -> direzione + pochi gol) regge oltre Belgio-Galles? */}
+        {manuale?.confronto_profilo && Object.keys(manuale.confronto_profilo).length > 0 && (
+          <View style={st.box}>
+            <Text style={st.boxTit}>GAP TECNICO PER PROFILO — DIREZIONE O GOL?</Text>
+            <Text style={st.hint}>
+              Partite con favorita netta, divise per profilo. Se in DIFENSIVA "favorita + U4.5" non tiene il passo di O2.5,
+              la regola direzionale va rivista.
+            </Text>
+            {Object.entries(manuale.confronto_profilo).sort(([a], [b]) => a.localeCompare(b)).map(([k, g]) => (
+              <View key={k}>
+                <Text style={st.sotto}>{k} · {g.partite} partite</Text>
+                {Object.entries(g.mercati).map(([m, t]) => (
+                  <View key={m} style={st.riga}>
+                    <Text style={[st.rigaPct, { color: colors.primary }]}>{t.pct === null ? "—" : `${t.pct.toFixed(1)}%`}</Text>
+                    <Text style={st.rigaNome}>{m}</Text>
+                    <Text style={st.rigaN}>{t.vinte}/{t.vinte + t.perse}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+
         <TouchableOpacity
           onPress={() => { setSoloDopoSplit(!soloDopoSplit); setNuovi(null); setVecchi(null); }}
           disabled={occupato}

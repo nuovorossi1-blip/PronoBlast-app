@@ -20,7 +20,7 @@ import { calcolaManualeStats, METODO_MANUALE } from "./lib/manuale";
 export default async (_req: Request): Promise<Response> => {
   try {
     const stats = await calcolaManualeStats();
-    return jsonResponse({ ok: true, partite_valutate: stats.partite_valutate, metodo: METODO_MANUALE, scenari: stats.scenari });
+    return jsonResponse({ ok: true, partite_valutate: stats.partite_valutate, metodo: METODO_MANUALE, scenari: stats.scenari, pagella: stats.pagella, confronto_profilo: stats.confronto_profilo });
   } catch (e) {
     console.error("[manuale-stats]", e);
     return jsonResponse({ ok: false, error: String((e as any)?.message || e) }, 500);

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  TextInput, } from "react-native";
+  TextInput, Linking, } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, dividiAnalisi, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -90,6 +90,9 @@ export default function MatchDetail() {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [mostraPerche, setMostraPerche] = useState(false);
+  // Fascia mostrata nella scheda AI: parte dalla Quota minima, si puo' sfogliare.
+  const [fasciaAI, setFasciaAI] = useState<number | null>(null);
+  const [fontiAperte, setFontiAperte] = useState(false);
   /** Storico delle partite concluse con quote vicine. Si carica a richiesta:
    *  il server deve scorrere ottomila partite, non ha senso farlo all'apertura
    *  di ogni scheda. */
@@ -241,7 +244,9 @@ export default function MatchDetail() {
       // Filtro strutturale in ingresso (Ticket 6): stesso calcolo del riquadro.
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
-      const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+      // Con le fasce AI il verdetto e' la classifica dell'AI (stessa funzione del server).
+      const daAI = verdettoDaAI(prediction, structural, match.odds, minOdd);
+      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
       const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
@@ -509,7 +514,12 @@ export default function MatchDetail() {
           // solo su mercati giocabili. Il filtro piu' sotto resta come formalita'.
           const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
           const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
-          const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
+          // L'AI E' LA REGISTA (01/10/2026): se il pronostico AI ha le fasce, il
+          // verdetto e' la sua classifica validata per la fascia della Quota
+          // minima; motore e PRE restano come badge di accordo. Senza fasce
+          // (pronostici vecchi o nessun pronostico) resta la fusione.
+          const daAI = verdettoDaAI(prediction, structural, match.odds, minOdd);
+          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -566,9 +576,10 @@ export default function MatchDetail() {
           // Alternative ordinate per concordanza DESC, poi score DESC.
           // POI filtrate per coerenza: scartano contraddizioni col PICK e
           // violazioni floor/ceiling (es. MG 2-X se floor=0, U3.5 se tetto aperto)
-          const altsRaw = verdict
-            .slice(1)
-            .sort((a, b) => (b.concordance - a.concordance) || (b.score - a.score));
+          // Con la classifica AI l'ordine e' quello dell'AI, non la concordanza.
+          const altsRaw = daAI
+            ? verdict.slice(1)
+            : verdict.slice(1).sort((a, b) => (b.concordance - a.concordance) || (b.score - a.score));
           // Se un MG di range e' caduto per il tetto, O2.5 va subito dopo il pick
           // come "lettura gol" (Ticket 6).
           const { alts, letturaGolMarket } = conLetturaGol(
@@ -645,7 +656,11 @@ export default function MatchDetail() {
                   <Text style={[styles.verdictConcTxt, { color: concColor }]}>{concLabel}</Text>
                 </View>
               </View>
-              <Text style={styles.verdictHint}>Fusione pesata di Motore Strutturale (Poisson) + AI + Pre-pronostico locale</Text>
+              <Text style={styles.verdictHint}>
+                {daAI
+                  ? `Classifica dell'AI per la fascia ${daAI.fascia.soglia.toFixed(2)}, controllata da Motore (Poisson) e PRE`
+                  : "Fusione pesata di Motore Strutturale (Poisson) + AI + Pre-pronostico locale"}
+              </Text>
 
               {cautionWarning && (
                 <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-start", backgroundColor: "rgba(245,158,11,0.15)", borderColor: "#F59E0B", borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 6 }}>
@@ -809,13 +824,15 @@ export default function MatchDetail() {
                         </>
                       ) : (<>
                       <Text style={styles.percheMercato}>
-                        {idx === 0 ? "★ " : `${idx + 1}. `}{p.market} — totale {Number(p.score).toFixed(1)}
+                        {idx === 0 ? "★ " : `${idx + 1}. `}{p.market}{p.origine === "ai" ? "" : ` — totale ${Number(p.score).toFixed(1)}`}
                       </Text>
                       {(p.dettaglio || []).map((d, j) => (
                         <View key={j} style={styles.percheRiga}>
-                          <Text style={[styles.perchePunti, { color: d.punti >= 0 ? colors.success : colors.danger }]}>
-                            {d.punti > 0 ? "+" : ""}{d.punti}
-                          </Text>
+                          {p.origine !== "ai" && (
+                            <Text style={[styles.perchePunti, { color: d.punti >= 0 ? colors.success : colors.danger }]}>
+                              {d.punti > 0 ? "+" : ""}{d.punti}
+                            </Text>
+                          )}
                           <Text style={styles.percheVoce}>{d.voce}</Text>
                         </View>
                       ))}
@@ -826,14 +843,16 @@ export default function MatchDetail() {
                     </View>
                   ))}
                   <Text style={styles.percheNota}>
-                    L'ordine segue la classifica della fusione (quante fonti lo mettono in alto). Il punteggio decide solo fra proposte quasi pari (±5 pt): allora vince la quota più bassa.
+                    {daAI
+                      ? `L'ordine è la classifica dell'AI per la fascia ${daAI.fascia.soglia.toFixed(2)}. Il codice ha tenuto solo i mercati giocabili a questa quota e coerenti con la struttura; motore e PRE indicano solo se sono d'accordo.`
+                      : "L'ordine segue la classifica della fusione (quante fonti lo mettono in alto). Il punteggio decide solo fra proposte quasi pari (±5 pt): allora vince la quota più bassa."}
                   </Text>
                 </View>
               )}
 
               {alts.length > 0 && (
                 <View style={{ marginTop: 4 }}>
-                  <Text style={styles.verdictAltTitle}>ALTERNATIVE CONCORDI</Text>
+                  <Text style={styles.verdictAltTitle}>{daAI ? "ALTERNATIVE (classifica AI)" : "ALTERNATIVE CONCORDI"}</Text>
                   {alts.map((a, i) => (
                     <View key={`v-${a.market}-${i}`} style={styles.verdictAltRow}>
                       <View style={styles.verdictAltRank}>
@@ -1339,72 +1358,212 @@ export default function MatchDetail() {
                   <Text style={styles.familyTxt}>{prediction.family}</Text>
                 </View>
               )}
-              {prediction.main_prediction && (
-                <LinearGradient
-                  colors={[colors.primaryLight, colors.primaryDark]}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                  style={styles.mainPred}
-                >
-                  <Text style={styles.mainPredLbl}>PRONOSTICO PRINCIPALE</Text>
-                  <Text style={styles.mainPredVal}>{prediction.main_prediction}</Text>
-                </LinearGradient>
-              )}
-              {/* La proposta dell'IA non e' il verdetto: se cade fuori dai mercati
-                  che Rossi gioca (whitelist), va detto, non presentato come
-                  equivalente al verdetto finale. */}
-              {prediction.main_prediction && !isVerdictMarket(prediction.main_prediction) && (
-                <View style={styles.aiFuoriWrap}>
-                  <Ionicons name="information-circle-outline" size={14} color={colors.warning} />
-                  <Text style={styles.aiFuoriTxt}>
-                    Proposta IA fuori dai mercati giocati: non può diventare il verdetto finale.
-                  </Text>
-                </View>
-              )}
-              {/* Ticket 10: statistiche trovate dall'IA in tabella, casa a
-                  sinistra e ospite a destra; sotto, l'analysis. I pronostici
-                  vecchi non hanno il campo: resta solo il testo. Si mostrano
-                  solo le righe con almeno un dato. */}
               {(() => {
-                const st = prediction.statistiche_squadre;
-                if (!st || typeof st !== "object") return null;
-                const righe = RIGHE_STATISTICHE.filter((r) => (st.casa?.[r.chiave] || "").trim() || (st.ospite?.[r.chiave] || "").trim());
-                if (!righe.length) return null;
+                // ============================================================
+                // SCHEDA AI (01/10/2026): fasce di quota in alto, pronostico
+                // principale della fascia, paletto di affidabilita', tabella
+                // casa | ospite, lettura e perche' separati, classifica della
+                // fascia, fonti compatte. I pronostici vecchi (senza fasce)
+                // mostrano i mercati giocabili come prima.
+                // ============================================================
+                const fasceV = validaFasce(prediction.fasce, { odds: match.odds as any, structural });
+                const sogliaAttiva = fasciaAI ?? minOdd;
+                const fascia: FasciaValidata | null = fasceV?.find((f) => Math.abs(f.soglia - sogliaAttiva) < 0.001) ?? null;
+                const maxOk = sogliaMassimaAffidabile(fasceV);
+                const principale = fasceV ? fascia?.pick?.market ?? null : prediction.main_prediction ?? null;
+                const pickF = fascia?.pick ?? null;
+                const parti = dividiAnalisi(prediction.analysis);
+                const fonti = (prediction.fonti_web || []).map((f) => f.url).filter(Boolean);
+                const tutteFonti = fonti.length ? fonti : parti.fonti;
+                const s = structural?.structure;
+                const st = prediction.statistiche_squadre || null;
+                const righeWeb = RIGHE_STATISTICHE.filter((r) => (st?.casa?.[r.chiave] || "").trim() || (st?.ospite?.[r.chiave] || "").trim());
+                const righeSistema: { etichetta: string; casa: string; ospite: string }[] = [
+                  { etichetta: "Quota segno", casa: match.odds?.odd_1 ? Number(match.odds.odd_1).toFixed(2) : "n/d", ospite: match.odds?.odd_2 ? Number(match.odds.odd_2).toFixed(2) : "n/d" },
+                  ...(s ? [{ etichetta: "Gol attesi (Poisson)", casa: s.lambda_home.toFixed(2), ospite: s.lambda_away.toFixed(2) }] : []),
+                  ...(typeof prediction.xg_casa === "number" || typeof prediction.xg_ospite === "number"
+                    ? [{ etichetta: "xG (web)", casa: typeof prediction.xg_casa === "number" ? prediction.xg_casa.toFixed(2) : "n/d", ospite: typeof prediction.xg_ospite === "number" ? prediction.xg_ospite.toFixed(2) : "n/d" }]
+                    : []),
+                ];
                 return (
-                  <View style={styles.statTable}>
-                    <View style={[styles.statRow, styles.statHeadRow]}>
-                      <Text style={[styles.statCell, styles.statHead]} numberOfLines={1}>{match.squadra1}</Text>
-                      <Text style={[styles.statLbl, styles.statHead]} />
-                      <Text style={[styles.statCell, styles.statHead, { textAlign: "right" }]} numberOfLines={1}>{match.squadra2}</Text>
-                    </View>
-                    {righe.map((r) => (
-                      <View key={r.chiave} style={styles.statRow}>
-                        <Text style={styles.statCell}>{st.casa?.[r.chiave] || "—"}</Text>
-                        <Text style={styles.statLbl}>{r.etichetta}</Text>
-                        <Text style={[styles.statCell, { textAlign: "right" }]}>{st.ospite?.[r.chiave] || "—"}</Text>
+                  <>
+                    {fasceV && (
+                      <View style={styles.fasceRow}>
+                        {fasceV.map((f) => {
+                          const on = Math.abs(f.soglia - sogliaAttiva) < 0.001;
+                          return (
+                            <TouchableOpacity
+                              key={f.soglia}
+                              onPress={() => setFasciaAI(f.soglia)}
+                              style={[styles.minOddChip, on && styles.minOddChipOn, !f.affidabile && styles.minOddChipOltre]}
+                            >
+                              <Text style={[styles.minOddChipTxt, on && styles.minOddChipTxtOn]}>
+                                {chiaveFascia(f.soglia)}{f.affidabile ? "" : " ⚠"}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
-                    ))}
-                  </View>
+                    )}
+
+                    {principale ? (
+                      <LinearGradient
+                        colors={[colors.primaryLight, colors.primaryDark]}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                        style={styles.mainPred}
+                      >
+                        <Text style={styles.mainPredLbl}>
+                          PRONOSTICO PRINCIPALE{fascia ? ` · FASCIA ${chiaveFascia(fascia.soglia)}` : ""}
+                        </Text>
+                        <Text style={styles.mainPredVal}>{principale}</Text>
+                        {pickF && (
+                          <Text style={styles.mainPredMeta}>
+                            {pickF.odd ? `${pickF.stimata ? "≈" : "@"} ${pickF.odd.toFixed(2)}` : ""}
+                            {pickF.prob !== null ? ` · ${Math.round(pickF.prob * 100)}% Poisson` : ""}
+                            {` · motore ${pickF.rankMotore ? "#" + pickF.rankMotore : "fuori ranking"}`}
+                            {pickF.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
+                          </Text>
+                        )}
+                      </LinearGradient>
+                    ) : fasceV ? (
+                      <View style={styles.palettoBox}>
+                        <Text style={styles.palettoTxt}>
+                          Nessuna giocata coerente a {sogliaAttiva.toFixed(2)}: meglio nessun pronostico che uno contro la lettura.
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {/* PALETTO: fin dove la lettura regge (stesso 58% della soglia consigliata). */}
+                    {fasceV && (
+                      <View style={[styles.palettoBox, fascia?.affidabile && styles.palettoOk]}>
+                        <Text style={[styles.palettoTxt, fascia?.affidabile && { color: colors.success }]}>
+                          {fascia?.affidabile
+                            ? `Affidabile a questa quota${maxOk ? ` (fino a ${chiaveFascia(maxOk)})` : ""}.`
+                            : maxOk
+                              ? `⚠ Non superare ${chiaveFascia(maxOk)}: a ${sogliaAttiva.toFixed(2)} la scelta ${pickF ? `(${pickF.market}${pickF.prob !== null ? `, ${Math.round(pickF.prob * 100)}%` : ""}) ` : ""}è sotto il ${Math.round(PROB_AFFIDABILE * 100)}%, non affidabile.`
+                              : `⚠ Nessuna fascia arriva al ${Math.round(PROB_AFFIDABILE * 100)}%: partita da non forzare.`}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* La proposta dell'IA non e' il verdetto se cade fuori dai
+                        mercati giocati (whitelist): va detto. */}
+                    {principale && !isVerdictMarket(principale) && (
+                      <View style={styles.aiFuoriWrap}>
+                        <Ionicons name="information-circle-outline" size={14} color={colors.warning} />
+                        <Text style={styles.aiFuoriTxt}>
+                          Proposta IA fuori dai mercati giocati: non può diventare il verdetto finale.
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Tabella CASA | OSPITE: righe di sistema sempre presenti
+                        (quote, gol attesi) + le statistiche trovate sul web.
+                        Dato assente = "n/d", mai inventato. */}
+                    <View style={styles.statTable}>
+                      <View style={[styles.statRow, styles.statHeadRow]}>
+                        <Text style={[styles.statCell, styles.statHead]} numberOfLines={1}>{match.squadra1}</Text>
+                        <Text style={[styles.statLbl, styles.statHead]} />
+                        <Text style={[styles.statCell, styles.statHead, { textAlign: "right" }]} numberOfLines={1}>{match.squadra2}</Text>
+                      </View>
+                      {righeSistema.map((r) => (
+                        <View key={r.etichetta} style={styles.statRow}>
+                          <Text style={styles.statCell}>{r.casa}</Text>
+                          <Text style={styles.statLbl}>{r.etichetta}</Text>
+                          <Text style={[styles.statCell, { textAlign: "right" }]}>{r.ospite}</Text>
+                        </View>
+                      ))}
+                      {righeWeb.map((r) => (
+                        <View key={r.chiave} style={styles.statRow}>
+                          <Text style={styles.statCell}>{st?.casa?.[r.chiave] || "n/d"}</Text>
+                          <Text style={styles.statLbl}>{r.etichetta}</Text>
+                          <Text style={[styles.statCell, { textAlign: "right" }]}>{st?.ospite?.[r.chiave] || "n/d"}</Text>
+                        </View>
+                      ))}
+                      {!righeWeb.length && (
+                        <Text style={styles.statVuoto}>Nessuna statistica dal web in questo pronostico.</Text>
+                      )}
+                    </View>
+
+                    {parti.lettura ? (
+                      <View style={styles.analisiBox}>
+                        <Text style={styles.analisiTitolo}>LETTURA DELLA PARTITA</Text>
+                        <Text style={styles.analysis}>{parti.lettura}</Text>
+                      </View>
+                    ) : null}
+                    {(parti.perche || fascia?.perche) ? (
+                      <View style={styles.analisiBox}>
+                        <Text style={styles.analisiTitolo}>PERCHÉ QUESTA SCELTA</Text>
+                        {parti.perche ? <Text style={styles.analysis}>{parti.perche}</Text> : null}
+                        {fascia?.perche ? (
+                          <Text style={[styles.analysis, { marginTop: 6 }]}>
+                            <Text style={{ fontWeight: "900" }}>A {chiaveFascia(fascia.soglia)}: </Text>{fascia.perche}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    {fascia ? (
+                      <View style={styles.playableList}>
+                        <Text style={styles.playableTitle}>CLASSIFICA AI · FASCIA {chiaveFascia(fascia.soglia)}</Text>
+                        {fascia.voci.map((v, i) => (
+                          <View key={v.market} style={styles.playableItem}>
+                            <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
+                              <Text style={[styles.rankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.playableMarket}>
+                                {v.market}{v.odd ? `  ${v.stimata ? "≈" : "@"}${v.odd.toFixed(2)}` : ""}
+                              </Text>
+                              <Text style={styles.playableReason}>
+                                {v.prob !== null ? `${Math.round(v.prob * 100)}% Poisson · ` : ""}
+                                motore {v.rankMotore ? `#${v.rankMotore}` : "fuori ranking"} · PRE {v.rankPre ? `#${v.rankPre}` : "—"}
+                                {v.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
+                                {v.prob !== null && v.prob < PROB_AFFIDABILE ? " · sotto il 58%" : ""}
+                              </Text>
+                            </View>
+                          </View>
+                        ))}
+                        {!fascia.voci.length && (
+                          <Text style={styles.playableReason}>Nessun mercato giocabile a questa fascia.</Text>
+                        )}
+                        {fascia.scartati.map((x) => (
+                          <Text key={`sc-${x.market}`} style={styles.scartatoTxt}>✕ {x.market}: {x.motivo}</Text>
+                        ))}
+                      </View>
+                    ) : prediction.playable_markets && prediction.playable_markets.length > 0 ? (
+                      <View style={styles.playableList}>
+                        <Text style={styles.playableTitle}>MERCATI GIOCABILI (ordine probabilità)</Text>
+                        {prediction.playable_markets.map((p, i) => (
+                          <View key={i} style={styles.playableItem}>
+                            <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
+                              <Text style={[styles.rankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.playableMarket}>{p.market}</Text>
+                              <Text style={styles.playableReason}>{p.reasoning}</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    {tutteFonti.length > 0 && (
+                      <View>
+                        <TouchableOpacity onPress={() => setFontiAperte(!fontiAperte)} style={styles.percheBtn} activeOpacity={0.7}>
+                          <Ionicons name={fontiAperte ? "chevron-down" : "chevron-forward"} size={14} color={colors.textMuted} />
+                          <Text style={styles.percheBtnTxt}>FONTI WEB ({tutteFonti.length})</Text>
+                        </TouchableOpacity>
+                        {fontiAperte && tutteFonti.map((u) => (
+                          <Text key={u} style={styles.fonteTxt} numberOfLines={1} onPress={() => Linking.openURL(u).catch(() => {})}>
+                            {u.replace(/^https?:\/\/(www\.)?/, "")}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
+                  </>
                 );
               })()}
-              {prediction.analysis && (
-                <Text style={styles.analysis}>{prediction.analysis}</Text>
-              )}
-              {prediction.playable_markets && prediction.playable_markets.length > 0 && (
-                <View style={styles.playableList}>
-                  <Text style={styles.playableTitle}>MERCATI GIOCABILI (ordine probabilità)</Text>
-                  {prediction.playable_markets.map((p, i) => (
-                    <View key={i} style={styles.playableItem}>
-                      <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
-                        <Text style={[styles.rankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.playableMarket}>{p.market}</Text>
-                        <Text style={styles.playableReason}>{p.reasoning}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
               <TouchableOpacity
                 testID="regen-ai"
                 onPress={() => runPrediction(true)}
@@ -1573,6 +1732,16 @@ const styles = StyleSheet.create({
   mainPredLbl: { color: "#FFE4D9", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   mainPredVal: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 4 },
   analysis: { color: colors.text, fontSize: 13, lineHeight: 20 },
+  fasceRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  mainPredMeta: { color: "#FFF", fontSize: 11, fontWeight: "700", marginTop: 4, opacity: 0.9 },
+  palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },
+  palettoOk: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },
+  palettoTxt: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 17 },
+  statVuoto: { color: colors.textMuted, fontSize: 11, paddingVertical: 6, textAlign: "center" },
+  analisiBox: { backgroundColor: colors.surfaceHi, borderRadius: 10, padding: 10, gap: 4 },
+  analisiTitolo: { color: colors.textMuted, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  scartatoTxt: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
+  fonteTxt: { color: colors.primary, fontSize: 11, paddingVertical: 3, paddingLeft: 20 },
   statTable: { backgroundColor: colors.surfaceHi, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   statRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   statHeadRow: { borderBottomWidth: 1 },
