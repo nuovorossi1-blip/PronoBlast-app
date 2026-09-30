@@ -205,16 +205,16 @@ const push = (market: string, odd: number, family: string) => {
 1. `DC 1X + U3.5` È in whitelist (api.ts ~742) e l'AI l'ha proposto come #5 con motivazione corretta ("se si teme che il Galles si chiuda… resti sul 2-0/2-1"). NON è mai arrivato a schermo perché `violatesStructure` (api.ts ~1581) dice: **tetto aperto → TUTTI gli under incoerenti**. La famiglia DOMINANZA_OVER ha tetto aperto per costruzione → l'under muore sempre lì, proprio nei profili DIFENSIVA dove l'under ha più senso. Sul 1-0 di Belgio-Galles il veicolo sarebbe stato VINTO (mentre DC 1X+O2.5 è perso).
 2. `1 + U4.5` NON è in whitelist: non può essere proposto da nessuno (menù del proprietario).
 
-**LA DECISIONE È DEL PROPRIETARIO — rispondere con A, B o C prima di eseguire:**
-- **A) Restiamo così** (default se non rispondi): tetto aperto = niente under, punto. Massima coerenza col PIN ("il tetto non garantisce"); accettiamo di perdere i veicoli under nei profili DIFENSIVA. Zero modifiche.
-- **B) Under CORTI ammessi anche a tetto aperto, ma solo quando il profilo conferma**: U3.5/U4.5 puri e combo DC+U3.5 ammessi SE il profilo strutturale è DIFENSIVA (o λ_totale ≤ 3.5). Il tetto aperto continua a vietare i RANGE MG (la regola che ha salvato il proprietario) e gli under quando λ è alto. Criterio deterministico: profilo/λ, mai i risultati.
-- **C) Come B, più aggiunta alla whitelist di `1 + U4.5`** (veicolo secco direzione+pochi gol, per i gap tecnici con avversario murato).
+**DECISIONE DEL PROPRIETARIO (30/09): C — eseguire l'opzione C, che INCLUDE la B.** Le opzioni restano documentate per storia:
+- **A) scartata**: tetto aperto = niente under (comportamento attuale).
+- **B) INCLUSA IN C**: U3.5/U4.5 puri e combo DC+U3.5 ammessi a tetto aperto SOLO se il profilo strutturale è DIFENSIVA (o λ_totale ≤ 3.5). Il tetto aperto CONTINUA a vietare i RANGE MG (regola confermata del proprietario) e gli under quando λ è alto. Criterio deterministico: profilo/λ, mai i risultati.
+- **C) SCELTA**: come B, PIÙ aggiunta alla whitelist di `1 + u4.5` (veicolo secco direzione+pochi gol per i gap tecnici con avversario murato — la lettura "1 fisso + difesa ospite chiusa"). Nota: aggiungendolo a VERDICT_WHITELIST entra AUTOMATICAMENTE anche nel catalogo AI (che filtra per whitelist) e nel valutatore (che già sa valutare U4.5 e i combo col +). Se la quota U4.5 manca nel palinsesto, il motore la stima (~).
 
 **Se B o C, il fix minimo:** in `violatesStructure`, il ramo ceilingOpen per gli UNDER diventa condizionato (profilo DIFENSIVA o λ_totale ≤ 3.5 → U3.5/U4.5 e combo DC+U* ammessi); la stessa logica condivisa in verdettoServer e nel catalogo AI (Regola 4). Se C: aggiungere "1 + u4.5" a VERDICT_WHITELIST (il valutatore sa già valutare U4.5 e i combo col +).
 
 **Non fare (in nessuna opzione):** NON toccare la regola MG a tetto aperto (MG 2-4/2-5 restano fuori: decisione confermata dal proprietario); NON usare l'esito 1-0 come argomento di calibrazione (n=1: la regola si cambia sul profilo, non su un risultato).
 
-**Test di accettazione (opzione B):** Belgio-Galles (DIFENSIVA, tetto aperto): DC 1X+U3.5 compare nel verdetto/alternative (coverage ~54%); Spagna-Croazia (tetto aperto ma non difensivo): gli under restano fuori. Opzione A: zero modifiche.
+**Test di accettazione (opzione C confermata):** Belgio-Galles (DIFENSIVA, tetto aperto): DC 1X+U3.5 E "1 + U4.5" compaiono nel verdetto/alternative (coverage ~54%); unitari valutatore: ("1 + U4.5", "1-0")→true, ("1 + U4.5", "4-1")→false, ("1 + U4.5", "3-1")→true; Spagna-Croazia (tetto aperto ma non difensivo): gli under restano FUORI; MG 2-4/2-5 a tetto aperto restano FUORI in entrambe (regola MG intoccata).
 
 ---
 
