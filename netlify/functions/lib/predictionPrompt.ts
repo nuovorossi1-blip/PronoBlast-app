@@ -39,10 +39,43 @@ La famiglia serve a raccontare la partita nell'"analysis". NON detta un ordine d
 preferenza fra i mercati: quello lo decidono i numeri del catalogo.
 
 ═══════════════════════════════════════
-FASE 2 — RANKING + PAVIMENTO/TETTO ESPLICITI
+FASE 2 — SEI TU A STILARE LA CLASSIFICA E IL VERDETTO
 ═══════════════════════════════════════
-Restituisci 3-5 mercati del catalogo ordinati dal PIU' PROBABILE al MENO
-PROBABILE. Il "main_prediction" e' il primo.
+Tu hai il web, il motore Poisson e il PRE no: la classifica la decidi tu.
+Motore (prob, "motore #n") e PRE sono DATI e CONTROLLI, non voti da seguire.
+Gerarchia della decisione, in quest'ordine:
+  1. QUALITA' DEI DATI WEB: sono prepartita? riguardano proprio queste squadre
+     e questa competizione? sono confermati da fonti affidabili? Un dato va
+     sempre qualificato: "xG 1,8" non dice niente se non dici a cosa si
+     riferisce (a partita? stagione? torneo?), in che periodo e da che fonte.
+     I precedenti con tanti gol pesano POCO: non devono prevalere su dati piu'
+     recenti e pertinenti solo perche' confermano l'Over.
+  2. CONTESTO TATTICO: una favorita netta puo' vincere controllando la partita
+     oppure dilagare. Profilo (DIFENSIVA/neutra/offensiva) e notizie (moduli,
+     assenze, motivazioni) servono a distinguere i due casi.
+  3. POISSON E QUOTE: misure di probabilita' e di controllo, non verdetto
+     automatico. Il mercato con la prob piu' alta NON e' primo per forza.
+  4. IL MERCATO che meglio esprime la lettura:
+     - direzione forte ma gol incerti o contenuti → combinazione direzione +
+       limite ai gol (1 + U4.5, DC 1X + U3.5 e speculari) o la sola direzione;
+     - evidenze di partita aperta → O2.5 / MG 3-6 possono stare in cima.
+REGOLA DIREZIONALE (vincolante, la controlla anche il codice): con favorita
+netta (scenario GAP TECNICO) e profilo DIFENSIVA, al primo posto di ogni fascia
+NON puo' stare un mercato che scommette sui gol (O2.5, MG 3-6, GG, GG + O2.5,
+DC 1X + O2.5...): se lo metti, il codice lo scarta.
+Il risultato della partita non esiste per te: ragiona SOLO con le informazioni
+disponibili prima del calcio d'inizio.
+
+CLASSIFICA PER FASCIA DI QUOTA — campo "fasce":
+per ciascuna fascia 1.40, 1.50, 1.60, 1.75 una classifica di 1-5 mercati del
+CATALOGO con quota >= della fascia (una quota 1.45 vale per la fascia 1.40, non
+per la 1.50), dal piu' affidabile al meno, e un "perche" di 1-2 frasi: perche'
+QUELLA scelta a QUELLA quota e dove sta nel ranking del motore. Se a una fascia
+la scelta migliore e' sotto il 58% di probabilita', dillo nel "perche" ("non
+affidabile a questa quota: non superare 1.50"). Se a una fascia non c'e'
+niente di coerente con la tua lettura, lascia la classifica vuota: meglio
+nessuna giocata che una giocata contro la lettura.
+"playable_markets" e "main_prediction" = la classifica della fascia 1.40.
 
 ORDINE FISSO DEL CAMPO "analysis" (due parti, in quest'ordine):
   (1) LETTURA DELLA PARTITA — 2-3 frasi: le quote lette come SISTEMA (non
@@ -50,8 +83,10 @@ ORDINE FISSO DEL CAMPO "analysis" (due parti, in quest'ordine):
   (2) PERCHE' QUESTA SCELTA — 2-3 frasi: perche' il main_prediction e gli
       altri mercati proposti.
 VIETATO ripetere il PIN (pavimento, tetto, range, lambda): e' gia' a schermo
-nella sezione STRUTTURA MATCH. I numeri delle squadre (attacco, difesa, xG,
-forma...) vanno nel campo "statistiche_squadre", NON in prosa.
+nella sezione STRUTTURA MATCH. I dati delle squadre — numeri (attacco, difesa,
+xG, forma) E fatti tattici (modulo, assenze, precedenti) — vanno nel campo
+"statistiche_squadre" (i fatti in "note_chiave"), NON in prosa: la scheda li
+mostra in una tabella casa | ospite.
 
 Come stabilire PAVIMENTO e TETTO (servono a "min_goals"/"max_goals", non all'analysis):
 - PAVIMENTO = gol minimo probabili. Es. O1.5 <= 1.30 ⇒ pavimento 2. O1.5 1.31-1.60 ⇒ pavimento "0 (probabile 2)". O1.5 > 1.60 ⇒ pavimento 0.
@@ -81,6 +116,12 @@ OUTPUT (SOLO JSON, niente markdown)
   "xg_casa": 1.15,
   "xg_ospite": 1.25,
   "h2h_over_pct": 33.3,
+  "fasce": {
+    "1.40": {"classifica": ["MG 2-4 totali", "DC 1X + O1.5"], "perche": "Il range chiuso e' la lettura piu' solida (motore #1, 64%)."},
+    "1.50": {"classifica": ["MG 2-4 totali"], "perche": "Stessa lettura, quota 1.54: ancora sopra il 58%."},
+    "1.60": {"classifica": ["GG + O2.5"], "perche": "Unica coerente sopra 1.60, ma al 47%: non affidabile, non superare 1.50."},
+    "1.75": {"classifica": [], "perche": "Niente di coerente con la lettura a questa quota."}
+  },
   "statistiche_squadre": {
     "casa":   {"attacco": "1,8 gol/partita in casa", "difesa": "0,9 subiti", "xg": "1,15", "xga": "", "forma": "V V P N V", "proiezione_gol": "", "note_chiave": "attaccante titolare squalificato"},
     "ospite": {"attacco": "1,1 gol/partita fuori", "difesa": "", "xg": "1,25", "xga": "", "forma": "P N V P P", "proiezione_gol": "", "note_chiave": ""}
@@ -165,6 +206,28 @@ export type AiPrediction = {
 export const CHIAVI_STATISTICHE = ["attacco", "difesa", "xg", "xga", "forma", "proiezione_gol", "note_chiave"] as const;
 export type StatisticheSquadra = Partial<Record<(typeof CHIAVI_STATISTICHE)[number], string>>;
 export type StatisticheSquadre = { casa: StatisticheSquadra; ospite: StatisticheSquadra };
+
+/**
+ * Normalizza "fasce" della risposta del modello: solo le quattro fasce, solo
+ * nomi di mercato in testo, al massimo 5 per fascia. null se manca: il
+ * pronostico non si blocca mai per questo campo (e il verdetto torna alla
+ * fusione).
+ */
+export function normalizzaFasce(v: any): Record<string, { classifica: string[]; perche: string }> | null {
+  if (!v || typeof v !== "object") return null;
+  const out: Record<string, { classifica: string[]; perche: string }> = {};
+  for (const k of ["1.40", "1.50", "1.60", "1.75"]) {
+    const f = v[k] ?? v[String(Number(k))];
+    if (!f || typeof f !== "object") continue;
+    const classifica = (Array.isArray(f.classifica) ? f.classifica : [])
+      .map((m: any) => (typeof m === "string" ? m : m?.market))
+      .filter((m: any) => typeof m === "string" && m.trim())
+      .map((m: string) => m.trim())
+      .slice(0, 5);
+    out[k] = { classifica, perche: typeof f.perche === "string" ? f.perche.trim() : "" };
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 /**
  * Normalizza "statistiche_squadre" della risposta del modello: solo le chiavi
@@ -274,7 +337,8 @@ export function bloccoScenarioManuale(args: {
 CLAUSOLA DI COERENZA (caso Belgio-Galles 1-0): il veicolo deve preservare la
 NATURA della lettura del manuale. Il manuale del GAP TECNICO e' direzione pura
 (favorita fisso, AH -0,75): un veicolo che aggiunge rischio gol (DC 1X + O2.5,
-1 + O2.5, e speculari) va proposto SOLO se la componente gol non e' sconsigliata
+1 + O2.5, e speculari) — E ALLO STESSO MODO un mercato di soli gol (O2.5,
+MG 3-6, GG) — va messo primo SOLO se la componente gol non e' sconsigliata
 dallo scenario stesso (GG + Over 2,5 da manuale >= 50%: qui ${args.ggO25Manuale != null ? pct1(args.ggO25Manuale) + "%" : "non misurato"}) ne' dal
 profilo strutturale (qui: ${args.profiloDifensivo ? "DIFENSIVA → componente gol SCONSIGLIATA" : "non DIFENSIVA"}).
 Se la direzione pura e' tutta sotto soglia E il gol e' sconsigliato: l'analysis

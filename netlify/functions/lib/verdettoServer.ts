@@ -1,8 +1,8 @@
 import { pgGet, pgPatch } from "./supabaseRest";
-import { structuralAnalysis, type Odds } from "./clusterEngine";
+import { structuralAnalysis, quoteCatalogo, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import {
-  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso,
+  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -101,11 +101,15 @@ export async function verdettoDiPartita(
   // Ultimo pronostico AI salvato, se esiste. La maggior parte delle partite non
   // ce l'ha: la fusione funziona lo stesso, con due voci invece di tre.
   let aiMarkets: { market: string; reasoning?: string }[] | undefined;
+  let fasceAI: any = null;
   try {
+    // select=* e non l'elenco dei campi: `fasce` esiste solo se la colonna e'
+    // stata creata, e chiederla per nome farebbe fallire tutta la lettura.
     const preds = await pgGet(
-      `predictions?match_id=eq.${encodeURIComponent(match.id)}&select=playable_markets,main_prediction&order=created_at.desc&limit=1`,
+      `predictions?match_id=eq.${encodeURIComponent(match.id)}&select=*&order=created_at.desc&limit=1`,
     );
     if (preds.length) {
+      fasceAI = preds[0].fasce || null;
       aiMarkets = preds[0].playable_markets || [];
       if (preds[0].main_prediction && !(aiMarkets || []).some((x: any) => x.market === preds[0].main_prediction)) {
         aiMarkets = [{ market: preds[0].main_prediction }, ...(aiMarkets || [])];
@@ -126,7 +130,19 @@ export async function verdettoDiPartita(
   );
   const preRanked = rankPicks(ingresso.pre as any, [], []);
 
-  const grezzo = buildFinalVerdict(
+  // Se il pronostico AI ha le fasce, il verdetto e' la sua classifica validata
+  // per la fascia della soglia (stessa funzione della scheda); altrimenti la
+  // fusione di sempre.
+  const daAI = verdettoDaAI(
+    { fasce: fasceAI },
+    {
+      ...(structural as any),
+      market_odds: quoteCatalogo(odds),
+      pre_ranking: preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd })),
+    },
+    odds, minOdd,
+  );
+  const grezzo = daAI ? daAI.picks : buildFinalVerdict(
     ingresso.structural, preRanked, aiMarkets, odds, history, { minOdd },
   );
   // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':

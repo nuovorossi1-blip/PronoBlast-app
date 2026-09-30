@@ -681,6 +681,19 @@ export function isVerdictMarket(market: string): boolean {
   return VERDICT_WHITELIST.some((m) => m.toUpperCase() === n);
 }
 
+/** Quota di ogni mercato del catalogo: reale se il bookmaker la fornisce,
+ *  altrimenti stimata. Una sola sede: la usano /predict (market_odds per la
+ *  scheda) e il verdetto server (validazione delle fasce AI). */
+export function quoteCatalogo(odds: Odds): Record<string, { odd: number; estimated: boolean }> {
+  const out: Record<string, { odd: number; estimated: boolean }> = {};
+  for (const m of CANDIDATE_MARKETS) {
+    const reale = comboOdd(m, odds);
+    const q = reale ?? estimateMarketOdd(m, odds);
+    if (q && q > 1) out[m] = { odd: Math.round(q * 100) / 100, estimated: reale === null };
+  }
+  return out;
+}
+
 export function comboOdd(market: string, odds: Odds): number | null {
   const m = market.trim().toUpperCase().replace(/DC /g, "").replace(/ {2}/g, " ");
   if (ODD_MAP[m]) {
