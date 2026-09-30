@@ -154,6 +154,8 @@ export function rowToMatch(row: any) {
     // card nell'elenco partite, altrimenti card e dettaglio mostrano due pick
     // diversi per la stessa partita.
     pick_finale: row.pick_finale,
+    // Ricalcolo storico con le regole di oggi (colonna facoltativa).
+    ricalcolo: row.ricalcolo ?? null,
     selected: row.selected,
     created_at: row.created_at,
     updated_at: row.updated_at,

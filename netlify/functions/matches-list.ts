@@ -1,4 +1,5 @@
-import { pgGetAll, jsonResponse, rowToMatch } from "./lib/supabaseRest";
+import { pgGetAll, jsonResponse, rowToMatch, rowToOdds } from "./lib/supabaseRest";
+import { preHeuristicRanking } from "./lib/preHeuristic";
 
 /**
  * GET /matches-list?day=YYYY-MM-DD&q=testo
@@ -21,7 +22,20 @@ export default async (req: Request): Promise<Response> => {
     // pgGetAll: con `limit=5000` PostgREST rispondeva comunque al massimo 1000
     // righe, troncando in silenzio (27/09/2026).
     const rows = await pgGetAll(`matches?select=*${filter}`, "day.asc,time.asc");
-    return jsonResponse(rows.map(rowToMatch));
+    // Anteprima della card: il primo mercato del PRE del server, lo stesso che
+    // la scheda mostra (prima la card usava un'euristica diversa, e card e
+    // scheda si contraddicevano: MG 2-4 contro X2 su Santos-Cruzeiro).
+    return jsonResponse(rows.map((r: any) => {
+      const m: any = rowToMatch(r);
+      if (!r.pick_finale) {
+        try {
+          m.anteprima_pre = preHeuristicRanking(rowToOdds(r))[0]?.market ?? null;
+        } catch (e) {
+          console.error("[matches-list] anteprima", r.id, e);
+        }
+      }
+      return m;
+    }));
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 502);
   }

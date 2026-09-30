@@ -547,7 +547,11 @@ export default function MatchDetail() {
           // quota compreso: l'utente restava senza il comando per abbassare la
           // soglia e sbloccarsi. Ora il riquadro c'e' sempre, con il selettore
           // e la spiegazione al posto della giocata.
-          if (verdictRaw.length === 0) return renderNessunaGiocata();
+          // RICALCOLO STORICO (01/10/2026): per una partita conclusa, cosa dicono
+          // le regole di oggi alla Quota minima scelta (salvato dal tasto in
+          // Strumenti, in ordine di data, senza sbirciare il futuro).
+          const ricQui = match.result ? (match.ricalcolo?.fasce?.[chiaveFascia(minOdd)] ?? null) : null;
+          if (verdictRaw.length === 0 && !ricQui) return renderNessunaGiocata();
           // ============================================================
           // FILTRO STRUTTURALE: scarta picks che violano floor/ceiling
           // (es. MG 2-4 con floor=0, MG 1-3 con floor=2-tetto=4, U2.5 con tetto aperto)
@@ -556,7 +560,7 @@ export default function MatchDetail() {
           // ============================================================
           const violatesFn = (m: string) => !ammessoDallaStruttura(m, structural?.structure);
           const verdictCalcolato = verdictRaw.filter((v) => !violatesFn(v.market));
-          if (verdictCalcolato.length === 0) return renderNessunaGiocata();
+          if (verdictCalcolato.length === 0 && !ricQui) return renderNessunaGiocata();
 
           // ============================================================
           // VERDETTO CONGELATO A PARTITA FINITA (28/09/2026)
@@ -592,16 +596,32 @@ export default function MatchDetail() {
                 ...verdictCalcolato.filter((v) => normalizeMarket(v.market) !== normalizeMarket(match.pick_finale!)),
               ]
             : verdictCalcolato;
-          const top = verdict[0];
-          const verdettoDiverso = congelato
+          // Partita conclusa SENZA congelato ma ricalcolata: il pick mostrato e'
+          // quello del ricalcolo (onesto, salvato), non il ricalcolo "vivo" della
+          // scheda, che usa lo storico di oggi e quindi conosce gia' il risultato.
+          const soloRicalcolo = !congelato && !!ricQui;
+          const pickRic: VerdictPick | null = ricQui
+            ? ({
+                market: ricQui.market, score: 0, sources: [], ranks: {},
+                odd: ricQui.odd ?? undefined, oddEstimated: ricQui.stimata,
+                coverage: ricQui.prob ?? undefined,
+                concordance: 0, agreementLabel: "divergente",
+              } as VerdictPick)
+            : null;
+          const verdictMostrato = soloRicalcolo && pickRic
+            ? [pickRic, ...verdict.filter((v) => normalizeMarket(v.market) !== normalizeMarket(pickRic.market))]
+            : verdict;
+          const top = verdictMostrato[0];
+          const esitoRic = ricQui?.esito === "vinta" ? "won" : ricQui?.esito === "persa" ? "lost" : null;
+          const verdettoDiverso = congelato && !ricQui && !!verdictCalcolato[0]
             && normalizeMarket(verdictCalcolato[0].market) !== normalizeMarket(match.pick_finale!);
           // Alternative ordinate per concordanza DESC, poi score DESC.
           // POI filtrate per coerenza: scartano contraddizioni col PICK e
           // violazioni floor/ceiling (es. MG 2-X se floor=0, U3.5 se tetto aperto)
           // Con la classifica AI l'ordine e' quello dell'AI, non la concordanza.
           const altsRaw = daAI
-            ? verdict.slice(1)
-            : verdict.slice(1).sort((a, b) => (b.concordance - a.concordance) || (b.score - a.score));
+            ? verdictMostrato.slice(1)
+            : verdictMostrato.slice(1).sort((a, b) => (b.concordance - a.concordance) || (b.score - a.score));
           // Se un MG di range e' caduto per il tetto, O2.5 va subito dopo il pick
           // come "lettura gol" (Ticket 6).
           const { alts, letturaGolMarket } = conLetturaGol(
@@ -743,7 +763,7 @@ export default function MatchDetail() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.verdictLabel}>
-                    {congelato ? "GIOCATA CONSIGLIATA (congelata)" : "GIOCATA CONSIGLIATA"}
+                    {congelato ? "GIOCATA CONSIGLIATA (congelata)" : soloRicalcolo ? "RICALCOLATA CON LE REGOLE DI OGGI" : "GIOCATA CONSIGLIATA"}
                   </Text>
                   {verdettoDiverso && (
                     <Text style={styles.congelatoNota}>
@@ -780,6 +800,28 @@ export default function MatchDetail() {
                   )}
                 </View>
               </View>
+
+              {/* Seconda riga delle partite concluse: cosa dicono le regole di
+                  oggi (ricalcolo in ordine di data), verde se indovinato, rosso
+                  se sbagliato, accanto al congelato che resta intatto. */}
+              {congelato && ricQui && (
+                <View style={[
+                  styles.ricRow,
+                  esitoRic === "won" && { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },
+                  esitoRic === "lost" && { borderColor: colors.danger, backgroundColor: "rgba(239,68,68,0.10)" },
+                ]}>
+                  <Text style={styles.ricLbl}>CON LE REGOLE DI OGGI · {chiaveFascia(minOdd)}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Text style={styles.ricMarket}>{ricQui.market}</Text>
+                    {ricQui.odd ? <Text style={styles.ricOdd}>{ricQui.stimata ? "≈" : "@"} {ricQui.odd.toFixed(2)}</Text> : null}
+                    {esitoRic === "won" && <Text style={[styles.ricEsito, { color: colors.success }]}>✓ VINTO</Text>}
+                    {esitoRic === "lost" && <Text style={[styles.ricEsito, { color: colors.danger }]}>✗ PERSO</Text>}
+                  </View>
+                </View>
+              )}
+              {congelato && !ricQui && match.result && (
+                <Text style={styles.ricVuoto}>Regole di oggi: non ancora ricalcolata (Strumenti → Ricalcola tutto).</Text>
+              )}
 
               {/* Il salvato e il ricalcolato possono divergere: la card della
                   Schedina mostra `pick_finale`, cioe' il verdetto fissato in un
@@ -1747,6 +1789,12 @@ const styles = StyleSheet.create({
   mainPredVal: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 4 },
   analysis: { color: colors.text, fontSize: 13, lineHeight: 20 },
   fasceRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  ricRow: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, marginTop: 8, gap: 4 },
+  ricLbl: { color: colors.textMuted, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  ricMarket: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  ricOdd: { color: colors.textMuted, fontSize: 13, fontWeight: "700" },
+  ricEsito: { fontSize: 12, fontWeight: "900" },
+  ricVuoto: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
   mainPredMeta: { color: "#FFF", fontSize: 11, fontWeight: "700", marginTop: 4, opacity: 0.9 },
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },
   palettoOk: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },

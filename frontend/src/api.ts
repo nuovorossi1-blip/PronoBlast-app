@@ -95,6 +95,24 @@ export type Match = {
   pick_finale_prob?: number | null;
   playable_markets?: { market: string; reasoning?: string }[] | null;
   selected?: boolean;
+  /** Ricalcolo storico con le regole di oggi (tasto in Strumenti): solo per
+   *  le partite concluse, accanto al congelato che NON viene toccato. */
+  ricalcolo?: RicalcoloPartita | null;
+  /** Primo mercato del PRE del server (lo stesso della scheda): anteprima della
+   *  card finche' non c'e' un verdetto. */
+  anteprima_pre?: string | null;
+};
+
+export type RicalcoloFasciaPartita = {
+  market: string; odd: number | null; stimata: boolean; prob: number | null;
+  esito: "vinta" | "persa" | "rimborso" | "mezza" | null;
+} | null;
+export type RicalcoloPartita = { versione: string; data: string; fasce: Record<string, RicalcoloFasciaPartita> };
+
+export type RicalcoloStato = {
+  versione: string; iniziato: string; pos: number; totale: number; finito: boolean;
+  curva: Record<string, Record<string, { v: number; p: number }>>;
+  pagella: Record<string, { oggi: { v: number; p: number }; stesse: number; oggiStesse: number; congelatoStesse: number }>;
 };
 
 export type Prediction = {
@@ -355,6 +373,12 @@ export const api = {
   /** Ricostruisce l'apprendimento rigiocando le partite concluse, a blocchi. */
   rebuildLearning: (from = 0, reset = false) =>
     netlifyReq<RebuildResponse>(`/rebuild-learning?from=${from}${reset ? "&reset=1" : ""}`, { method: "POST" }),
+
+  /** Ricalcolo storico con le regole di oggi, in ordine di data, a blocchi. */
+  ricalcolo: (from = 0, reset = false) =>
+    netlifyReq<{ ok: boolean; totale_concluse: number; elaborate: number; scritte: number; saltate: number; prossimo: number | null; finito: boolean; error?: string }>(
+      `/ricalcolo?from=${from}${reset ? "&reset=1" : ""}`, { method: "POST" }),
+  ricalcoloStato: () => netlifyReq<{ ok: boolean; stato: RicalcoloStato | null }>("/ricalcolo"),
 
   /** Caricamento massivo dei risultati dal foglio compilato. */
   resultsImport: (items: { id: string; result: string }[], overwrite = false) =>
