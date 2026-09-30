@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +7,8 @@ import * as XLSX from "xlsx";
 import * as DocumentPicker from "expo-document-picker";
 import BottomNav from "@/src/components/BottomNav";
 import { colors } from "@/src/theme";
-import { api, PendingMatch } from "@/src/api";
+import { api, PendingMatch, Lavoro } from "@/src/api";
+import { useLavoro, LavoroBox, riepilogoLavoro } from "@/src/components/LavoroBox";
 import { notify, confirmAction } from "@/src/utils/platform";
 import { matchesCache, daysCache } from "@/src/utils/cache";
 
@@ -30,11 +31,6 @@ import { matchesCache, daysCache } from "@/src/utils/cache";
  * ogni volta che si accumulano partite non aggiornate.
  */
 
-/** Quante righe per richiesta al caricamento. Applicare un risultato aggiorna
- *  pagella, punteggi per scenario e contatori: 300 e' il compromesso fra numero
- *  di richieste e limite di tempo. */
-const BLOCCO_IMPORT = 300;
-
 const COLONNE = [
   "id", "data", "ora", "campionato", "casa", "ospite",
   "gol_casa", "gol_ospite", "risultato",
@@ -51,8 +47,6 @@ export default function Manutenzione() {
    *  ogni giorno, quindi con un uso quotidiano non resta mai scoperta. */
   const [giorniIndietro, setGiorniIndietro] = useState(3);
   const [daVerificare, setDaVerificare] = useState<any[]>([]);
-  /** Messo a true dal tasto Ferma: il ciclo lo controlla a ogni blocco. */
-  const stop = useRef(false);
 
   const caricaConteggio = useCallback(async () => {
     try {
@@ -65,39 +59,42 @@ export default function Manutenzione() {
 
   useEffect(() => { caricaConteggio(); }, [caricaConteggio]);
 
+  // I lavori lunghi girano sul server (01/10/2026): il tasto li avvia e basta,
+  // continuano anche a schermo spento o in un'altra app (vedi /lavori).
+  const finito = useCallback((l: Lavoro) => {
+    if (l.tipo === "sync_risultati" || l.tipo === "import_risultati") {
+      matchesCache.invalidate();
+      daysCache.invalidate();
+      caricaConteggio();
+    }
+    if (l.tipo === "sync_risultati") setDaVerificare(l.parziale?.da_controllare || []);
+    const titolo = l.stato === "completato" ? "Lavoro completato" : l.stato === "annullato" ? "Lavoro fermato" : "Lavoro non riuscito";
+    notify(titolo, `${riepilogoLavoro(l)}${l.stato === "errore" && l.errore ? `\n\n${l.errore}` : ""}`);
+  }, [caricaConteggio]);
+  const srv = useLavoro(finito);
+
+  // Entrando in pagina: se l'ultimo lavoro era un aggiornamento risultati, le
+  // righe da controllare restano visibili.
+  useEffect(() => {
+    if (srv.lavoro?.tipo === "sync_risultati" && srv.lavoro.stato === "completato") {
+      setDaVerificare(srv.lavoro.parziale?.da_controllare || []);
+    }
+  }, [srv.lavoro?.id, srv.lavoro?.stato]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const avvia = async (tipo: Parameters<typeof srv.avvia>[0], parametri: Record<string, any> = {}) => {
+    try {
+      await srv.avvia(tipo, parametri);
+    } catch (e: any) {
+      notify("Errore", `${e?.message || e}`);
+    }
+  };
+
   // --- 0. RICOSTRUZIONE DELL'APPRENDIMENTO ------------------------------
   const ricostruisci = () => confirmAction({
     title: "Ricostruire l'apprendimento?",
-    message: "Svuota le tabelle e le riempie di nuovo rigiocando tutte le partite concluse. Serve dopo un azzeramento, che cancella e basta senza ricostruire niente.",
+    message: "Svuota le tabelle e le riempie di nuovo rigiocando tutte le partite concluse. Serve dopo un azzeramento, che cancella e basta senza ricostruire niente. Il lavoro continua sul server anche a schermo spento.",
     confirmText: "Ricostruisci",
-    onConfirm: async () => {
-      stop.current = false;
-      setLavoro("rebuild");
-      setAvanzamento("Svuoto e riparto…");
-      try {
-        let da = 0, primo = true, tot = 0, scen = 0, fam = 0;
-        for (;;) {
-          if (stop.current) break;
-          const r = await api.rebuildLearning(da, primo);
-          primo = false;
-          tot = r.totale_concluse;
-          scen += r.scenari_aggiornati;
-          fam += r.famiglie_aggiornate;
-          setAvanzamento(`${da + r.elaborate} di ${tot} partite rigiocate`);
-          if (r.finito || r.prossimo === null) break;
-          da = r.prossimo;
-        }
-        notify(
-          stop.current ? "Ricostruzione fermata" : "Apprendimento ricostruito",
-          `Partite rigiocate: ${tot}.\nPunteggi per scenario e pagella dei sistemi: ${scen}.\nPunteggi per famiglia di mercato: ${fam} (solo le partite che avevano un pronostico AI salvato).`,
-        );
-      } catch (e: any) {
-        notify("Errore", e?.message);
-      } finally {
-        setLavoro(null);
-        setAvanzamento("");
-      }
-    },
+    onConfirm: () => avvia("ricostruzione"),
   });
 
   // --- 0bis. RICALCOLO STORICO CON LE REGOLE DI OGGI (01/10/2026) --------
@@ -106,72 +103,15 @@ export default function Manutenzione() {
   // si tocca. Ripartire da capo e' sempre sicuro (sovrascrive solo il ricalcolo).
   const ricalcolaTutto = () => confirmAction({
     title: "Ricalcolare tutto con le regole di oggi?",
-    message: "Rigioca tutte le partite concluse in ordine di data, ognuna solo con lo storico che c'era prima. Il verdetto congelato NON viene toccato: il ricalcolo va in una riga a parte. Il pronostico AI resta fuori. Ci vogliono alcuni minuti.",
+    message: "Rigioca tutte le partite concluse in ordine di data, ognuna solo con lo storico che c'era prima. Il verdetto congelato NON viene toccato: il ricalcolo va in una riga a parte. Il pronostico AI resta fuori. Il lavoro continua sul server anche a schermo spento o in un'altra app.",
     confirmText: "Ricalcola",
-    onConfirm: async () => {
-      stop.current = false;
-      setLavoro("ricalcolo");
-      setAvanzamento("Riparto dalla partita più vecchia…");
-      try {
-        let da = 0, primo = true, tot = 0, scritte = 0, saltate = 0;
-        for (;;) {
-          if (stop.current) break;
-          const r = await api.ricalcolo(da, primo);
-          primo = false;
-          tot = r.totale_concluse;
-          scritte += r.scritte;
-          saltate += r.saltate;
-          setAvanzamento(`${(da + r.elaborate).toLocaleString("it-IT")} di ${tot.toLocaleString("it-IT")} partite ricalcolate`);
-          if (r.finito || r.prossimo === null) break;
-          da = r.prossimo;
-        }
-        notify(
-          stop.current ? "Ricalcolo fermato" : "Ricalcolo completato",
-          stop.current
-            ? `Ricalcolate ${scritte} partite. Per completare va rilanciato da capo (in ordine di data non si riprende a metà).`
-            : `Partite ricalcolate: ${scritte} su ${tot}${saltate ? ` (${saltate} saltate: risultato o quote illeggibili)` : ""}.\nCurva e pagella sono in Traccia.`,
-        );
-      } catch (e: any) {
-        notify("Errore", `${e?.message || e}\n\nSe dice che manca la colonna 'ricalcolo', va creata su Supabase.`);
-      } finally {
-        setLavoro(null);
-        setAvanzamento("");
-      }
-    },
+    onConfirm: () => avvia("ricalcolo"),
   });
 
   // --- 1. RECUPERO AUTOMATICO -------------------------------------------
-  const recuperaAuto = async () => {
-    stop.current = false;
-    setLavoro("auto");
-    setAvanzamento("Interrogo le fonti…");
-    try {
-      // Il server fa tutto in una volta: una richiesta per giornata alle fonti,
-      // abbinamento in locale. Prima si mandava una ricerca per PARTITA.
-      const r = await api.syncResults(giorniIndietro);
-      matchesCache.invalidate();
-      daysCache.invalidate();
-      await caricaConteggio();
-      setDaVerificare(r.da_controllare || []);
-      const righe = [
-        `Partite esaminate: ${r.partite_esaminate}`,
-        `Risultati scritti: ${r.scritte}`,
-        r.da_verificare ? `Da controllare (nomi poco simili): ${r.da_verificare}` : "",
-        r.ambigue ? `Ambigue, non scritte: ${r.ambigue}` : "",
-        r.supplementari ? `Ai supplementari, non scritte: ${r.supplementari}` : "",
-        r.non_finite ? `Non ancora finite: ${r.non_finite}` : "",
-        r.non_trovate ? `Non trovate: ${r.non_trovate}` : "",
-        Object.keys(r.per_fonte || {}).length ? `Fonti: ${Object.entries(r.per_fonte).map(([k, v]) => `${k} ${v}`).join(", ")}` : "",
-        (r.fonti_non_raggiungibili || []).length ? "Alcune fonti non hanno risposto (normale: ESPN e SofaScore bloccano i server)." : "",
-      ].filter(Boolean);
-      notify("Aggiornamento completato", righe.join("\n"));
-    } catch (e: any) {
-      notify("Errore", e?.message);
-    } finally {
-      setLavoro(null);
-      setAvanzamento("");
-    }
-  };
+  // Il server fa tutto in una volta: una richiesta per giornata alle fonti,
+  // abbinamento in locale. Gira come lavoro, cosi' il riepilogo non si perde.
+  const recuperaAuto = () => avvia("sync_risultati", { days: giorniIndietro });
 
   // --- 2. ESPORTAZIONE ---------------------------------------------------
   const esporta = async () => {
@@ -231,7 +171,6 @@ export default function Manutenzione() {
     });
     if (res.canceled || !res.assets?.length) return;
 
-    stop.current = false;
     setLavoro("import");
     setAvanzamento("Leggo il foglio…");
     try {
@@ -267,35 +206,10 @@ export default function Manutenzione() {
         return;
       }
 
-      const tot = { applicate: 0, sovrascritte: 0, gia_presenti: 0, saltate: 0, illeggibili: 0, non_trovate: 0 };
-      for (let i = 0; i < items.length; i += BLOCCO_IMPORT) {
-        if (stop.current) break;
-        const blocco = items.slice(i, i + BLOCCO_IMPORT);
-        const out = await api.resultsImport(blocco, sovrascrivi);
-        tot.applicate += out.applicate;
-        tot.sovrascritte += out.sovrascritte;
-        tot.gia_presenti += out.gia_presenti;
-        tot.saltate += out.saltate_perche_diverse;
-        tot.illeggibili += out.illeggibili;
-        tot.non_trovate += out.non_trovate;
-        setAvanzamento(`${Math.min(i + BLOCCO_IMPORT, items.length)} di ${items.length} — applicate ${tot.applicate}`);
-      }
-
-      matchesCache.invalidate();
-      daysCache.invalidate();
-      await caricaConteggio();
-
-      const righeMsg = [
-        `Risultati nel foglio: ${items.length}`,
-        `Applicati: ${tot.applicate}`,
-        tot.sovrascritte ? `Sovrascritti: ${tot.sovrascritte}` : "",
-        tot.gia_presenti ? `Già presenti (identici): ${tot.gia_presenti}` : "",
-        tot.saltate ? `Saltati perché diversi da quelli salvati: ${tot.saltate}` : "",
-        tot.illeggibili ? `Illeggibili: ${tot.illeggibili}` : "",
-        tot.non_trovate ? `Partita non trovata: ${tot.non_trovate}` : "",
-        compilateMale ? `Righe con gol non numerici: ${compilateMale}` : "",
-      ].filter(Boolean);
-      notify(stop.current ? "Caricamento fermato" : "Caricamento completato", righeMsg.join("\n"));
+      // Le righe partono tutte in una volta; poi le applica il server a
+      // blocchi, anche se il telefono si addormenta.
+      if (compilateMale) notify("Attenzione", `${compilateMale} righe hanno gol_casa/gol_ospite non numerici e sono state ignorate.`);
+      await srv.avvia("import_risultati", { items, overwrite: sovrascrivi });
     } catch (e: any) {
       notify("Errore", e?.message);
     } finally {
@@ -304,7 +218,9 @@ export default function Manutenzione() {
     }
   };
 
-  const occupato = lavoro !== null;
+  // Un lavoro alla volta: finche' il server ne ha uno in corso, i tasti aspettano.
+  const occupato = lavoro !== null || srv.inCorso;
+  const attivoSrv = (t: string) => srv.inCorso && srv.lavoro?.tipo === t;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -337,7 +253,7 @@ export default function Manutenzione() {
           titolo="Ricostruisci l'apprendimento"
           testo="Da usare dopo un azzeramento: quel tasto cancella e basta, non ricostruisce niente. Qui il motore rigioca tutte le partite concluse e rifà i conteggi."
           icona="refresh-outline"
-          attivo={lavoro === "rebuild"}
+          attivo={attivoSrv("ricostruzione")}
           disabilitato={occupato}
           onPress={ricostruisci}
         />
@@ -347,7 +263,7 @@ export default function Manutenzione() {
           titolo="Ricalcola tutto con le regole di oggi"
           testo="Rigioca tutte le partite concluse in ordine di data, ognuna solo con lo storico che c'era prima. Il verdetto congelato resta com'è: il ricalcolo compare come seconda riga, verde se indovinato e rosso se sbagliato. Curva e pagella in Traccia."
           icona="git-compare-outline"
-          attivo={lavoro === "ricalcolo"}
+          attivo={attivoSrv("ricalcolo")}
           disabilitato={occupato}
           onPress={ricalcolaTutto}
         />
@@ -377,7 +293,7 @@ export default function Manutenzione() {
           titolo="Aggiorna risultati"
           testo="Una richiesta per giornata a API-Football e FotMob, abbinamento in locale. Scrive solo quando è sicuro: ambigue, incerte e partite ai supplementari restano vuote."
           icona="cloud-download-outline"
-          attivo={lavoro === "auto"}
+          attivo={attivoSrv("sync_risultati")}
           disabilitato={occupato || !conteggio?.da_completare}
           onPress={recuperaAuto}
         />
@@ -397,7 +313,7 @@ export default function Manutenzione() {
           titolo="Carica il foglio compilato"
           testo="Le righe vuote vengono ignorate, quindi puoi caricare lo stesso file più volte, un pezzo per volta."
           icona="cloud-upload-outline"
-          attivo={lavoro === "import"}
+          attivo={lavoro === "import" || attivoSrv("import_risultati")}
           disabilitato={occupato}
           onPress={carica}
         />
@@ -412,24 +328,14 @@ export default function Manutenzione() {
           <Switch value={sovrascrivi} onValueChange={setSovrascrivi} disabled={occupato} />
         </View>
 
-        {occupato ? (
+        {lavoro !== null ? (
           <View style={styles.lavoroBox}>
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.lavoroTxt}>{avanzamento || "In corso…"}</Text>
-            <TouchableOpacity
-              onPress={() => confirmAction({
-                title: "Fermare?",
-                message: "Quello che è già stato salvato resta. Puoi riprendere quando vuoi.",
-                confirmText: "Ferma",
-                destructive: true,
-                onConfirm: () => { stop.current = true; },
-              })}
-              style={styles.stopBtn}
-            >
-              <Text style={styles.stopTxt}>FERMA</Text>
-            </TouchableOpacity>
           </View>
         ) : null}
+
+        <LavoroBox lavoro={srv.lavoro} onFerma={srv.ferma} />
 
         {daVerificare.length ? (
           <View style={styles.box}>
@@ -521,8 +427,6 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 14,
   },
   lavoroTxt: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
-  stopBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.danger },
-  stopTxt: { color: "#FFF", fontSize: 12, fontWeight: "900" },
 
   giorniRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 6 },
   giornoChip: {

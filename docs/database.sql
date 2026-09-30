@@ -106,3 +106,31 @@ where n.nspname = 'public'
                     'matches_distinct_days', 'team_goal_stats');
 
 -- (definizioni da incollare qui)
+
+
+-- -----------------------------------------------------------------------------
+-- 5. OROLOGIO DEI LAVORI IN BACKGROUND (2026-10-01, PR #8)
+-- -----------------------------------------------------------------------------
+-- I lavori lunghi (ricalcolo, ricostruzione apprendimento, pagella di Traccia,
+-- caricamento risultati, aggiornamento risultati) girano sul server: vedi
+-- netlify/functions/lavori.ts. Questo orologio chiama /lavori?passo=1 ogni
+-- minuto: se c'e' un lavoro in corso fermo, riparte dal punto salvato. Senza
+-- orologio il lavoro avanza solo mentre l'app e' aperta in Strumenti/Traccia.
+-- Se non c'e' niente da fare, il server risponde subito "niente".
+-- Rilanciarlo e' innocuo: cron.schedule con lo stesso nome sostituisce il vecchio.
+create extension if not exists pg_net;
+create extension if not exists pg_cron;
+select cron.schedule(
+  'pronoblast-lavori',
+  '* * * * *',
+  $$ select net.http_post(
+       url := 'https://pronoblast.vercel.app/lavori?passo=1',
+       headers := '{"Content-Type": "application/json"}'::jsonb,
+       body := '{}'::jsonb,
+       timeout_milliseconds := 290000
+     ) $$
+);
+-- Controllo: l'orologio c'e' e gira?
+--   select jobname, schedule, active from cron.job;
+--   select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;
+-- Per spegnerlo: select cron.unschedule('pronoblast-lavori');

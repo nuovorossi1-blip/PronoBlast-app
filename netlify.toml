@@ -178,6 +178,11 @@
   status = 200
 
 [[redirects]]
+  from = "/lavori"
+  to = "/.netlify/functions/lavori"
+  status = 200
+
+[[redirects]]
   from = "/similar-odds"
   to = "/.netlify/functions/similar-odds"
   status = 200

@@ -13,6 +13,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { api } from "@/src/api";
 import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
+import { useLavoro, LavoroBox } from "@/src/components/LavoroBox";
 import { apriConPrompt, confirmAction, notify, openExternalUrl } from "@/src/utils/platform";
 import { matchesCache, daysCache } from "@/src/utils/cache";
 import { AI_CHAT_URL, AI_CHAT_NAME, ARENA_URL, ARENA_NAME, MULTIPLA_ESTERNA_PROMPT } from "@/src/utils/aiChat";
@@ -22,6 +23,8 @@ export default function Strumenti() {
   const bottomNav = useBottomNav();
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  // Lavoro lungo in corso sul server (ricalcolo, pagella…): visibile anche qui.
+  const srv = useLavoro();
   // Tasto "Installa app Android": solo nel browser di un telefono Android.
   // Dentro l'APK non ha senso (l'aggiornamento lo propone NativeUpdater),
   // su desktop il link alla pagina delle release basta e avanza.
@@ -215,6 +218,7 @@ export default function Strumenti() {
       </View>
 
       <ScrollView contentContainerStyle={styles.list} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16}>
+        {srv.inCorso ? <LavoroBox lavoro={srv.lavoro} onFerma={srv.ferma} /> : null}
         <Text style={styles.section}>IMPORT DATI</Text>
         <Tool
           testID="tool-download-pdf"

@@ -145,6 +145,10 @@
       "destination": "/api/ricalcolo"
     },
     {
+      "source": "/lavori",
+      "destination": "/api/lavori"
+    },
+    {
       "source": "/similar-odds",
       "destination": "/api/similar-odds"
     },
