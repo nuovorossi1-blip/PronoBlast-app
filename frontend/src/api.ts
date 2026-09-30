@@ -1931,6 +1931,10 @@ export const PROB_AFFIDABILE = 0.58;
 
 export const chiaveFascia = (s: number) => s.toFixed(2);
 
+/** Probabilita' in % con un decimale ("57,8%"): arrotondata all'intero,
+ *  57,8% diventava "58%" accanto a "sotto il 58%", una contraddizione. */
+export const pctProb = (p: number) => `${(p * 100).toFixed(1).replace(".", ",")}%`;
+
 /**
  * LETTURA DIREZIONALE: GAP TECNICO (favorita netta, X alta) + profilo
  * DIFENSIVA. La direzione e' forte ma i gol sono incerti o contenuti: il
@@ -2114,7 +2118,7 @@ export function verdettoDaAI(
       origine: "ai",
       dettaglio: [
         { voce: v.aggiunto ? "Aggiunto dal controllo di coerenza (favorita netta + profilo DIFENSIVA)" : `AI #${v.rankAI} nella fascia ${fascia.soglia.toFixed(2)}`, punti: 0 },
-        { voce: v.rankMotore !== null ? `Motore Poisson #${v.rankMotore}${v.prob !== null ? ` (${Math.round(v.prob * 100)}%)` : ""}` : "Motore Poisson: fuori dal suo ranking", punti: 0 },
+        { voce: v.rankMotore !== null ? `Motore Poisson #${v.rankMotore}${v.prob !== null ? ` (${pctProb(v.prob)})` : ""}` : "Motore Poisson: fuori dal suo ranking", punti: 0 },
         { voce: v.rankPre !== null ? `PRE #${v.rankPre}` : "PRE: non lo propone", punti: 0 },
         ...(i === 0 && !fascia.affidabile ? [{ voce: `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: a questa quota non e' affidabile`, punti: 0 }] : []),
       ],
