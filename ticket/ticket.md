@@ -264,6 +264,80 @@ Cioè: **come pick (e come alternative) ne sopravvive uno solo — il dominante;
 
 **Cosa aspettarsi:** la prima tabella reale del manuale. Se uno scenario mostra un mercato stabile ≥65% con n≥50, sarà candidato (decisione del proprietario) a quarta voce etichettata della fusione — con pagella, come sempre. Se scende sotto ~55%, il manuale resta promemoria e lo si dice onestamente.
 
+9. **Il pronostico AI ignora scenario 1X2 e manuale** (segnalato dal proprietario il 29/09: "l'AI deve prendere in considerazione anche i relativi pronostici presenti nello scenario"): il prompt di `ai-predict.ts` contiene quote, PIN del motore, catalogo filtrato per whitelist+soglia e notizie Tavily, ma NESSUN riferimento a EQUILIBRIO/GAP TECNICO/PROGRESSIONE né ai mercati da manuale. In più la riga "storico X% su N partite simili" del catalogo usa la tassonomia netta/chiara/leggera, non quella del proprietario. → Ticket 9.
+
+---
+
+## TICKET 9 🟡 — Scenario e manuale nel prompt del pronostico AI (dipende dal Ticket 8)
+
+**Richiesta del proprietario (29/09):** *"i pronostici devono essere aggiunti in base allo scenario (gap tecnico, progressione, equilibrio): in base alla partita e al tipo di scenario l'AI deve prendere in considerazione anche i relativi pronostici presenti nello scenario"*.
+
+**Stato attuale (verificato nel codice):** `netlify/functions/ai-predict.ts` assembla il prompt con: quote + PIN del motore + CATALOGO (CANDIDATE_MARKETS → whitelist → soglia; per ogni voce prob Poisson, quota, "storico X% su N partite simili" da `scenarioRates` → `scenario_market_scores` con `classifyScenario` = netta/chiara/leggera) + contesto web Tavily. `netlify/functions/lib/predictionPrompt.ts` (PREDICTION_SYSTEM, 6 famiglie) NON contiene lo scenario 1X2 né il manuale. Il filtro post-AI scarta tutto ciò che non è nel catalogo (giusto: lezione NG del 18/09 e Vasco-Mirassol). NB: i MG casa/ospite NON sono in whitelist → oggi non possono essere proposti dall'AI.
+
+**Fix minimo (tutto nel prompt, ZERO cambiamenti al verdetto):**
+1. In `buildMatchPrompt` (o in `ai-predict.ts` prima del catalogo), aggiungere una sezione:
+   ```
+   🎯 SCENARIO DI QUOTE (manuale del proprietario)
+   Questa partita è di scenario: EQUILIBRIO
+   Mercati da manuale per questo scenario, con quanto hanno risposto
+   storicamente in partite con questo stesso scenario (dall'archivio):
+   • GG — 64,1% (88/137)
+   • Over 2,5 — 60,6% (83/137)
+   • X o GG — 58,4% (80/137)
+   Istruzione: se un mercato del manuale è presente nel CATALOGO, valutalo
+   con priorità e motivalo nell'analysis. Se NON è nel catalogo (fuori
+   whitelist o sotto soglia), NON proporilo come playable_market: nominalo
+   solo nell'analysis come "lettura da manuale non giocabile oggi".
+   ```
+   Lo scenario lo dà `getScenarioNote(odds)` (import da frontend/src/api.ts, come fa verdettoServer); le percentuali le dà l'endpoint del Ticket 8 (stessa funzione di aggregazione: dipendenza dura — senza Ticket 8 questo ticket si limita allo scenario senza percentuali).
+2. Nell'`analysis` dell'AI (e quindi in scheda) il motivo deve poter citare lo scenario: es. "scenario EQUILIBRIO: il manuale indica GG (64% su 137)". NON cambia il formato JSON (main_prediction, playable_markets, analysis, reasoning invariati).
+3. Nella sezione "storico" del catalogo, aggiungere in legenda una riga che spieghi la differenza: "storico" = partite con lo stesso profilo di favorita (tassonomia motore); il manuale dello scenario 1X2 è la sezione dedicata sopra.
+
+**Esempio atteso post-fix (Spagna-Croazia 29/09, GAP TECNICO — il modello del comportamento voluto):**
+1. Il prompt contiene: PIN (λ 2.72/0.71, pavimento 2, tetto APERTO), scenario → manuale con misura (**1 fisso 69,9% su 1577 · 1 AH −0,75 61,1% · GG + O2,5 46,2%**), catalogo filtrato (O2.5 66%/1.40 · DC 1X+O2.5 62%/1.43 · MG 3-6 62%/~1.57 · MG 2-4 61%/~1.60 · DC 1X+U3.5 51% · GG 47% · GG+O2.5 41%/2.73), dati web.
+2. Ragionamento atteso dell'AI: "1 fisso" (manuale, oro) NON è nel catalogo (quota 1.20 < 1.40) → si cita in analysis, NON si propone. Il catalogo contiene il veicolo della stessa lettura: **DC 1X + O2.5** (casa non perde + pavimento gol, storico 74%) → MAIN. GG + O2,5 è nel manuale di questo scenario al 46,2% (<50%) → RETROCESSO. MG 3-6 coerente col tetto aperto (hi=6) → mantenuto.
+3. Risposta: `main_prediction: DC 1X + O2.5`; `playable_markets: [DC 1X+O2.5, O2.5, MG 3-6 totali, MG 2-4 totali, DC 1X+U3.5]`; analysis in ordine fisso che APRE citando lo scenario ("GAP TECNICO: il manuale indica 1 fisso 69,9%, non giocabile oggi → veicolo più vicino nel catalogo: DC 1X + O2.5").
+4. Nel VERDETTO la gerarchia non cambia: l'AI è una voce su tre. DC 1X+O2.5 prende il bonus IA; O2.5 raccoglie voci da più sistemi → concordanza sale (da SEGNALE PARZIALE 1/3 verso 2/3-3/3); il pick resta il primo ammesso della classifica (in produzione: O2.5, vinto). Lo scenario orienta COSA L'AI METTE SUL TAVOLO, non il conteggio finale.
+
+**Non fare:** NON toccare il filtro post-AI né la whitelist (un mercato fuori whitelist resta fuori anche se il manuale lo indica — l'AI può solo citarlo nell'analysis); NON cambiare il formato JSON di risposta; NON far scegliere mercati fuori catalogo mai, nemmeno se il manuale li nomina.
+
+**Test di accettazione:**
+- Generando il pronostico su una partita EQUILIBRIO (es. profilo Turchia-Italia): nel prompt compare la sezione scenario con i mercati e le percentuali; la risposta resta JSON valido (parseAiJson ok); playable_markets ⊆ catalogo.
+- Su una partita PROGRESSIONE: la sezione scenario elenca combo MG casa 1-3 + MG ospite 0-2, MG casa 1-3, 1 DNB; poiché MG casa/ospite e DNB sono fuori whitelist, nessuno compare in playable_markets, ma l'analysis può citarli come lettura da manuale.
+- Con TAVILY_API_KEY assente il prompt scenario resta presente (non dipende dal web).
+- Regressione: nessun cambio nei verdetti della fusione (il JSON di uscita ha lo stesso schema).
+
+**Nota di onestà (da comunicare al proprietario):** questo ticket orienta l'AI, non le impone nulla — e i mercati non-whitelist del manuale restano NON giocabili dall'AI (scelta del menù del proprietario). Se un giorno vorrà che MG casa/ospite diventino proponibili anche all'AI, è UNA riga di whitelist (decisione sua, non di questo ticket).
+
+10. **Il pronostico AI è un muro di testo, non in ordine** (visto in produzione su Spagna-Croazia 29/09: PIN ripetuto a metà analysis, xG di casa e ospite mescolati nella stessa frase): il campo `analysis` è prosa libera. Richiesta del proprietario: **formato TABELLARE, squadra casa a sinistra e ospite a destra, con tutte le statistiche trovate**, così "è facile da leggere". → Ticket 10.
+
+---
+
+## TICKET 10 🟢 — Pronostico AI in forma TABELLARE (casa | ospite), analysis in ordine fisso, senza ripetere il PIN (dipende dal Ticket 9)
+
+**Richiesta del proprietario (29/09, visto in produzione su Spagna-Croazia):** *"il pronostico AI è confusionario nella spiegazione, non è in ordine… dovrebbe essere in forma tabellare, dove da una parte c'è la squadra casa e dall'altra l'ospite, con tutte le statistiche che ha trovato e che gli sono ricevute, così è facile da leggere"*.
+
+**Stato attuale:** tutto finisce nel campo `analysis` (prosa libera salvata in `predictions`): il PIN viene RIPETUTO dal modello (già mostrato dalla sezione STRUTTURA MATCH), i numeri di casa e ospite sono mescolati nella stessa frase, nessun ordine fisso.
+
+**Fix minimo:**
+1. **Nuovo campo JSON OPZIONALE** `statistiche_squadre` nella risposta del modello (PREDICTION_SYSTEM + buildMatchPrompt in `netlify/functions/lib/predictionPrompt.ts`), schema fisso:
+   ```json
+   {"casa":  {"attacco": "", "difesa": "", "xg": "", "xga": "", "forma": "", "proiezione_gol": "", "note_chiave": ""},
+    "ospite":{"attacco": "", "difesa": "", "xg": "", "xga": "", "forma": "", "proiezione_gol": "", "note_chiave": ""}}
+   ```
+   Regola d'oro: SOLO dati realmente trovati (contesto Tavily); dato assente = stringa vuota, MAI inventato. `parseAiJson` deve tollerare l'assenza del campo (le vecchie predictions restano leggibili).
+2. **Frontend** (`match/[id].tsx`, sezione PRONOSTICO AI): se `statistiche_squadre` è presente → TABELLA a due colonne **CASA | OSPITE** con una riga per statistica (attacco, difesa, xG, xGA, forma, proiezione gol, note); sotto, l'analysis. Se assente (vecchi pronostici) → testo com'è oggi, nessun crash.
+3. **Ordine fisso dell'analysis nel prompt**: (1) LETTURA DELLA PARTITA (2-3 frasi) → (2) PERCHÉ QUESTA SCELTA (2-3 frasi). **VIETATO ripetere il PIN** (pavimento/tetto/range/λ): è già a schermo in STRUTTURA MATCH. I numeri delle squadre vanno nei campi strutturati, NON in prosa.
+4. La sezione "SCENARIO DI QUOTE" del Ticket 9 resta nel prompt come **prima lettura** (parole del proprietario: i mercati del manuale con storico forte "sono oro colato"): l'analysis può aprirsi citando scenario e manuale quando pertinenti.
+
+**Non fare:** NON cambiare i campi esistenti del JSON (main_prediction, playable_markets, analysis, reasoning restano); NON bloccare il pronostico se il modello non popola `statistiche_squadre`; NON eseguire il 10 prima del 9 (dipendenza: il blocco scenario è definito lì).
+
+**Test di accettazione:**
+- Nuovo pronostico con Tavily attivo: JSON valido; `statistiche_squadre` presente con almeno 3 righe valorizzate; la scheda mostra la tabella a due colonne; l'analysis NON contiene più pavimento/tetto/range.
+- Vecchia prediction senza il campo: scheda identica a oggi (fallback testo), zero errori.
+- Tavily assente: `statistiche_squadre` può mancare o avere campi vuoti; il pronostico esce comunque.
+- Regressione: fusione e verdetto invariati (il JSON aggiunge SOLO un campo opzionale).
+
 ---
 
 ## Allegato — perché questi ticket sono scritti così (nota per il proprietario)
