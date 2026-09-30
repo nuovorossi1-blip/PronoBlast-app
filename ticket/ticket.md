@@ -197,6 +197,27 @@ const push = (market: string, odd: number, family: string) => {
 
 ---
 
+## TICKET 6-BIS 🟡 — Under a tetto aperto: il caso Belgio-Galles 1-0 (DECISIONE DEL PROPRIETARIO RICHIESTA)
+
+**Domanda del proprietario (30/09):** *"perché non mi propone, al posto di 1X + Over 2.5, un 1 + Under 4.5 o 1X + Under 3.5 in questo caso?"*
+
+**Fatti verificati nel codice:**
+1. `DC 1X + U3.5` È in whitelist (api.ts ~742) e l'AI l'ha proposto come #5 con motivazione corretta ("se si teme che il Galles si chiuda… resti sul 2-0/2-1"). NON è mai arrivato a schermo perché `violatesStructure` (api.ts ~1581) dice: **tetto aperto → TUTTI gli under incoerenti**. La famiglia DOMINANZA_OVER ha tetto aperto per costruzione → l'under muore sempre lì, proprio nei profili DIFENSIVA dove l'under ha più senso. Sul 1-0 di Belgio-Galles il veicolo sarebbe stato VINTO (mentre DC 1X+O2.5 è perso).
+2. `1 + U4.5` NON è in whitelist: non può essere proposto da nessuno (menù del proprietario).
+
+**LA DECISIONE È DEL PROPRIETARIO — rispondere con A, B o C prima di eseguire:**
+- **A) Restiamo così** (default se non rispondi): tetto aperto = niente under, punto. Massima coerenza col PIN ("il tetto non garantisce"); accettiamo di perdere i veicoli under nei profili DIFENSIVA. Zero modifiche.
+- **B) Under CORTI ammessi anche a tetto aperto, ma solo quando il profilo conferma**: U3.5/U4.5 puri e combo DC+U3.5 ammessi SE il profilo strutturale è DIFENSIVA (o λ_totale ≤ 3.5). Il tetto aperto continua a vietare i RANGE MG (la regola che ha salvato il proprietario) e gli under quando λ è alto. Criterio deterministico: profilo/λ, mai i risultati.
+- **C) Come B, più aggiunta alla whitelist di `1 + U4.5`** (veicolo secco direzione+pochi gol, per i gap tecnici con avversario murato).
+
+**Se B o C, il fix minimo:** in `violatesStructure`, il ramo ceilingOpen per gli UNDER diventa condizionato (profilo DIFENSIVA o λ_totale ≤ 3.5 → U3.5/U4.5 e combo DC+U* ammessi); la stessa logica condivisa in verdettoServer e nel catalogo AI (Regola 4). Se C: aggiungere "1 + u4.5" a VERDICT_WHITELIST (il valutatore sa già valutare U4.5 e i combo col +).
+
+**Non fare (in nessuna opzione):** NON toccare la regola MG a tetto aperto (MG 2-4/2-5 restano fuori: decisione confermata dal proprietario); NON usare l'esito 1-0 come argomento di calibrazione (n=1: la regola si cambia sul profilo, non su un risultato).
+
+**Test di accettazione (opzione B):** Belgio-Galles (DIFENSIVA, tetto aperto): DC 1X+U3.5 compare nel verdetto/alternative (coverage ~54%); Spagna-Croazia (tetto aperto ma non difensivo): gli under restano fuori. Opzione A: zero modifiche.
+
+---
+
 ## TICKET 7 🔴 — 1X e X2 non sono "esiti opposti": sono CONCORRENTI DI DIREZIONE (caso Turchia–Italia 28/09/2026, finita 1-4)
 
 **La regola del proprietario (testuale):** *"1X e X2: uno esclude l'altro se la direzione è giusta. In questo caso X2 era presente in tutti i pick e superava sempre 1X → la direzione giusta è X2. Speculare: se 1X avesse superato sempre X2, la direzione giusta sarebbe 1X. Quindi uno esclude l'altro come 1 e 2: l'1 esclude il 2, il 2 esclude l'1."*
@@ -291,6 +312,21 @@ Cioè: **come pick (e come alternative) ne sopravvive uno solo — il dominante;
    con priorità e motivalo nell'analysis. Se NON è nel catalogo (fuori
    whitelist o sotto soglia), NON proporilo come playable_market: nominalo
    solo nell'analysis come "lettura da manuale non giocabile oggi".
+   Se è escluso SOLO dalla soglia (es. "1 fisso" a 1.20 con soglia 1.40),
+   l'analysis deve dirlo esplicitamente: "lettura da manuale non giocabile
+   con la soglia attuale: si sblocca abbassando la Quota minima" — e poi
+   valutare il veicolo più vicino DENTRO il catalogo con la CLAUSOLA DI
+   COERENZA (30/09, caso Belgio-Galles 1-0): il veicolo deve preservare la
+   NATURA della lettura del manuale. Il manuale del GAP TECNICO è direzione-
+   pura (1 fisso, AH -0,75): un veicolo che aggiunge rischio gol (DC 1X+O2.5,
+   1+O2.5) va proposto SOLO se la componente gol non è sconsigliata dallo
+   scenario stesso (GG+O2.5 da manuale ≥ 50%) né dal profilo strutturale
+   (non DIFENSIVA). Se la direzione pura è tutta sotto soglia E il gol è
+   sconsigliato: l'analysis dichiara "nessuna giocata coerente col manuale
+   sopra soglia" e playable_markets resta vuoto o ridotto — meglio nessun
+   endorsement che un surrogato goloso (casi-specchio: Spagna-Croazia 4-1,
+   veicolo ok e vincente; Belgio-Galles 1-0, veicolo perso: la differenza
+   stava nel profilo, l'AI deve leggerlo PRIMA di proporre).
    ```
    Lo scenario lo dà `getScenarioNote(odds)` (import da frontend/src/api.ts, come fa verdettoServer); le percentuali le dà l'endpoint del Ticket 8 (stessa funzione di aggregazione: dipendenza dura — senza Ticket 8 questo ticket si limita allo scenario senza percentuali).
 2. Nell'`analysis` dell'AI (e quindi in scheda) il motivo deve poter citare lo scenario: es. "scenario EQUILIBRIO: il manuale indica GG (64% su 137)". NON cambia il formato JSON (main_prediction, playable_markets, analysis, reasoning invariati).
