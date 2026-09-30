@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -1445,7 +1445,7 @@ export default function MatchDetail() {
                         {pickF && (
                           <Text style={styles.mainPredMeta}>
                             {pickF.odd ? `${pickF.stimata ? "≈" : "@"} ${pickF.odd.toFixed(2)}` : ""}
-                            {pickF.prob !== null ? ` · ${Math.round(pickF.prob * 100)}% Poisson` : ""}
+                            {pickF.prob !== null ? ` · ${pctProb(pickF.prob)} Poisson` : ""}
                             {` · motore ${pickF.rankMotore ? "#" + pickF.rankMotore : "fuori ranking"}`}
                             {pickF.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
                           </Text>
@@ -1466,7 +1466,7 @@ export default function MatchDetail() {
                           {fascia?.affidabile
                             ? `Affidabile a questa quota${maxOk ? ` (fino a ${chiaveFascia(maxOk)})` : ""}.`
                             : maxOk
-                              ? `⚠ Non superare ${chiaveFascia(maxOk)}: a ${sogliaAttiva.toFixed(2)} la scelta ${pickF ? `(${pickF.market}${pickF.prob !== null ? `, ${Math.round(pickF.prob * 100)}%` : ""}) ` : ""}è sotto il ${Math.round(PROB_AFFIDABILE * 100)}%, non affidabile.`
+                              ? `⚠ Non superare ${chiaveFascia(maxOk)}: a ${sogliaAttiva.toFixed(2)} la scelta ${pickF ? `(${pickF.market}${pickF.prob !== null ? `, ${pctProb(pickF.prob)}` : ""}) ` : ""}è sotto il ${Math.round(PROB_AFFIDABILE * 100)}%, non affidabile.`
                               : `⚠ Nessuna fascia arriva al ${Math.round(PROB_AFFIDABILE * 100)}%: partita da non forzare.`}
                         </Text>
                       </View>
@@ -1542,7 +1542,7 @@ export default function MatchDetail() {
                                 {v.market}{v.odd ? `  ${v.stimata ? "≈" : "@"}${v.odd.toFixed(2)}` : ""}
                               </Text>
                               <Text style={styles.playableReason}>
-                                {v.prob !== null ? `${Math.round(v.prob * 100)}% Poisson · ` : ""}
+                                {v.prob !== null ? `${pctProb(v.prob)} Poisson · ` : ""}
                                 motore {v.rankMotore ? `#${v.rankMotore}` : "fuori ranking"} · PRE {v.rankPre ? `#${v.rankPre}` : "—"}
                                 {v.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
                                 {v.prob !== null && v.prob < PROB_AFFIDABILE ? " · sotto il 58%" : ""}

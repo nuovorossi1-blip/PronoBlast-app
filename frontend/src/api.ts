@@ -810,6 +810,8 @@ const VERDICT_WHITELIST = new Set([
   // per i gap tecnici contro un avversario murato. Solo la casa: e' la voce
   // chiesta ("1 fisso + difesa ospite chiusa").
   "1 + u4.5",
+  // Manuale EQUILIBRIO (01/10/2026): quota stimata GG x 0,90.
+  "x oppure gg",
 ]);
 
 /**
@@ -1613,6 +1615,8 @@ const _OPPOSITES: [string, string][] = [
 /** Estrae il segno base (1/X/2/1X/X2/12) dal mercato, undefined se non trovato. */
 function _extractSign(m: string): string | undefined {
   const norm = m.trim().toUpperCase().replace(/\s+/g, " ");
+  // "X oppure GG" non e' il segno X: vince anche con 2-1 o 1-2.
+  if (/^X (OPPURE|O) GG$/.test(norm)) return undefined;
   // Mercato secco
   if (/^(1X|X2|12|1|X|2)$/.test(norm.split(" ")[0])) return norm.split(" ")[0];
   // Combo "X + Y" o "DC X + Y"
@@ -1931,6 +1935,10 @@ export const PROB_AFFIDABILE = 0.58;
 
 export const chiaveFascia = (s: number) => s.toFixed(2);
 
+/** Probabilita' in % con un decimale ("57,8%"): arrotondata all'intero,
+ *  57,8% diventava "58%" accanto a "sotto il 58%", una contraddizione. */
+export const pctProb = (p: number) => `${(p * 100).toFixed(1).replace(".", ",")}%`;
+
 /**
  * LETTURA DIREZIONALE: GAP TECNICO (favorita netta, X alta) + profilo
  * DIFENSIVA. La direzione e' forte ma i gol sono incerti o contenuti: il
@@ -2114,7 +2122,7 @@ export function verdettoDaAI(
       origine: "ai",
       dettaglio: [
         { voce: v.aggiunto ? "Aggiunto dal controllo di coerenza (favorita netta + profilo DIFENSIVA)" : `AI #${v.rankAI} nella fascia ${fascia.soglia.toFixed(2)}`, punti: 0 },
-        { voce: v.rankMotore !== null ? `Motore Poisson #${v.rankMotore}${v.prob !== null ? ` (${Math.round(v.prob * 100)}%)` : ""}` : "Motore Poisson: fuori dal suo ranking", punti: 0 },
+        { voce: v.rankMotore !== null ? `Motore Poisson #${v.rankMotore}${v.prob !== null ? ` (${pctProb(v.prob)})` : ""}` : "Motore Poisson: fuori dal suo ranking", punti: 0 },
         { voce: v.rankPre !== null ? `PRE #${v.rankPre}` : "PRE: non lo propone", punti: 0 },
         ...(i === 0 && !fascia.affidabile ? [{ voce: `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: a questa quota non e' affidabile`, punti: 0 }] : []),
       ],
