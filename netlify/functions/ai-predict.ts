@@ -5,9 +5,11 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, type VoceManuale } from "./lib/predictionPrompt";
+import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
+import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -73,6 +75,7 @@ async function handle(req: Request): Promise<Response> {
 - TETTO: ${ceilingStr} gol massimi attesi
 - RANGE: ${rangeStr}
 - FAMIGLIA STRUTTURALE: ${s.family}
+- PROFILO OFFENSIVO: ${s.offensive_profile}${underAmmessiATettoAperto(s) ? " (DIFENSIVA)" : ""}
 - λ Poisson Casa: ${s.lambda_home.toFixed(2)}
 - λ Poisson Ospite: ${s.lambda_away.toFixed(2)}
 
@@ -81,10 +84,12 @@ REGOLE OBBLIGATORIE basate sul PIN:
    "borderline buffer" (zona incerta → step verso sicurezza). USALI ESATTAMENTE.
 2. NON proporre mercati incoerenti col PIN:
    - Se PAVIMENTO=0 → NON proporre MG che inizia da 2+ (es. "MG 2-4 totali" VIETATO)
-   - Se TETTO=APERTO → NON proporre U2.5 / U3.5 / "MG 2-4" (range chiuso VIETATO)
+   - Se TETTO=APERTO → NON proporre U2.5 / "MG 2-4" (range chiuso VIETATO);
+     U3.5 e le combo con U3.5/U4.5 (es. "DC 1X + U3.5", "1 + U4.5") SOLO se il
+     PROFILO OFFENSIVO qui sotto e' "defensive" (DIFENSIVA), altrimenti VIETATI
    - Se TETTO=4 e PAVIMENTO=2 → NON proporre "MG 1-3" (lo=1≠2 VIETATO)
    - MG range valido: lo ≤ pavimento+1 AND (aperto: hi≥6 ; chiuso: hi≥tetto)
-3. Nel campo "analysis" devi SCRIVERE LETTERALMENTE: "PAVIMENTO: ${s.goal_floor} gol | TETTO: ${ceilingStr} gol | RANGE: ${rangeStr}"
+3. NON ripetere il PIN nel campo "analysis": e' gia' a schermo (STRUTTURA MATCH).
 4. Il PIN serve a giudicare la COERENZA di un mercato, non a escluderlo a
    priori: l'elenco di cosa e' proponibile e' il CATALOGO COMPLETO piu' sotto.
    Se un mercato del catalogo ha numeri ottimi ma sembra in contrasto col PIN,
@@ -93,6 +98,15 @@ REGOLE OBBLIGATORIE basate sul PIN:
     prompt = prompt + pin;
   } catch {
     // se il PIN fallisce, procediamo comunque senza (come nell'originale)
+  }
+
+  // SCENARIO DI QUOTE E MANUALE (Ticket 9): prima del catalogo, cosi' l'IA lo
+  // legge come prima lettura. Non dipende dal web: c'e' anche senza Tavily.
+  const minOdd = await readMinOdd();
+  try {
+    prompt = prompt + await scenarioManuale(rowToOdds(match), minOdd);
+  } catch (e) {
+    console.error("[ai-predict] scenario manuale", e);
   }
 
   // Catalogo completo con i numeri gia' calcolati.
@@ -104,10 +118,11 @@ REGOLE OBBLIGATORIE basate sul PIN:
     prompt = prompt + buildMarketTable(
       rowToOdds(match),
       await scenarioRates(rowToOdds(match)),
-      await readMinOdd(),
+      minOdd,
     );
-  } catch {
+  } catch (e) {
     // se la tabella fallisce si procede senza: il pronostico resta possibile
+    console.error("[ai-predict] catalogo", e);
   }
 
   // DATI DAL WEB (27/09/2026). Fino a ieri il modello riceveva SOLO quote,
@@ -168,6 +183,11 @@ REGOLE OBBLIGATORIE basate sul PIN:
     h2h_over_pct: numero(prediction.h2h_over_pct),
   };
 
+  // Ticket 10: tabella casa | ospite. Colonna jsonb `statistiche_squadre` in
+  // `predictions`: se non esiste ancora si salva senza (come gli xG), ma la
+  // risposta la riporta comunque, cosi' la scheda la mostra subito.
+  const statistiche = normalizzaStatistiche((prediction as any).statistiche_squadre);
+
   const riga = {
     match_id: matchId,
     family: prediction.family,
@@ -181,12 +201,21 @@ REGOLE OBBLIGATORIE basate sul PIN:
 
   let saved;
   let xgSalvati = true;
+  let statisticheSalvate = !!statistiche;
   try {
-    saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
-  } catch {
-    // Colonne non ancora create: si salva il pronostico senza gli xG.
-    xgSalvati = false;
-    saved = await pgPost("predictions", riga, "return=representation");
+    saved = await pgPost("predictions", { ...riga, ...extra, ...(statistiche ? { statistiche_squadre: statistiche } : {}) }, "return=representation");
+  } catch (e) {
+    console.error("[ai-predict] salvataggio completo", e);
+    try {
+      // Manca la colonna statistiche_squadre: si riprova con i soli xG.
+      statisticheSalvate = false;
+      saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
+    } catch (e2) {
+      // Colonne non ancora create: si salva il pronostico senza gli xG.
+      console.error("[ai-predict] salvataggio con xG", e2);
+      xgSalvati = false;
+      saved = await pgPost("predictions", riga, "return=representation");
+    }
   }
 
   await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}`, {
@@ -196,7 +225,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   });
 
   const uscita = Array.isArray(saved) ? saved[0] : saved;
-  return jsonResponse({ ...uscita, ...extra, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
+  return jsonResponse({ ...uscita, ...extra, statistiche_squadre: statistiche, statistiche_salvate: statisticheSalvate, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {
@@ -303,9 +332,8 @@ function buildMarketTable(
   // proporre perche' glielo suggeriva una vecchia sezione del testo.
   const AMMESSI = CANDIDATE_MARKETS.filter((m) => isVerdictMarket(m));
   const voci = AMMESSI.map((m) => {
-    const reale = comboOdd(m, odds);
-    const quota = reale ?? estimateMarketOdd(m, odds);
-    return { m, p: coverageForMarket(m, dist).coverage, quota, stimata: reale === null };
+    const { quota, stimata } = quotaCatalogo(m, odds);
+    return { m, p: coverageForMarket(m, dist).coverage, quota, stimata };
   })
     // I mercati sotto la soglia dell'utente vengono TOLTI, non marcati.
     // Marcarli non bastava: su Vasco Da Gama - Mirassol l'IA ha scelto lo
@@ -335,7 +363,8 @@ function buildMarketTable(
 Legenda: "prob" e' la probabilita' calcolata dal motore Poisson sulla
 distribuzione completa dei risultati. "quota" con la tilde (~) e' stimata da
 noi perche' il bookmaker non la fornisce. "storico" e' quante volte quel
-mercato ha vinto in partite con lo stesso profilo di quote.
+mercato ha vinto in partite con lo stesso profilo di favorita (tassonomia del
+motore); il manuale dello scenario 1X2 e' la sezione dedicata sopra.
 
 ${righe.join("\n")}
 
@@ -353,4 +382,56 @@ REGOLE PER LA SCELTA:
    quale dei due dai piu' peso e perche'.
 ============================================================
 `;
+}
+
+/** Quota di un mercato del catalogo: reale se il bookmaker la da', altrimenti stimata. */
+function quotaCatalogo(m: string, odds: Odds): { quota: number | null; stimata: boolean } {
+  const reale = comboOdd(m, odds);
+  return { quota: reale ?? estimateMarketOdd(m, odds), stimata: reale === null };
+}
+
+/** Nome nel catalogo di un mercato scritto come nel manuale ("1 fisso" -> "1"). */
+function nomeCatalogoManuale(market: string): string {
+  return market
+    .replace(/\bfisso\b/i, "")
+    .replace(/Over\s*(\d),(\d)/gi, "O$1.$2")
+    .replace(/Under\s*(\d),(\d)/gi, "U$1.$2")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Sezione "SCENARIO DI QUOTE" del prompt (Ticket 9): scenario 1X2 della
+ * partita, mercati del manuale con la misura dall'archivio (stessa
+ * aggregazione di /manuale-stats) e, per ciascuno, se e' nel catalogo, sotto
+ * soglia o fuori dai mercati giocabili. Senza archivio si mostra lo scenario
+ * senza percentuali.
+ */
+export async function scenarioManuale(odds: Odds, minOdd: number): Promise<string> {
+  const nota = getScenarioNote(odds as any);
+  if (!nota) return "";
+  let misura: ManualeStats["scenari"][string] | undefined;
+  try {
+    misura = (await calcolaManualeStats()).scenari[chiaveScenario(nota)];
+  } catch (e) {
+    console.error("[ai-predict] misura manuale", e);
+  }
+  const voci: VoceManuale[] = nota.markets.map((m) => {
+    const c = misura?.mercati[m];
+    const nome = nomeCatalogoManuale(m);
+    const base = { manuale: m, vinte: c?.vinte, valutate: c ? c.vinte + c.perse : undefined, pct: c?.pct };
+    if (!isVerdictMarket(nome)) return { ...base, stato: "fuori" as const };
+    const { quota } = quotaCatalogo(nome, odds);
+    const stato = quota !== null && quota >= minOdd ? "catalogo" as const : "soglia" as const;
+    return { ...base, stato, nomeCatalogo: nome, quota };
+  });
+  const ggO25 = nota.markets.find((m) => nomeCatalogoManuale(m) === "GG + O2.5");
+  return bloccoScenarioManuale({
+    scenario: nota.scenario,
+    favorita: nota.favorita ?? null,
+    voci,
+    minOdd,
+    profiloDifensivo: underAmmessiATettoAperto(structuralAnalysis(odds).structure),
+    ggO25Manuale: ggO25 ? misura?.mercati[ggO25]?.pct ?? null : null,
+  });
 }

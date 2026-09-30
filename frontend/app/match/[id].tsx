@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -242,12 +242,7 @@ export default function MatchDetail() {
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
       const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
-      const verdict = verdictRaw.filter((v) => !(structural.structure && violatesStructure(
-        v.market,
-        structural.structure.goal_floor,
-        structural.structure.goal_ceiling,
-        !!structural.structure.goal_ceiling_open,
-      )));
+      const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
       savedVerdictRef.current = top.market;
@@ -527,12 +522,7 @@ export default function MatchDetail() {
           // Manteniamo il PICK migliore CONSENTITO, fallback al primo se filtraggio
           // azzera tutto (caso edge raro).
           // ============================================================
-          const violatesFn = (m: string) => !!structural?.structure && violatesStructure(
-            m,
-            structural.structure.goal_floor,
-            structural.structure.goal_ceiling,
-            !!structural.structure.goal_ceiling_open,
-          );
+          const violatesFn = (m: string) => !ammessoDallaStruttura(m, structural?.structure);
           const verdictCalcolato = verdictRaw.filter((v) => !violatesFn(v.market));
           if (verdictCalcolato.length === 0) return renderNessunaGiocata();
 
@@ -1129,12 +1119,7 @@ export default function MatchDetail() {
           // U2.5 quando ceiling aperto, MG con range non coerente)
           // ============================================================
           const ranked = structural?.structure
-            ? rankedRaw.filter((p) => !violatesStructure(
-                p.market,
-                structural.structure.goal_floor,
-                structural.structure.goal_ceiling,
-                !!structural.structure.goal_ceiling_open,
-              ))
+            ? rankedRaw.filter((p) => ammessoDallaStruttura(p.market, structural.structure))
             : rankedRaw;
           if (ranked.length === 0) return null;
           return (
@@ -1375,6 +1360,32 @@ export default function MatchDetail() {
                   </Text>
                 </View>
               )}
+              {/* Ticket 10: statistiche trovate dall'IA in tabella, casa a
+                  sinistra e ospite a destra; sotto, l'analysis. I pronostici
+                  vecchi non hanno il campo: resta solo il testo. Si mostrano
+                  solo le righe con almeno un dato. */}
+              {(() => {
+                const st = prediction.statistiche_squadre;
+                if (!st || typeof st !== "object") return null;
+                const righe = RIGHE_STATISTICHE.filter((r) => (st.casa?.[r.chiave] || "").trim() || (st.ospite?.[r.chiave] || "").trim());
+                if (!righe.length) return null;
+                return (
+                  <View style={styles.statTable}>
+                    <View style={[styles.statRow, styles.statHeadRow]}>
+                      <Text style={[styles.statCell, styles.statHead]} numberOfLines={1}>{match.squadra1}</Text>
+                      <Text style={[styles.statLbl, styles.statHead]} />
+                      <Text style={[styles.statCell, styles.statHead, { textAlign: "right" }]} numberOfLines={1}>{match.squadra2}</Text>
+                    </View>
+                    {righe.map((r) => (
+                      <View key={r.chiave} style={styles.statRow}>
+                        <Text style={styles.statCell}>{st.casa?.[r.chiave] || "—"}</Text>
+                        <Text style={styles.statLbl}>{r.etichetta}</Text>
+                        <Text style={[styles.statCell, { textAlign: "right" }]}>{st.ospite?.[r.chiave] || "—"}</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
               {prediction.analysis && (
                 <Text style={styles.analysis}>{prediction.analysis}</Text>
               )}
@@ -1562,6 +1573,12 @@ const styles = StyleSheet.create({
   mainPredLbl: { color: "#FFE4D9", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   mainPredVal: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 4 },
   analysis: { color: colors.text, fontSize: 13, lineHeight: 20 },
+  statTable: { backgroundColor: colors.surfaceHi, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  statRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  statHeadRow: { borderBottomWidth: 1 },
+  statHead: { color: colors.text, fontWeight: "900", fontSize: 12 },
+  statCell: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 17 },
+  statLbl: { width: 86, color: colors.textMuted, fontSize: 10, fontWeight: "800", letterSpacing: 0.5, textAlign: "center", textTransform: "uppercase", paddingTop: 2 },
   playableList: { gap: 8, marginTop: 4 },
   playableTitle: { color: colors.textMuted, fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 4 },
   playableItem: { flexDirection: "row", gap: 10, alignItems: "flex-start", backgroundColor: colors.surfaceHi, padding: 10, borderRadius: 10 },

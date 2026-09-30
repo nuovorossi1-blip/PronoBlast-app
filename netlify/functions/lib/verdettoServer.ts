@@ -2,7 +2,7 @@ import { pgGet, pgPatch } from "./supabaseRest";
 import { structuralAnalysis, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import {
-  buildFinalVerdict, rankPicks, violatesStructure, fusioneInIngresso,
+  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -133,7 +133,7 @@ export async function verdettoDiPartita(
   // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
   const s: any = (structural as any)?.structure;
   const verdetto = s
-    ? grezzo.filter((v) => !violatesStructure(v.market, s.goal_floor, s.goal_ceiling, !!s.goal_ceiling_open))
+    ? grezzo.filter((v) => ammessoDallaStruttura(v.market, s))
     : grezzo;
 
   const pick = verdetto[0] || null;
