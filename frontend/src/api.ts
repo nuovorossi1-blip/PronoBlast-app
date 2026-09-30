@@ -810,8 +810,6 @@ const VERDICT_WHITELIST = new Set([
   // per i gap tecnici contro un avversario murato. Solo la casa: e' la voce
   // chiesta ("1 fisso + difesa ospite chiusa").
   "1 + u4.5",
-  // Manuale EQUILIBRIO (01/10/2026): quota stimata GG x 0,90.
-  "x oppure gg",
 ]);
 
 /**
@@ -990,9 +988,12 @@ export function buildFinalVerdict(
   aiMarkets: { market: string; reasoning?: string }[] | string[] | undefined,
   odds?: any,
   history?: MatchHistory | null,
-  options?: { minOdd?: number },
+  options?: { minOdd?: number; manuale?: CandidatoManuale[] },
 ): VerdictPick[] {
   const minOdd = options?.minOdd ?? MIN_VALUE_ODD;
+  // Mercati del manuale ammessi SOLO in questa partita (candidatiManuale).
+  const manuale = options?.manuale || [];
+  const ammessoQui = (m: string) => isVerdictMarket(m) || manuale.some((c) => normalizeMarket(c.market) === normalizeMarket(m));
   const norm = normalizeMarket;
   type Bucket = {
     market: string;            // canonical display name (first seen)
@@ -1113,6 +1114,17 @@ export function buildFinalVerdict(
         oddEstimated: r.odd_estimated ?? daMappa?.estimated ?? false,
       } as any);
     }
+  }
+
+  // MERCATI DEL MANUALE (01/10/2026): candidati come gli altri, con la
+  // probabilita' misurata in archivio sullo scenario al posto del Poisson.
+  for (const c of manuale) {
+    const b = ensure(c.market);
+    const delMotore = structural?.ranking?.find((r) => norm(r.market) === norm(c.market));
+    if (b.coverage === undefined) b.coverage = delMotore ? delMotore.coverage : c.pct / 100;
+    if (b.fragility === undefined && delMotore) b.fragility = delMotore.fragility;
+    if (b.odd === undefined || b.odd === null) { b.odd = c.odd; b.oddEstimated = c.stimata; }
+    b.dettaglio.push({ voce: `manuale dello scenario: ${c.pct.toFixed(1).replace(".", ",")}% in archivio (${c.vinte}/${c.valutate})`, punti: 0 });
   }
 
   // Mercati su cui l'euristica PRE ha potuto esprimersi. Se il backend non
@@ -1309,8 +1321,9 @@ export function buildFinalVerdict(
   // === Build output ===
   const out: VerdictPick[] = Array.from(buckets.values())
     // Filter out picks below value threshold (sotto soglia = solo rischio, niente valore)
-    // Solo i mercati che Rossi gioca davvero (vedi VERDICT_WHITELIST).
-    .filter((b) => isVerdictMarket(b.market))
+    // Solo i mercati che Rossi gioca davvero (vedi VERDICT_WHITELIST), piu'
+    // i mercati del manuale candidati in questa partita.
+    .filter((b) => ammessoQui(b.market))
     .filter((b) => {
       // Nessun pick senza prezzo. Prima i mercati di cui non si riusciva a
       // determinare la quota passavano il filtro: e' cosi' che "MG 1-4 totali"
@@ -1371,6 +1384,16 @@ export function buildFinalVerdict(
   // un punto), che e' il caso GG/NG per cui era nato.
   const posizione = new Map<string, number>();
   structural?.ranking?.forEach((r, i) => posizione.set(norm(r.market), i));
+  // Un mercato del manuale fuori dal ranking del motore (AH -0,75) si mette
+  // dove lo porta la sua probabilita' d'archivio: subito prima del primo
+  // mercato del ranking con copertura piu' bassa.
+  for (const c of manuale) {
+    const k = norm(c.market);
+    if (posizione.has(k)) continue;
+    const r = structural?.ranking || [];
+    const i = r.findIndex((x) => x.coverage < c.pct / 100);
+    posizione.set(k, (i >= 0 ? i : r.length) - 0.5);
+  }
   out.sort((a, b) => {
     const ia = posizione.get(norm(a.market)), ib = posizione.get(norm(b.market));
     if (ia !== undefined && ib !== undefined) return ia - ib;
@@ -1866,6 +1889,100 @@ export function conLetturaGol(
 
 
 // ============================================================
+// MERCATI DEL MANUALE COME CANDIDATI (01/10/2026, decisione di Rossi)
+// ============================================================
+/**
+ * I mercati del manuale dello scenario della partita (getScenarioNote) che
+ * NON sono gia' giocabili (whitelist) diventano candidati del verdetto, SOLO in
+ * quella partita, se:
+ *  - hanno risposto oltre il 50% in archivio su partite con lo stesso
+ *    scenario (misura del Ticket 8, /manuale-stats);
+ *  - hanno una quota >= Quota minima.
+ * Poi sono "candidati come gli altri": nessuna corsia preferenziale.
+ * Esempi: "X oppure GG" nell'EQUILIBRIO di fallback; "1 AH -0,75" nel GAP
+ * TECNICO. Fuori dal loro scenario non entrano mai (Belgio-Galles, 01/10:
+ * "X oppure GG" compariva in un GAP TECNICO).
+ *
+ * Quote (regole di Rossi): X oppure GG = GG x 0,90; AH -0,75 favorita = quota
+ * della doppia chance della favorita (1X per "1 AH", X2 per "2 AH"); i
+ * multigol casa/ospite = quota stimata dal motore (market_odds). DNB: nessuna
+ * regola di quota, quindi non candidabile.
+ */
+export type CandidatoManuale = {
+  /** nome da giocare (catalogo del motore se esiste, altrimenti quello del manuale) */
+  market: string;
+  manuale: string;
+  odd: number;
+  stimata: boolean;
+  /** % in archivio sullo scenario (0-100) */
+  pct: number;
+  vinte: number;
+  valutate: number;
+};
+
+/** Nome nel catalogo di un mercato scritto come nel manuale ("1 fisso" -> "1", "MG casa 1-3" -> "MG 1-3 casa"). */
+export function nomeCatalogoManuale(market: string): string {
+  return market
+    .split("+")
+    .map((p) => p
+      .replace(/\bfisso\b/i, "")
+      .replace(/Over\s*(\d),(\d)/gi, "O$1.$2")
+      .replace(/Under\s*(\d),(\d)/gi, "U$1.$2")
+      .replace(/^\s*MG\s+(casa|ospite)\s+(\d+-\d+)\s*$/i, "MG $2 $1")
+      .replace(/\s{2,}/g, " ")
+      .trim())
+    .join(" + ");
+}
+
+/** Quota di un mercato del manuale secondo le regole di Rossi; null se non ha regola. */
+export function quotaManuale(
+  market: string, odds: Odds, marketOdds?: Record<string, { odd: number; estimated: boolean }> | null,
+): { odd: number; stimata: boolean } | null {
+  const m = market.trim();
+  const numero = (v: any) => (typeof v === "number" && v > 1 ? v : null);
+  if (/^X\s+(oppure|o)\s+GG$/i.test(m)) {
+    const gg = numero((odds as any)?.odd_GG);
+    return gg ? { odd: Math.round(gg * 0.9 * 100) / 100, stimata: true } : null;
+  }
+  const ah = m.match(/^([12])\s+AH\s+-0[.,]75$/i);
+  if (ah) {
+    const dc = numero((odds as any)?.[ah[1] === "1" ? "odd_1X" : "odd_X2"]);
+    return dc ? { odd: dc, stimata: true } : null;
+  }
+  const nome = nomeCatalogoManuale(m);
+  const chiave = Object.keys(marketOdds || {}).find((k) => normalizeMarket(k) === normalizeMarket(nome));
+  if (chiave) return { odd: marketOdds![chiave].odd, stimata: marketOdds![chiave].estimated };
+  const reale = getMarketOdd(nome, odds);
+  return reale ? { odd: reale, stimata: false } : null;
+}
+
+export function candidatiManuale(
+  odds: Odds | null | undefined,
+  stats: ManualeStatsResponse["scenari"] | null | undefined,
+  minOdd: number,
+  marketOdds?: Record<string, { odd: number; estimated: boolean }> | null,
+): CandidatoManuale[] {
+  if (!odds || !stats) return [];
+  const nota = getScenarioNote(odds);
+  if (!nota) return [];
+  const misure = stats[chiaveScenario(nota)]?.mercati || {};
+  const out: CandidatoManuale[] = [];
+  for (const manuale of nota.markets) {
+    const nome = nomeCatalogoManuale(manuale);
+    if (isVerdictMarket(nome)) continue;          // gia' giocabile per conto suo
+    const c = misure[manuale];
+    if (!c || c.pct === null || c.pct <= 50) continue;
+    const q = quotaManuale(manuale, odds, marketOdds);
+    if (!q || q.odd < minOdd) continue;
+    // Il nome da giocare: quello del catalogo del motore se lo conosce
+    // (i multigol casa/ospite), altrimenti quello del manuale (AH, X oppure GG).
+    const market = /AH|oppure/i.test(manuale) ? manuale : nome;
+    out.push({ market, manuale, odd: q.odd, stimata: q.stimata, pct: c.pct, vinte: c.vinte, valutate: c.vinte + c.perse });
+  }
+  return out;
+}
+
+// ============================================================
 // PRONOSTICO GENERATO DOPO LA PARTITA (01/10/2026)
 // ============================================================
 /**
@@ -1991,9 +2108,13 @@ export type FasciaValidata = {
 type ContestoFasce = {
   odds: Odds;
   structural: StructuralAnalysis | null | undefined;
+  /** mercati del manuale ammessi in questa partita (candidatiManuale a 1.40) */
+  manuale?: CandidatoManuale[];
 };
 
 function quotaMercato(market: string, ctx: ContestoFasce): { odd: number | null; stimata: boolean } {
+  const man = (ctx.manuale || []).find((c) => normalizeMarket(c.market) === normalizeMarket(market));
+  if (man) return { odd: man.odd, stimata: man.stimata };
   const mappa = ctx.structural?.market_odds || {};
   const chiave = Object.keys(mappa).find((k) => normalizeMarket(k) === normalizeMarket(market));
   if (chiave) return { odd: mappa[chiave].odd, stimata: mappa[chiave].estimated };
@@ -2020,9 +2141,13 @@ export function validaFasce(
     const i = lista.findIndex((r) => normalizeMarket(r.market) === normalizeMarket(m));
     return i >= 0 ? i + 1 : null;
   };
+  const manuale = ctx.manuale || [];
+  const delManuale = (m: string) => manuale.find((c) => normalizeMarket(c.market) === normalizeMarket(m));
   const probDi = (m: string) => {
     const r = ranking.find((x) => normalizeMarket(x.market) === normalizeMarket(m));
-    return r ? r.coverage : null;
+    if (r) return r.coverage;
+    const c = delManuale(m);
+    return c ? c.pct / 100 : null;
   };
   const dir = letturaDirezionale(ctx.odds, s);
   const out: FasciaValidata[] = [];
@@ -2037,10 +2162,11 @@ export function validaFasce(
       if (voci.some((v) => normalizeMarket(v.market) === normalizeMarket(market))) return;
       const { odd, stimata } = quotaMercato(market, ctx);
       let motivo = "";
-      if (!isVerdictMarket(market)) motivo = "fuori dai mercati giocati";
+      const man = delManuale(market);
+      if (!isVerdictMarket(market) && !man) motivo = "fuori dai mercati giocati";
       else if (odd === null || odd < soglia) motivo = `quota ${odd?.toFixed(2) ?? "n/d"} sotto ${soglia.toFixed(2)}`;
       else if (!ammessoDallaStruttura(market, s)) motivo = "incoerente con pavimento/tetto";
-      else if (ranking.length && pos(ranking, market) === null) motivo = "escluso dal motore (struttura della partita)";
+      else if (!man && ranking.length && pos(ranking, market) === null) motivo = "escluso dal motore (struttura della partita)";
       else if (dir && !coerenteConDirezione(market, dir)) motivo = "scommette sui gol: favorita netta con profilo DIFENSIVA";
       if (motivo) { scartati.push({ market, motivo }); return; }
       voci.push({ market, odd, stimata, prob: probDi(market), rankAI: i + 1, rankMotore: pos(ranking, market), rankPre: pos(pre, market) });
@@ -2091,10 +2217,11 @@ export function verdettoDaAI(
   odds: Odds,
   minOdd: number,
   match?: { day?: string | null; time?: string | null } | null,
+  manuale?: CandidatoManuale[],
 ): { picks: VerdictPick[]; fascia: FasciaValidata } | null {
   // Un pronostico generato dopo il calcio d'inizio non decide mai il verdetto.
   if (pronosticoPostPartita(prediction, match)) return null;
-  const fasce = validaFasce(prediction?.fasce, { odds, structural });
+  const fasce = validaFasce(prediction?.fasce, { odds, structural, manuale });
   const fascia = fasce?.find((f) => Math.abs(f.soglia - minOdd) < 0.001);
   // Senza fasce (o senza questa fascia) decide la fusione. Con la fascia ma
   // senza pick: nessuna giocata, NON la fusione, che riproporrebbe proprio

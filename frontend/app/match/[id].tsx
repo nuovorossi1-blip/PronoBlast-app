@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -234,6 +234,10 @@ export default function MatchDetail() {
   // risultato) si mostra, ma non entra mai nel verdetto.
   const aiPostPartita = pronosticoPostPartita(prediction, match);
   const predVerdetto = aiPostPartita ? null : prediction;
+  // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
+  // archivio, quota >= soglia). Per le fasce AI si parte da 1.40.
+  const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds);
+  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds);
 
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
@@ -250,8 +254,8 @@ export default function MatchDetail() {
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
       // Con le fasce AI il verdetto e' la classifica dell'AI (stessa funzione del server).
-      const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match);
-      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd });
+      const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match, manualeFasce);
+      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
       const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
@@ -263,7 +267,7 @@ export default function MatchDetail() {
     } catch {
       // Nessun impatto sul pronostico mostrato.
     }
-  }, [match, structural, prediction, marketStats, history, minOdd]);
+  }, [match, structural, prediction, marketStats, history, minOdd, manualeStats]);
 
   // Subscribe to background prediction queue so the UI reflects in-flight requests
   useEffect(() => {
@@ -536,8 +540,8 @@ export default function MatchDetail() {
           // verdetto e' la sua classifica validata per la fascia della Quota
           // minima; motore e PRE restano come badge di accordo. Senza fasce
           // (pronostici vecchi o nessun pronostico) resta la fusione.
-          const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match);
-          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd });
+          const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match, manualeFasce);
+          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -610,32 +614,13 @@ export default function MatchDetail() {
           const concLabel = top.concordance === 3 ? "CONCORDANZA PIENA 3/3"
             : top.concordance === 2 ? "CONCORDANZA FORTE 2/3" : "SEGNALE PARZIALE 1/3";
 
-          // Match concordance to result
+          // Esito del pick col risultato: stessa funzione del resto dell'app
+          // (conosce anche AH -0,75, X oppure GG, MG casa/ospite e le combo).
           let pickOutcome: "won" | "lost" | null = null;
           if (match.result) {
-            const parts = match.result.split("-").map((n) => parseInt(n, 10));
-            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-              const m = top.market.toUpperCase().replace(/\s/g, "");
-              const home = parts[0], away = parts[1], total = home + away;
-              let ok: boolean | null = null;
-              if (m === "1") ok = home > away;
-              else if (m === "X") ok = home === away;
-              else if (m === "2") ok = away > home;
-              else if (m.startsWith("1X")) ok = home >= away;
-              else if (m.startsWith("X2")) ok = away >= home;
-              else if (m.startsWith("12")) ok = home !== away;
-              else if (m.startsWith("U")) { const n = parseFloat(m.match(/U(\d+(?:\.\d+)?)/)?.[1] || "0"); ok = total < n; }
-              else if (m.startsWith("O")) { const n = parseFloat(m.match(/O(\d+(?:\.\d+)?)/)?.[1] || "0"); ok = total > n; }
-              else if (m === "GG") ok = home > 0 && away > 0;
-              else if (m === "NG") ok = home === 0 || away === 0;
-              else if (m.includes("MG") && m.includes("2-4")) {
-                if (m.includes("CASA")) ok = home >= 2 && home <= 4;
-                else if (m.includes("OSPITE")) ok = away >= 2 && away <= 4;
-                else ok = total >= 2 && total <= 4;
-              }
-              if (ok === true) pickOutcome = "won";
-              else if (ok === false) pickOutcome = "lost";
-            }
+            const ok = evaluateMarketOutcome(top.market, match.result);
+            if (ok === true) pickOutcome = "won";
+            else if (ok === false) pickOutcome = "lost";
           }
 
           const rankBadges = (p: VerdictPick) => (
@@ -1090,7 +1075,10 @@ export default function MatchDetail() {
             {filtered.map((r, i) => {
               const cov = Math.round(r.coverage * 100);
               const frag = Math.round(r.fragility * 100);
-              const odd = getMarketOdd(r.market, match.odds);
+              // Prima la quota del motore (combo stimate con Poisson o con la
+              // formula GG + O2.5); getMarketOdd moltiplicava le due quote.
+              const odd = r.odd ?? getMarketOdd(r.market, match.odds);
+              const oddStimata = r.odd != null && !!r.odd_estimated;
               const fragColor = r.fragility_label === "bassa" ? colors.success
                 : r.fragility_label === "media" ? colors.primary : colors.danger;
               return (
@@ -1101,8 +1089,8 @@ export default function MatchDetail() {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <Text style={[styles.srMarket, i === 0 && { color: colors.aiText }]}>{r.market}</Text>
-                      {odd !== undefined && (
-                        <Text style={[styles.srOdd, i === 0 && { color: colors.aiText }]}>@ {odd.toFixed(2)}</Text>
+                      {odd != null && (
+                        <Text style={[styles.srOdd, i === 0 && { color: colors.aiText }]}>{oddStimata ? "≈" : "@"} {odd.toFixed(2)}</Text>
                       )}
                       <View style={[styles.srTag, { backgroundColor: "rgba(16,185,129,0.15)", borderColor: colors.success }]}>
                         <Text style={[styles.srTagTxt, { color: colors.success }]}>COV {cov}%</Text>
@@ -1384,7 +1372,7 @@ export default function MatchDetail() {
                 // fascia, fonti compatte. I pronostici vecchi (senza fasce)
                 // mostrano i mercati giocabili come prima.
                 // ============================================================
-                const fasceV = validaFasce(prediction.fasce, { odds: match.odds as any, structural });
+                const fasceV = validaFasce(prediction.fasce, { odds: match.odds as any, structural, manuale: manualeFasce });
                 const avvisoPost = aiPostPartita ? (
                   <View style={styles.palettoBox}>
                     <Text style={styles.palettoTxt}>
