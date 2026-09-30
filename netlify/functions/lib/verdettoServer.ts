@@ -1,8 +1,10 @@
 import { pgGet, pgPatch } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
+import { manualeStatsRecenti } from "./manuale";
 import {
   buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita,
+  candidatiManuale, FASCE_AI,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -136,17 +138,28 @@ export async function verdettoDiPartita(
   // Se il pronostico AI ha le fasce, il verdetto e' la sua classifica validata
   // per la fascia della soglia (stessa funzione della scheda); altrimenti la
   // fusione di sempre.
+  // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
+  // archivio, quota >= soglia): stessa funzione della scheda.
+  const marketOdds = quoteCatalogo(odds);
+  let statsScenari: any = null;
+  try {
+    statsScenari = (await manualeStatsRecenti()).scenari;
+  } catch (e) {
+    console.error("[verdettoServer] manuale", e);
+  }
+  const manuale = candidatiManuale(odds, statsScenari, minOdd, marketOdds);
+  const manualeFasce = candidatiManuale(odds, statsScenari, FASCE_AI[0], marketOdds);
   const daAI = verdettoDaAI(
     { fasce: fasceAI },
     {
       ...(structural as any),
-      market_odds: quoteCatalogo(odds),
+      market_odds: marketOdds,
       pre_ranking: preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd })),
     },
-    odds, minOdd,
+    odds, minOdd, match, manualeFasce,
   );
   const grezzo = daAI ? daAI.picks : buildFinalVerdict(
-    ingresso.structural, preRanked, aiMarkets, odds, history, { minOdd },
+    { ...(ingresso.structural as any), market_odds: marketOdds }, preRanked, aiMarkets, odds, history, { minOdd, manuale },
   );
   // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
   // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).

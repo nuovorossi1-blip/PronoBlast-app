@@ -37,6 +37,21 @@ export type ManualeStats = {
 
 export const METODO_MANUALE = "vinte / (vinte + perse) sulle partite concluse con quello scenario; rimborsi (DNB col pareggio) e mezze (AH -0,75 vinto di un gol) contati a parte, fuori dalla percentuale";
 
+/**
+ * Stessa misura, ricordata per 10 minuti nell'istanza della funzione: il
+ * verdetto server la chiede per ogni partita della giornata e l'archivio
+ * intero non cambia fra una partita e l'altra. /manuale-stats resta viva.
+ */
+let memo: { at: number; valore: Promise<ManualeStats> } | null = null;
+export function manualeStatsRecenti(): Promise<ManualeStats> {
+  if (!memo || Date.now() - memo.at > 10 * 60 * 1000) {
+    const valore = calcolaManualeStats();
+    memo = { at: Date.now(), valore };
+    valore.catch((e) => { console.error("[manuale] misura", e); memo = null; });
+  }
+  return memo.valore;
+}
+
 export async function calcolaManualeStats(): Promise<ManualeStats> {
   const righe = await pgGetAll(
     "matches?result=not.is.null&select=id,day,time,result,pick_finale,pick_strutturale,pick_pre,main_prediction,odd_1,odd_x,odd_2,odd_1x,odd_x2,odd_12,odd_u15,odd_o15,odd_u25,odd_o25,odd_u35,odd_o35,odd_gg,odd_ng",

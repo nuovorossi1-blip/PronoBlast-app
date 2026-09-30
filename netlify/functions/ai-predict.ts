@@ -1,16 +1,17 @@
 import { pgGet, pgPost, pgPatch, jsonResponse, rowToOdds } from "./lib/supabaseRest";
 import {
   structuralAnalysis, CANDIDATE_MARKETS, fullDistribution, coverageForMarket,
-  comboOdd, estimateMarketOdd, isVerdictMarket, type Odds,
+  comboOdd, estimateMarketOdd, isVerdictMarket, quoteCatalogo, type Odds,
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
 import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, type VoceManuale } from "./lib/predictionPrompt";
-import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
+import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
-import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs } from "../../frontend/src/api";
+import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs,
+  candidatiManuale, quotaManuale, nomeCatalogoManuale, type CandidatoManuale } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -106,6 +107,15 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // Il catalogo parte dalla fascia piu' bassa (1.40): l'AI stila una classifica
   // per OGNI fascia 1.40 / 1.50 / 1.60 / 1.75, non solo per la soglia scelta.
   const minOdd = Math.min(await readMinOdd(), FASCE_AI[0]);
+  // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
+  // archivio, quota >= 1.40): entrano nel catalogo dell'AI solo qui.
+  let manualeQui: CandidatoManuale[] = [];
+  try {
+    const stats = await manualeStatsRecenti();
+    manualeQui = candidatiManuale(rowToOdds(match) as any, stats.scenari as any, minOdd, quoteCatalogo(rowToOdds(match)));
+  } catch (e) {
+    console.error("[ai-predict] candidati manuale", e);
+  }
   try {
     prompt = prompt + await scenarioManuale(rowToOdds(match), minOdd);
   } catch (e) {
@@ -122,6 +132,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
       rowToOdds(match),
       await scenarioRates(rowToOdds(match)),
       minOdd,
+      manualeQui,
     );
   } catch (e) {
     // se la tabella fallisce si procede senza: il pronostico resta possibile
@@ -365,6 +376,7 @@ function buildMarketTable(
   odds: Odds,
   hist: Record<string, { rate: number; total: number }>,
   minOdd: number,
+  manuale: CandidatoManuale[] = [],
 ): string {
   const dist = fullDistribution(odds, 6);
 
@@ -390,6 +402,13 @@ function buildMarketTable(
     // non mostrarglielo.
     .filter((v) => v.quota !== null && v.quota >= minOdd)
     .sort((a, b) => b.p - a.p);
+
+  // Mercati del manuale ammessi SOLO in questa partita: la probabilita' e'
+  // quella misurata in archivio sullo scenario (AH -0,75 il Poisson non la sa).
+  const righeManuale = manuale.map((c) =>
+    `${c.market} | storico scenario ${c.pct.toFixed(1).replace(".", ",")}% (${c.vinte}/${c.valutate}) | ` +
+    `quota ${c.odd.toFixed(2)}${c.stimata ? "~" : ""} | DA MANUALE, giocabile solo in questa partita`,
+  );
 
   const righe = voci.map((v) => {
     const h = hist[v.m];
@@ -418,7 +437,7 @@ mercato ha vinto in partite con lo stesso profilo di favorita (tassonomia del
 motore); il manuale dello scenario 1X2 e' la sezione dedicata sopra.
 
 ${righe.join("\n")}
-
+${righeManuale.length ? `\nMERCATI DEL MANUALE AMMESSI IN QUESTA PARTITA (oltre il 50% in archivio sullo scenario):\n${righeManuale.join("\n")}\n` : ""}
 REGOLE PER LA SCELTA:
 1. Scegli i "playable_markets" ESCLUSIVAMENTE da questa lista, copiando il nome
    del mercato ESATTAMENTE come scritto sopra. Questa lista contiene GIA' solo
@@ -441,15 +460,6 @@ function quotaCatalogo(m: string, odds: Odds): { quota: number | null; stimata: 
   return { quota: reale ?? estimateMarketOdd(m, odds), stimata: reale === null };
 }
 
-/** Nome nel catalogo di un mercato scritto come nel manuale ("1 fisso" -> "1"). */
-function nomeCatalogoManuale(market: string): string {
-  return market
-    .replace(/\bfisso\b/i, "")
-    .replace(/Over\s*(\d),(\d)/gi, "O$1.$2")
-    .replace(/Under\s*(\d),(\d)/gi, "U$1.$2")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
 
 /**
  * Sezione "SCENARIO DI QUOTE" del prompt (Ticket 9): scenario 1X2 della
@@ -463,7 +473,7 @@ export async function scenarioManuale(odds: Odds, minOdd: number): Promise<strin
   if (!nota) return "";
   let misura: ManualeStats["scenari"][string] | undefined;
   try {
-    misura = (await calcolaManualeStats()).scenari[chiaveScenario(nota)];
+    misura = (await manualeStatsRecenti()).scenari[chiaveScenario(nota)];
   } catch (e) {
     console.error("[ai-predict] misura manuale", e);
   }
@@ -471,10 +481,20 @@ export async function scenarioManuale(odds: Odds, minOdd: number): Promise<strin
     const c = misura?.mercati[m];
     const nome = nomeCatalogoManuale(m);
     const base = { manuale: m, vinte: c?.vinte, valutate: c ? c.vinte + c.perse : undefined, pct: c?.pct };
-    if (!isVerdictMarket(nome)) return { ...base, stato: "fuori" as const };
-    const { quota } = quotaCatalogo(nome, odds);
-    const stato = quota !== null && quota >= minOdd ? "catalogo" as const : "soglia" as const;
-    return { ...base, stato, nomeCatalogo: nome, quota };
+    // Gia' giocabile per conto suo (whitelist): conta solo la soglia.
+    if (isVerdictMarket(nome)) {
+      const { quota } = quotaCatalogo(nome, odds);
+      const stato = quota !== null && quota >= minOdd ? "catalogo" as const : "soglia" as const;
+      return { ...base, stato, nomeCatalogo: nome, quota };
+    }
+    // Mercato del manuale: giocabile in questa partita solo oltre il 50% in
+    // archivio e con una quota (regole di Rossi) sopra la soglia.
+    const q = quotaManuale(m, odds as any, quoteCatalogo(odds));
+    if (!q) return { ...base, stato: "fuori" as const };
+    const nomeGioco = /AH|oppure/i.test(m) ? m : nome;
+    if (c?.pct == null || c.pct <= 50) return { ...base, stato: "fuori" as const };
+    const stato = q.odd >= minOdd ? "catalogo" as const : "soglia" as const;
+    return { ...base, stato, nomeCatalogo: nomeGioco, quota: q.odd };
   });
   const ggO25 = nota.markets.find((m) => nomeCatalogoManuale(m) === "GG + O2.5");
   return bloccoScenarioManuale({

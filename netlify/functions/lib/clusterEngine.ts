@@ -670,8 +670,8 @@ export const VERDICT_WHITELIST = [
   "DC 1X + GG", "DC X2 + GG",
   // Ticket 6-bis (decisione C di Rossi, 30/09): direzione secca + pochi gol.
   "1 + U4.5",
-  // Manuale EQUILIBRIO (01/10/2026): "X oppure GG" puo' diventare la giocata.
-  "X oppure GG",
+  // "X oppure GG" NON e' qui: e' un mercato del manuale EQUILIBRIO e diventa
+  // giocabile solo nelle partite di quello scenario (candidatiManuale, api.ts).
 ];
 
 /**
@@ -716,6 +716,21 @@ export function comboOdd(market: string, odds: Odds): number | null {
   if (ODD_MAP[m]) {
     const v = num(odds, ODD_MAP[m]);
     return v || null;
+  }
+  // GG + O2.5 (formula di Rossi, 01/10/2026): l'unico risultato con GG ma
+  // senza Over 2,5 e' l'1-1, quindi P(combo) = P(GG) - P(1-1) e
+  //   quota = 1 / (1/quota GG - 1/quota 1-1).
+  // Il palinsesto non ha la quota del risultato esatto: P(1-1) viene dal
+  // Poisson del motore (stessi lambda del ranking). Senza quota GG, o con un
+  // risultato assurdo, si torna alla stima Poisson pura qui sotto.
+  if (m === "GG + O2.5") {
+    const gg = num(odds, "odd_GG");
+    if (gg) {
+      const [lamH, lamA] = deriveLambdas(odds);
+      const p11 = poisson(1, lamH) * poisson(1, lamA);
+      const pCombo = 1 / gg - p11;
+      if (pCombo > 0.02) return Math.round((1 / pCombo) * 100) / 100;
+    }
   }
   if (m.includes("+")) {
     // BUG CORRETTO (26/07/2026). Qui si moltiplicavano le due quote:
