@@ -6,6 +6,7 @@
  * Porting 1:1 dalla versione Python originale (backend/cluster_engine.py).
  * Nessuna dipendenza esterna: solo Math nativo.
  */
+import { underAmmessiATettoAperto } from "../../../frontend/src/api";
 
 export type Odds = Record<string, number | string[] | undefined>;
 
@@ -652,6 +653,8 @@ export const VERDICT_WHITELIST = [
   "DC 1X + O2.5", "DC X2 + O2.5",
   "DC 1X + U3.5", "DC X2 + U3.5",
   "DC 1X + GG", "DC X2 + GG",
+  // Ticket 6-bis (decisione C di Rossi, 30/09): direzione secca + pochi gol.
+  "1 + U4.5",
 ];
 
 /**
@@ -793,6 +796,7 @@ export function structuralAnalysis(
   const floor = structure.goal_floor;
   const ceiling = structure.goal_ceiling;
   const ceilingOpen = structure.goal_ceiling_open;
+  const underAperti = underAmmessiATettoAperto(structure);
 
   // NOTE: `mu` is intentionally declared ONCE at function scope and reused
   // (not re-declared per market) to faithfully replicate a real quirk present
@@ -838,10 +842,12 @@ export function structuralAnalysis(
     const odd1 = num(odds, "odd_1") || 99;
     const odd2 = num(odds, "odd_2") || 99;
     if (mu === "1 + U4.5") {
-      if (ceilingOpen || ceiling > 4) continue;
+      // Tetto aperto: ammesso solo col profilo DIFENSIVA (Ticket 6-bis, stessa
+      // regola condivisa di violatesStructure).
+      if (ceilingOpen ? !underAperti : ceiling > 4) continue;
       if (odd1 >= 1.4) continue;
     } else if (mu === "2 + U4.5") {
-      if (ceilingOpen || ceiling > 4) continue;
+      if (ceilingOpen ? !underAperti : ceiling > 4) continue;
       if (odd2 >= 1.4) continue;
     }
 

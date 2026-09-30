@@ -758,6 +758,10 @@ const VERDICT_WHITELIST = new Set([
   "dc 1x + o2.5", "dc x2 + o2.5",
   "dc 1x + u3.5", "dc x2 + u3.5",
   "dc 1x + gg", "dc x2 + gg",
+  // Ticket 6-bis (decisione C di Rossi, 30/09): direzione secca + pochi gol,
+  // per i gap tecnici contro un avversario murato. Solo la casa: e' la voce
+  // chiesta ("1 fisso + difesa ospite chiusa").
+  "1 + u4.5",
 ]);
 
 /**
@@ -1617,12 +1621,18 @@ export function areMarketsContradictory(a: string, b: string): boolean {
  *     - es. floor=2,ceiling=4: "MG 1-3" → hi=3 < 4 → INVALIDO
  *     - es. floor=2,open=true: "MG 2-4" → ceiling aperto ma hi=4 < 6 → INVALIDO
  *   • U(N.5): valido solo se ceiling chiuso e N == ceiling (es. U3.5 ok con ceiling=3)
- *     - se ceiling_open: tutti gli Under sono invalidi
+ *     - se ceiling_open: tutti gli Under sono invalidi, salvo U3.5/U4.5 col
+ *       profilo DIFENSIVA (`underAperti`, Ticket 6-bis)
  *   • O(N.5): valido solo se ceiling > N (es. O3.5 ok solo se tetto ≥ 4 o aperto)
  *     - se floor ≤ N AND ceiling ≤ N AND non-open → ridondante/incoerente
  *   • Combo (DC + U/O o 1/X/2 + U/O) seguono le stesse regole sulla parte U/O
  */
-export function violatesStructure(market: string, floor: number, ceiling: number, ceilingOpen: boolean): boolean {
+export function violatesStructure(
+  market: string, floor: number, ceiling: number, ceilingOpen: boolean,
+  /** Ticket 6-bis: a tetto aperto U3.5/U4.5 (puri e combo) restano ammessi.
+   *  Si calcola con `underAmmessiATettoAperto`, mai a mano. */
+  underAperti: boolean = false,
+): boolean {
   const M = market.trim().toUpperCase();
 
   // ============ MG RANGE ============
@@ -1648,8 +1658,10 @@ export function violatesStructure(market: string, floor: number, ceiling: number
   if (underMatch) {
     const u = +underMatch[1];
     if (ceilingOpen) {
-      // Ceiling aperto: TUTTI gli under sono incoerenti
-      return true;
+      // Ceiling aperto: gli under sono incoerenti, TRANNE U3.5/U4.5 (puri e
+      // combo) quando il profilo e' DIFENSIVO (Ticket 6-bis, decisione C di
+      // Rossi del 30/09). U1.5/U2.5 restano sempre fuori.
+      return !(underAperti && u >= 3 && u <= 4);
     }
     // U(N.5) valido se N >= ceiling - 1 (es. U3.5 ok con ceiling=3 o 4)
     // Più stretto: U deve essere ESATTAMENTE al ceiling chiuso
@@ -1682,18 +1694,19 @@ export function violatesStructure(market: string, floor: number, ceiling: number
 export function filterCoherentAlternatives(
   pick: VerdictPick,
   alternatives: VerdictPick[],
-  structure?: { goal_floor: number; goal_ceiling: number; goal_ceiling_open?: boolean } | null,
+  structure?: StrutturaGol,
   limit: number = 3,
 ): VerdictPick[] {
   const accepted: VerdictPick[] = [];
   const floor = structure?.goal_floor ?? 0;
   const ceiling = structure?.goal_ceiling ?? 7;
   const open = !!structure?.goal_ceiling_open;
+  const underAperti = underAmmessiATettoAperto(structure);
 
   for (const alt of alternatives) {
     if (accepted.length >= limit) break;
     // Skip se viola vincoli strutturali (floor/ceiling)
-    if (violatesStructure(alt.market, floor, ceiling, open)) continue;
+    if (violatesStructure(alt.market, floor, ceiling, open, underAperti)) continue;
     // Skip se contraddice il PICK principale
     if (areMarketsContradictory(pick.market, alt.market)) continue;
     // Skip se contraddice un'alternativa già accettata
@@ -1710,11 +1723,30 @@ export function filterCoherentAlternatives(
   return accepted;
 }
 
-export type StrutturaGol = { goal_floor: number; goal_ceiling: number; goal_ceiling_open?: boolean } | null | undefined;
+export type StrutturaGol = {
+  goal_floor: number; goal_ceiling: number; goal_ceiling_open?: boolean;
+  offensive_profile?: string;
+} | null | undefined;
+
+/**
+ * UNDER A TETTO APERTO (Ticket 6-bis, caso Belgio-Galles 1-0, decisione C di
+ * Rossi del 30/09). Il tetto aperto vietava TUTTI gli under, ma la famiglia
+ * DOMINANZA_OVER ha tetto aperto per costruzione: l'under moriva proprio nei
+ * profili DIFENSIVA, dove ha piu' senso (DC 1X + U3.5 proposto dall'IA e mai
+ * arrivato a schermo). Ora, se il profilo e' DIFENSIVA, U3.5/U4.5 puri e le
+ * combo con U3.5/U4.5 (DC 1X + U3.5, 1 + U4.5) restano ammessi.
+ * Criterio deterministico sul profilo delle quote, mai sui risultati.
+ * I RANGE MG a tetto aperto restano vietati (regola confermata da Rossi).
+ * Unica sede della regola: la usano verdetto (telefono e server), motore e
+ * catalogo dell'IA.
+ */
+export function underAmmessiATettoAperto(s: { offensive_profile?: string } | null | undefined): boolean {
+  return s?.offensive_profile === "defensive";
+}
 
 /** true se il mercato e' strutturalmente giocabile (stessa regola di violatesStructure). */
 export function ammessoDallaStruttura(market: string, s: StrutturaGol): boolean {
-  return !s || !violatesStructure(market, s.goal_floor, s.goal_ceiling, !!s.goal_ceiling_open);
+  return !s || !violatesStructure(market, s.goal_floor, s.goal_ceiling, !!s.goal_ceiling_open, underAmmessiATettoAperto(s));
 }
 
 /** true se e' un MG di range escluso per il TETTO (non per il pavimento). */

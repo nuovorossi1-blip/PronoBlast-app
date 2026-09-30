@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, violatesStructure, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -242,12 +242,7 @@ export default function MatchDetail() {
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
       const verdictRaw = buildFinalVerdict(ingresso.structural, preRanked, prediction?.playable_markets, match.odds, history, { minOdd });
-      const verdict = verdictRaw.filter((v) => !(structural.structure && violatesStructure(
-        v.market,
-        structural.structure.goal_floor,
-        structural.structure.goal_ceiling,
-        !!structural.structure.goal_ceiling_open,
-      )));
+      const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
       savedVerdictRef.current = top.market;
@@ -527,12 +522,7 @@ export default function MatchDetail() {
           // Manteniamo il PICK migliore CONSENTITO, fallback al primo se filtraggio
           // azzera tutto (caso edge raro).
           // ============================================================
-          const violatesFn = (m: string) => !!structural?.structure && violatesStructure(
-            m,
-            structural.structure.goal_floor,
-            structural.structure.goal_ceiling,
-            !!structural.structure.goal_ceiling_open,
-          );
+          const violatesFn = (m: string) => !ammessoDallaStruttura(m, structural?.structure);
           const verdictCalcolato = verdictRaw.filter((v) => !violatesFn(v.market));
           if (verdictCalcolato.length === 0) return renderNessunaGiocata();
 
@@ -1129,12 +1119,7 @@ export default function MatchDetail() {
           // U2.5 quando ceiling aperto, MG con range non coerente)
           // ============================================================
           const ranked = structural?.structure
-            ? rankedRaw.filter((p) => !violatesStructure(
-                p.market,
-                structural.structure.goal_floor,
-                structural.structure.goal_ceiling,
-                !!structural.structure.goal_ceiling_open,
-              ))
+            ? rankedRaw.filter((p) => ammessoDallaStruttura(p.market, structural.structure))
             : rankedRaw;
           if (ranked.length === 0) return null;
           return (

@@ -8,6 +8,7 @@ import { readMinOdd } from "./odd-settings";
 import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson } from "./lib/predictionPrompt";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
+import { underAmmessiATettoAperto } from "../../frontend/src/api";
 
 /**
  * POST /ai-predict?matchId=<uuid>&force=true
@@ -73,6 +74,7 @@ async function handle(req: Request): Promise<Response> {
 - TETTO: ${ceilingStr} gol massimi attesi
 - RANGE: ${rangeStr}
 - FAMIGLIA STRUTTURALE: ${s.family}
+- PROFILO OFFENSIVO: ${s.offensive_profile}${underAmmessiATettoAperto(s) ? " (DIFENSIVA)" : ""}
 - λ Poisson Casa: ${s.lambda_home.toFixed(2)}
 - λ Poisson Ospite: ${s.lambda_away.toFixed(2)}
 
@@ -81,7 +83,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
    "borderline buffer" (zona incerta → step verso sicurezza). USALI ESATTAMENTE.
 2. NON proporre mercati incoerenti col PIN:
    - Se PAVIMENTO=0 → NON proporre MG che inizia da 2+ (es. "MG 2-4 totali" VIETATO)
-   - Se TETTO=APERTO → NON proporre U2.5 / U3.5 / "MG 2-4" (range chiuso VIETATO)
+   - Se TETTO=APERTO → NON proporre U2.5 / "MG 2-4" (range chiuso VIETATO);
+     U3.5 e le combo con U3.5/U4.5 (es. "DC 1X + U3.5", "1 + U4.5") SOLO se il
+     PROFILO OFFENSIVO qui sotto e' "defensive" (DIFENSIVA), altrimenti VIETATI
    - Se TETTO=4 e PAVIMENTO=2 → NON proporre "MG 1-3" (lo=1≠2 VIETATO)
    - MG range valido: lo ≤ pavimento+1 AND (aperto: hi≥6 ; chiuso: hi≥tetto)
 3. Nel campo "analysis" devi SCRIVERE LETTERALMENTE: "PAVIMENTO: ${s.goal_floor} gol | TETTO: ${ceilingStr} gol | RANGE: ${rangeStr}"
