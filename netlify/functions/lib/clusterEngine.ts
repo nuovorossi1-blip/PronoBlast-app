@@ -312,6 +312,10 @@ export function evaluateMarketStrict(market: string, home: number, away: number)
   if (m === "12" || m === "DC 12") return home !== away;
   if (m === "GG") return home > 0 && away > 0;
   if (m === "NG") return home === 0 || away === 0;
+  // Combo bookmaker "X oppure GG" (manuale EQUILIBRIO): pareggio (0-0
+  // compreso) oppure entrambe a segno; perde solo sulle vittorie a rete
+  // inviolata. Stessa regola di esitoMercato nel frontend.
+  if (m === "X OPPURE GG" || m === "X O GG") return home === away || (home > 0 && away > 0);
 
   for (const o of ["0.5", "1.5", "2.5", "3.5", "4.5", "5.5"]) {
     if (m === `O${o}`) return total > parseFloat(o);
@@ -546,6 +550,9 @@ export const CANDIDATE_MARKETS: string[] = [
   "1 + O1.5", "2 + O1.5", "1 + O2.5", "2 + O2.5",
   "1 + U4.5", "2 + U4.5",
   "GG + O2.5",
+  // Manuale EQUILIBRIO (01/10/2026, decisione di Rossi): giocabile, quota
+  // stimata GG x 0,90 (vedi estimateMarketOdd).
+  "X oppure GG",
   "DC 1X + O1.5", "DC X2 + O1.5", "DC 12 + O1.5",
   "DC 1X + O2.5", "DC X2 + O2.5", "DC 12 + O2.5",
   "DC 1X + U3.5", "DC X2 + U3.5", "DC 12 + U3.5",
@@ -577,7 +584,15 @@ export const CANDIDATE_MARKETS: string[] = [
  * segno (circa -9%) per ogni mercato stimato. L'EV resta calcolato solo sulle
  * quote reali.
  */
+/** Quota di "X oppure GG": il bookmaker non la da' nel palinsesto; regola di
+ *  Rossi (01/10/2026) = quota GG meno il 10%. null senza quota GG. */
+export function quotaXoppureGG(odds: Odds): number | null {
+  const gg = num(odds, "odd_GG");
+  return gg ? Math.round(gg * 0.9 * 100) / 100 : null;
+}
+
 export function estimateMarketOdd(market: string, odds: Odds): number | null {
+  if (/^X\s+(OPPURE|O)\s+GG$/i.test(market.trim())) return quotaXoppureGG(odds);
   try {
     const [lamH, lamA] = deriveLambdas(odds);
     const maxGoals = 8;
@@ -655,6 +670,8 @@ export const VERDICT_WHITELIST = [
   "DC 1X + GG", "DC X2 + GG",
   // Ticket 6-bis (decisione C di Rossi, 30/09): direzione secca + pochi gol.
   "1 + U4.5",
+  // Manuale EQUILIBRIO (01/10/2026): "X oppure GG" puo' diventare la giocata.
+  "X oppure GG",
 ];
 
 /**

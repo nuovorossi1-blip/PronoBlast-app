@@ -810,6 +810,8 @@ const VERDICT_WHITELIST = new Set([
   // per i gap tecnici contro un avversario murato. Solo la casa: e' la voce
   // chiesta ("1 fisso + difesa ospite chiusa").
   "1 + u4.5",
+  // Manuale EQUILIBRIO (01/10/2026): quota stimata GG x 0,90.
+  "x oppure gg",
 ]);
 
 /**
@@ -1613,6 +1615,8 @@ const _OPPOSITES: [string, string][] = [
 /** Estrae il segno base (1/X/2/1X/X2/12) dal mercato, undefined se non trovato. */
 function _extractSign(m: string): string | undefined {
   const norm = m.trim().toUpperCase().replace(/\s+/g, " ");
+  // "X oppure GG" non e' il segno X: vince anche con 2-1 o 1-2.
+  if (/^X (OPPURE|O) GG$/.test(norm)) return undefined;
   // Mercato secco
   if (/^(1X|X2|12|1|X|2)$/.test(norm.split(" ")[0])) return norm.split(" ")[0];
   // Combo "X + Y" o "DC X + Y"
