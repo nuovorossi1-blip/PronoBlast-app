@@ -44,12 +44,16 @@ FASE 2 — RANKING + PAVIMENTO/TETTO ESPLICITI
 Restituisci 3-5 mercati del catalogo ordinati dal PIU' PROBABILE al MENO
 PROBABILE. Il "main_prediction" e' il primo.
 
-OBBLIGO: il campo "analysis" DEVE iniziare SEMPRE con la SINTESI A SISTEMA:
-  "PAVIMENTO: X gol | TETTO: Y gol | RANGE: X-Y gol"
-poi 2-3 righe di motivazione che leggono le quote come SISTEMA (non singole),
-indicando gap rilevanti e segnali strutturali.
+ORDINE FISSO DEL CAMPO "analysis" (due parti, in quest'ordine):
+  (1) LETTURA DELLA PARTITA — 2-3 frasi: le quote lette come SISTEMA (non
+      singole), gap rilevanti, scenario e manuale quando pertinenti.
+  (2) PERCHE' QUESTA SCELTA — 2-3 frasi: perche' il main_prediction e gli
+      altri mercati proposti.
+VIETATO ripetere il PIN (pavimento, tetto, range, lambda): e' gia' a schermo
+nella sezione STRUTTURA MATCH. I numeri delle squadre (attacco, difesa, xG,
+forma...) vanno nel campo "statistiche_squadre", NON in prosa.
 
-Come stabilire PAVIMENTO e TETTO:
+Come stabilire PAVIMENTO e TETTO (servono a "min_goals"/"max_goals", non all'analysis):
 - PAVIMENTO = gol minimo probabili. Es. O1.5 <= 1.30 ⇒ pavimento 2. O1.5 1.31-1.60 ⇒ pavimento "0 (probabile 2)". O1.5 > 1.60 ⇒ pavimento 0.
 - TETTO = gol massimo probabili. Es. U3.5 <= 1.40 ⇒ tetto 3. U2.5 <= 1.40 ⇒ tetto 2. U3.5 > 1.85 ⇒ tetto "aperto".
 - Quando trovi gap forte O/U (es. U3.5 1.30 vs O3.5 3.20) usalo come segnale di tetto chiaro.
@@ -64,7 +68,7 @@ OUTPUT (SOLO JSON, niente markdown)
 ═══════════════════════════════════════
 {
   "family": "RANGE_CONTROLLATO",
-  "analysis": "PAVIMENTO: 2 gol | TETTO: 4 gol | RANGE: 2-4 gol. Quote O1.5 1.30 + U3.5 1.40 → range chiuso. Gap GG 1.85 vs NG 1.95 ⇒ partita simmetrica.",
+  "analysis": "LETTURA DELLA PARTITA: O1.5 1.30 e U3.5 1.40 disegnano un range chiuso; GG 1.85 contro NG 1.95 dice partita simmetrica. PERCHE' QUESTA SCELTA: il multigol copre tutto il range senza dipendere da chi segna; la direzione casa e' confermata dalle assenze ospiti.",
   "playable_markets": [
     {"market": "MG 2-4 totali", "reasoning": "Pavimento 2, tetto 4: copertura range completo"},
     {"market": "DC 1X + O1.5", "reasoning": "Direzione casa rafforzata dal pavimento"},
@@ -76,7 +80,11 @@ OUTPUT (SOLO JSON, niente markdown)
   "max_goals": 4,
   "xg_casa": 1.15,
   "xg_ospite": 1.25,
-  "h2h_over_pct": 33.3
+  "h2h_over_pct": 33.3,
+  "statistiche_squadre": {
+    "casa":   {"attacco": "1,8 gol/partita in casa", "difesa": "0,9 subiti", "xg": "1,15", "xga": "", "forma": "V V P N V", "proiezione_gol": "", "note_chiave": "attaccante titolare squalificato"},
+    "ospite": {"attacco": "1,1 gol/partita fuori", "difesa": "", "xg": "1,25", "xga": "", "forma": "P N V P P", "proiezione_gol": "", "note_chiave": ""}
+  }
 }
 
 REGOLA SUI TRE CAMPI FINALI — vale solo se nel messaggio utente c'e' il blocco
@@ -88,7 +96,14 @@ REGOLA SUI TRE CAMPI FINALI — vale solo se nel messaggio utente c'e' il blocco
   scritta nel blocco.
 - Se un numero non c'e', metti null. NON dedurlo, NON stimarlo, NON ricavarlo
   dalle quote: quei campi finiscono in un confronto con i numeri del motore, e
-  un valore inventato varrebbe meno di zero.`;
+  un valore inventato varrebbe meno di zero.
+
+REGOLA SU "statistiche_squadre" (tabella casa | ospite mostrata a Rossi):
+- Schema FISSO: "casa" e "ospite", ognuna con le chiavi attacco, difesa, xg,
+  xga, forma, proiezione_gol, note_chiave. Valori brevi, in testo.
+- SOLO dati realmente trovati nel blocco "DATI DAL WEB". Dato assente =
+  stringa vuota "", MAI inventato, MAI ricavato dalle quote.
+- Senza blocco web puoi lasciare tutti i campi vuoti o omettere il campo.`;
 
 function fmt(o: any, k: string, label: string): string {
   const v = o?.[k];
@@ -142,7 +157,34 @@ export type AiPrediction = {
   xg_casa?: number | null;
   xg_ospite?: number | null;
   h2h_over_pct?: number | null;
+  /** Ticket 10: statistiche trovate sul web, casa | ospite. Opzionale: le
+   *  vecchie predictions non ce l'hanno. */
+  statistiche_squadre?: StatisticheSquadre | null;
 };
+
+export const CHIAVI_STATISTICHE = ["attacco", "difesa", "xg", "xga", "forma", "proiezione_gol", "note_chiave"] as const;
+export type StatisticheSquadra = Partial<Record<(typeof CHIAVI_STATISTICHE)[number], string>>;
+export type StatisticheSquadre = { casa: StatisticheSquadra; ospite: StatisticheSquadra };
+
+/**
+ * Normalizza "statistiche_squadre" della risposta del modello: solo le chiavi
+ * dello schema, solo stringhe. null se manca o se e' tutto vuoto (il
+ * pronostico non si blocca mai per questo campo).
+ */
+export function normalizzaStatistiche(v: any): StatisticheSquadre | null {
+  if (!v || typeof v !== "object") return null;
+  const lato = (x: any): StatisticheSquadra => {
+    const out: StatisticheSquadra = {};
+    for (const k of CHIAVI_STATISTICHE) {
+      const val = x?.[k];
+      out[k] = val === null || val === undefined ? "" : String(val).trim();
+    }
+    return out;
+  };
+  const casa = lato(v.casa), ospite = lato(v.ospite);
+  const pieni = [...Object.values(casa), ...Object.values(ospite)].filter((x) => x).length;
+  return pieni ? { casa, ospite } : null;
+}
 
 /** Porting 1:1 di parse_ai_json — estrazione robusta di JSON dalla risposta del modello. */
 export function parseAiJson(text: string): AiPrediction {

@@ -112,7 +112,24 @@ export type Prediction = {
   xg_casa?: number | null;
   xg_ospite?: number | null;
   h2h_over_pct?: number | null;
+  /** Ticket 10: statistiche trovate sul web, casa | ospite. Assente nei
+   *  pronostici vecchi: la scheda mostra allora solo il testo. */
+  statistiche_squadre?: {
+    casa?: Record<string, string>;
+    ospite?: Record<string, string>;
+  } | null;
 };
+
+/** Righe della tabella casa | ospite del pronostico AI (Ticket 10), in ordine. */
+export const RIGHE_STATISTICHE: { chiave: string; etichetta: string }[] = [
+  { chiave: "attacco", etichetta: "Attacco" },
+  { chiave: "difesa", etichetta: "Difesa" },
+  { chiave: "xg", etichetta: "xG" },
+  { chiave: "xga", etichetta: "xGA" },
+  { chiave: "forma", etichetta: "Forma" },
+  { chiave: "proiezione_gol", etichetta: "Proiezione gol" },
+  { chiave: "note_chiave", etichetta: "Note" },
+];
 
 export type StructuralCluster = {
   score: string;

@@ -5,7 +5,7 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, type VoceManuale } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, type VoceManuale } from "./lib/predictionPrompt";
 import { calcolaManualeStats, type ManualeStats } from "./lib/manuale";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartita, blocoTesto } from "./lib/webSearch";
@@ -89,7 +89,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
      PROFILO OFFENSIVO qui sotto e' "defensive" (DIFENSIVA), altrimenti VIETATI
    - Se TETTO=4 e PAVIMENTO=2 → NON proporre "MG 1-3" (lo=1≠2 VIETATO)
    - MG range valido: lo ≤ pavimento+1 AND (aperto: hi≥6 ; chiuso: hi≥tetto)
-3. Nel campo "analysis" devi SCRIVERE LETTERALMENTE: "PAVIMENTO: ${s.goal_floor} gol | TETTO: ${ceilingStr} gol | RANGE: ${rangeStr}"
+3. NON ripetere il PIN nel campo "analysis": e' gia' a schermo (STRUTTURA MATCH).
 4. Il PIN serve a giudicare la COERENZA di un mercato, non a escluderlo a
    priori: l'elenco di cosa e' proponibile e' il CATALOGO COMPLETO piu' sotto.
    Se un mercato del catalogo ha numeri ottimi ma sembra in contrasto col PIN,
@@ -183,6 +183,11 @@ REGOLE OBBLIGATORIE basate sul PIN:
     h2h_over_pct: numero(prediction.h2h_over_pct),
   };
 
+  // Ticket 10: tabella casa | ospite. Colonna jsonb `statistiche_squadre` in
+  // `predictions`: se non esiste ancora si salva senza (come gli xG), ma la
+  // risposta la riporta comunque, cosi' la scheda la mostra subito.
+  const statistiche = normalizzaStatistiche((prediction as any).statistiche_squadre);
+
   const riga = {
     match_id: matchId,
     family: prediction.family,
@@ -196,12 +201,21 @@ REGOLE OBBLIGATORIE basate sul PIN:
 
   let saved;
   let xgSalvati = true;
+  let statisticheSalvate = !!statistiche;
   try {
-    saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
-  } catch {
-    // Colonne non ancora create: si salva il pronostico senza gli xG.
-    xgSalvati = false;
-    saved = await pgPost("predictions", riga, "return=representation");
+    saved = await pgPost("predictions", { ...riga, ...extra, ...(statistiche ? { statistiche_squadre: statistiche } : {}) }, "return=representation");
+  } catch (e) {
+    console.error("[ai-predict] salvataggio completo", e);
+    try {
+      // Manca la colonna statistiche_squadre: si riprova con i soli xG.
+      statisticheSalvate = false;
+      saved = await pgPost("predictions", { ...riga, ...extra }, "return=representation");
+    } catch (e2) {
+      // Colonne non ancora create: si salva il pronostico senza gli xG.
+      console.error("[ai-predict] salvataggio con xG", e2);
+      xgSalvati = false;
+      saved = await pgPost("predictions", riga, "return=representation");
+    }
   }
 
   await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}`, {
@@ -211,7 +225,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   });
 
   const uscita = Array.isArray(saved) ? saved[0] : saved;
-  return jsonResponse({ ...uscita, ...extra, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
+  return jsonResponse({ ...uscita, ...extra, statistiche_squadre: statistiche, statistiche_salvate: statisticheSalvate, xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb });
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {
