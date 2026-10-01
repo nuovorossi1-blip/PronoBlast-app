@@ -1184,16 +1184,17 @@ export function structuralAnalysis(
 
 function buildExplanation(structure: FamilyStructure, ranking: RankedMarket[]): string {
   if (!ranking.length) return "Nessun mercato con coverage sufficiente.";
+  // 01/10/2026: niente pavimento/tetto/range (sono gia' nei riquadri di
+  // STRUTTURA MATCH, e qui il tetto aperto usciva come numero, es. "Tetto 7")
+  // e niente "PICK:": e' il mercato che copre meglio il cluster, spesso a una
+  // quota non giocabile, non un consiglio.
   const p = ranking[0];
-  const fam = structure.family;
-  const floor = structure.goal_floor;
-  const ceil = structure.goal_ceiling;
-  const pick = p.market;
   const cov = Math.round(p.coverage * 100);
+  const quota = p.odd != null ? `${p.odd_estimated ? "≈" : "@"}${p.odd.toFixed(2)}` : "quota n/d";
+  const sotto = p.odd != null && p.odd < 1.4 ? ": sotto 1,40, non giocabile" : "";
   return (
-    `Famiglia ${fam}. Pavimento ${floor} · Tetto ${ceil} · Range ${floor}-${ceil}. ` +
-    `PICK: ${pick} con coverage ${cov}% sul cluster centrale. ` +
-    `Fragility ${p.fragility_label} (${Math.round(p.fragility * 100)}% del cluster lo batte).`
+    `Famiglia ${structure.family} · il cluster centrale e' coperto meglio da ${p.market} ` +
+    `(${cov}%, ${quota}${sotto}). Fragilita' ${p.fragility_label}.`
   );
 }
 

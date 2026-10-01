@@ -150,6 +150,22 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (7) — Scheda: niente doppioni nel ranking strutturale (PR #13)
+
+Domanda di Rossi su Irlanda-Austria: "vedi doppioni o qualcosa che non convince?".
+- Il RANKING STRUTTURALE rinumerava 1, 2, 3... dopo aver nascosto dei mercati,
+  mentre consiglio AI e classifiche usano la posizione vera ("motore #10" contro
+  #6 a schermo). Ora ogni riga mostra la posizione vera nel motore.
+- L'intestazione diceva "quote >= 1.40" ma le quote stimate passavano tutte (MG
+  1-4 a 1,16 in cima): il filtro ora usa la quota mostrata.
+- FRAG era sempre 100 - COV: resta solo l'etichetta "fragilita' bassa/media/alta".
+- La frase sotto il CLUSTER (`buildExplanation`) ripeteva pavimento/tetto/range
+  (gia' nei riquadri; il tetto aperto usciva come "Tetto 7") e scriveva "PICK:"
+  per un mercato spesso non giocabile. Ora: famiglia, mercato che copre meglio il
+  cluster, quota e "non giocabile" se sotto 1,40.
+- "Nessuna giocata nella fascia..." non si ripete nella sezione AI quando lo
+  dice gia' il verdetto (si vede solo guardando un'altra fascia).
+
 ### 2026-10-01 (6) — Mercati del manuale anche senza misura caricata (PR #12)
 
 Irlanda-Austria dopo la PR #11: fra le alternative del consiglio mancava "X

@@ -1196,25 +1196,29 @@ export default function MatchDetail() {
 
         {/* ============ RANKING STRUTTURALE (Coverage + Fragility) ============ */}
         {structural?.ranking && structural.ranking.length > 0 && (() => {
-          // Filter: only show markets with odd >= 1.40 (value threshold)
-          // If odd cannot be derived (e.g. MG markets), keep them.
-          const filtered = structural.ranking.filter((r) => {
-            if (nonGiocato(r.market)) return false;   // NG, U1.5, U2.5: mai giocati
-            const o = getMarketOdd(r.market, match.odds);
-            if (o === undefined) return true;
-            return o >= 1.40;
-          });
+          // Solo quote >= 1,40, contando anche quelle STIMATE (01/10/2026: prima
+          // passavano tutte, e sotto "quote >= 1.40" comparivano MG a 1,16).
+          // Il numero di ogni riga e' la POSIZIONE VERA nel motore, la stessa
+          // che usano consiglio AI e classifiche ("motore #10"): i mercati
+          // nascosti lasciano un salto invece di rinumerare.
+          const filtered = structural.ranking
+            .map((r, pos) => ({ ...r, pos: pos + 1 }))
+            .filter((r) => {
+              if (nonGiocato(r.market)) return false;   // NG, U1.5, U2.5: mai giocati
+              const o = r.odd ?? getMarketOdd(r.market, match.odds);
+              if (o === undefined || o === null) return true;
+              return o >= 1.40;
+            });
           if (filtered.length === 0) return null;
           return (
           <View style={styles.structRankBlock}>
             <View style={styles.structHeader}>
               <Ionicons name="ribbon" size={14} color={colors.aiText} />
               <Text style={styles.structTitle}>RANKING STRUTTURALE</Text>
-              <Text style={styles.clusterHint}>Coverage × Fragility · quote ≥ 1.40</Text>
+              <Text style={styles.clusterHint}>posizione nel motore · solo quote ≥ 1,40 (≈ stimate)</Text>
             </View>
             {filtered.map((r, i) => {
               const cov = Math.round(r.coverage * 100);
-              const frag = Math.round(r.fragility * 100);
               // Prima la quota del motore (combo stimate con Poisson o con la
               // formula GG + O2.5); getMarketOdd moltiplicava le due quote.
               const odd = r.odd ?? getMarketOdd(r.market, match.odds);
@@ -1224,7 +1228,7 @@ export default function MatchDetail() {
               return (
                 <View key={`sr-${r.market}-${i}`} style={[styles.srRow, i === 0 && styles.srRowTop]}>
                   <View style={[styles.srRank, i === 0 && styles.srRankTop]}>
-                    <Text style={[styles.srRankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
+                    <Text style={[styles.srRankTxt, i === 0 && { color: "#FFF" }]}>{r.pos}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1236,7 +1240,9 @@ export default function MatchDetail() {
                         <Text style={[styles.srTagTxt, { color: colors.success }]}>COV {cov}%</Text>
                       </View>
                       <View style={[styles.srTag, { backgroundColor: `${fragColor}22`, borderColor: fragColor }]}>
-                        <Text style={[styles.srTagTxt, { color: fragColor }]}>FRAG {frag}%</Text>
+                        {/* La fragilita' e' 100 - COV: la percentuale ripeteva lo stesso
+                            dato, resta solo l'etichetta colorata. */}
+                        <Text style={[styles.srTagTxt, { color: fragColor }]}>fragilità {r.fragility_label}</Text>
                       </View>
                       {r.ml_adjustment && r.ml_adjustment.type !== "neutral" && (() => {
                         const isBoost = r.ml_adjustment.type === "boost";
@@ -1579,7 +1585,9 @@ export default function MatchDetail() {
                           </Text>
                         )}
                       </LinearGradient>
-                    ) : fasceV ? (
+                    ) : fasceV && Math.abs(sogliaAttiva - minOdd) > 0.001 ? (
+                      // Sulla fascia del verdetto lo dice gia' il verdetto lassu':
+                      // qui solo quando si guarda un'altra fascia.
                       <View style={styles.palettoBox}>
                         <Text style={styles.palettoTxt}>
                           Nessuna giocata coerente nella fascia {etichettaFascia(sogliaAttiva)}: meglio nessun pronostico che uno contro la lettura.
