@@ -275,6 +275,8 @@ export type SyncResultsResponse = {
   per_fonte: Record<string, number>;
   fonti_non_raggiungibili: string[];
   da_controllare: { id: string; partita: string; giorno: string; motivo: string; risultato?: string; fonte?: string; somiglianza?: number }[];
+  /** Solo con `ids` (Schedina): cosa e' successo a ogni partita scelta. */
+  esiti?: { id: string; partita: string; giorno: string; esito: string; risultato?: string; fonte?: string }[];
   error?: string;
 };
 
@@ -358,7 +360,7 @@ export function accumulaBacktest(t: SommaBacktest, r: BacktestResponse): SommaBa
 // --- LAVORI IN BACKGROUND (01/10/2026) -------------------------------------
 // I lavori lunghi girano sul server (`/lavori`), non piu' in un ciclo dentro
 // l'app: continuano anche a schermo spento o in un'altra app. Uno alla volta.
-export type TipoLavoro = "ricalcolo" | "ricostruzione" | "pagella" | "import_risultati" | "sync_risultati";
+export type TipoLavoro = "ricalcolo" | "ricostruzione" | "pagella" | "import_risultati" | "sync_risultati" | "ai_schedina";
 
 export const NOMI_LAVORO: Record<TipoLavoro, string> = {
   ricalcolo: "Ricalcolo con le regole di oggi",
@@ -366,6 +368,7 @@ export const NOMI_LAVORO: Record<TipoLavoro, string> = {
   pagella: "Pagella dei pronostici",
   import_risultati: "Caricamento risultati dal foglio",
   sync_risultati: "Aggiornamento risultati dal server",
+  ai_schedina: "Pronostici AI della Schedina",
 };
 
 export type Lavoro = {
@@ -441,6 +444,9 @@ export const api = {
    *  FotMob. Scrive solo quando e' sicuro. */
   syncResults: (days = 3, dry = false) =>
     netlifyReq<SyncResultsResponse>(`/sync-results?days=${days}${dry ? "&dry=1" : ""}`),
+  /** Stessa ricerca, ma solo sulle partite indicate (tasto RISULTATI della Schedina). */
+  syncResultsScelte: (ids: string[]) =>
+    netlifyReq<SyncResultsResponse>("/sync-results", { method: "POST", body: JSON.stringify({ ids }) }),
 
   /** Ricostruisce l'apprendimento rigiocando le partite concluse, a blocchi. */
   rebuildLearning: (from = 0, reset = false) =>

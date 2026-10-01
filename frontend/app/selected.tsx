@@ -6,7 +6,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, evaluateMarketOutcome } from "@/src/api";
+import { api, Match, evaluateMarketOutcome, Lavoro } from "@/src/api";
+import { useLavoro, LavoroBox, riepilogoLavoro } from "@/src/components/LavoroBox";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
 import { apriConPrompt, confirmAction, notify } from "@/src/utils/platform";
@@ -61,6 +62,9 @@ export default function Selected() {
   const [fetchingResults, setFetchingResults] = useState(false);
   const [reviewList, setReviewList] = useState<any[]>([]);
 
+  // RISULTATI (01/10/2026): la stessa ricerca di "Aggiorna risultati" di
+  // Manutenzione (API-Football + FotMob, scrive solo se e' sicuro), ma solo
+  // sulle partite in Schedina. Le partite saltate dicono perche'.
   const autoFetchResults = async () => {
     if (items.length === 0) {
       notify("Vuoto", "Nessuna partita selezionata");
@@ -68,24 +72,47 @@ export default function Selected() {
     }
     setFetchingResults(true);
     try {
-      const ids = items.map((m) => m.id);
-      const res = await api.fetchResultsAuto(ids, true, 80);
-      const summary = `Applicati ${res.applied} · Da verificare ${res.results.filter((r) => r.status === "review").length} · Non trovati ${res.not_found}`;
-      const reviews = res.results.filter((r: any) => r.status === "review");
-      setReviewList(reviews);
+      const res = await api.syncResultsScelte(items.map((m) => m.id));
       marketStatsCache.invalidate();
       mlStatsCache.invalidate();
+      matchesCache.invalidate();
       await load(true);
-      if (reviews.length > 0) {
-        notify("Auto-fetch completato", `${summary}\n\nAlcune partite hanno confidence bassa e richiedono conferma manuale.`);
-      } else {
-        notify("Auto-fetch completato", summary);
-      }
+      const esiti = res.esiti || [];
+      const righe = esiti.map((e) => `• ${e.partita}: ${e.esito}${e.risultato ? ` (${e.risultato})` : ""}`);
+      notify(
+        "Risultati della Schedina",
+        `Scritti ${res.scritte} su ${items.length}.${righe.length ? `\n\n${righe.join("\n")}` : ""}`,
+      );
     } catch (e: any) {
-      notify("Errore", e?.message || "Auto-fetch fallito");
+      notify("Errore", e?.message || "Ricerca risultati fallita");
     } finally {
       setFetchingResults(false);
     }
+  };
+
+  // PRONOSTICI AI DELLA SCHEDINA (01/10/2026): genera il pronostico AI di ogni
+  // partita selezionata, una alla volta dalla prima, come si faceva a mano.
+  // Gira sul server: continua anche a schermo spento.
+  const aiFinito = useCallback((l: Lavoro) => {
+    if (l.tipo !== "ai_schedina") return;
+    selectedListCache.invalidate();
+    matchesCache.invalidate();
+    load(true);
+    notify(l.stato === "completato" ? "Pronostici AI pronti" : "Pronostici AI interrotti", riepilogoLavoro(l));
+  }, [load]);
+  const srv = useLavoro(aiFinito);
+  const generaAI = () => {
+    const ids = items.filter((m) => !m.result).map((m) => m.id);
+    if (!ids.length) { notify("Niente da fare", "Tutte le partite in Schedina sono gia' concluse."); return; }
+    confirmAction({
+      title: "Generare i pronostici AI?",
+      message: `Per ${ids.length} partite, una alla volta dalla prima. Solo quelle non ancora iniziate; se il pronostico c'e' gia' non viene rifatto. Il lavoro continua sul server anche a schermo spento.`,
+      confirmText: "Genera",
+      onConfirm: async () => {
+        try { await srv.avvia("ai_schedina", { ids }); }
+        catch (e: any) { notify("Errore", e?.message || String(e)); }
+      },
+    });
   };
 
   const applyReview = async (item: any) => {
@@ -236,6 +263,21 @@ export default function Selected() {
           <Text style={[styles.aiStudioBtnTxt, { color: "#A78BFA" }]}>BATTLE ARENA</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          testID="sel-ai"
+          onPress={generaAI}
+          disabled={srv.inCorso || items.length === 0}
+          style={[styles.aiStudioBtn, { borderColor: colors.primary, opacity: items.length === 0 || srv.inCorso ? 0.5 : 1 }]}
+        >
+          {srv.inCorso && srv.lavoro?.tipo === "ai_schedina" ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <>
+              <Ionicons name="sparkles" size={14} color={colors.primary} />
+              <Text style={styles.aiStudioBtnTxt}>PRONOSTICI AI</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
           testID="sel-autofetch"
           onPress={autoFetchResults}
           disabled={fetchingResults || items.length === 0}
@@ -251,6 +293,11 @@ export default function Selected() {
           )}
         </TouchableOpacity>
       </ScrollView>
+      {srv.lavoro?.tipo === "ai_schedina" && srv.inCorso ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <LavoroBox lavoro={srv.lavoro} onFerma={srv.ferma} />
+        </View>
+      ) : null}
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 60 }} />
