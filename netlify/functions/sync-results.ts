@@ -3,6 +3,7 @@ import { applyMatchResult } from "./lib/applyResult";
 import { simil, impostaAlias } from "./lib/teamMatch";
 import { MARK } from "./lib/teamTables";
 import { fotmob, espn, sofascore, apifootball, PAESI, type PartitaFonte } from "./lib/resultSources";
+import { inizioPartitaMs } from "../../frontend/src/api";
 
 /**
  * GET|POST /sync-results
@@ -26,6 +27,12 @@ import { fotmob, espn, sofascore, apifootball, PAESI, type PartitaFonte } from "
  *
  * Parametri: `days` (1-30, default 3), `dry=1` per provare senza scrivere,
  * `probe=1` per sapere solo quali fonti rispondono da questo server.
+ *
+ * SOLO ALCUNE PARTITE (01/10/2026, tasto RISULTATI della Schedina): `ids=a,b,c`
+ * (in query o nel corpo POST `{ ids: [...] }`). Stessa ricerca, stesse regole
+ * di sicurezza, ma solo su quelle partite, qualunque giorno sia; nella risposta
+ * `esiti` dice per ognuna cosa e' successo: scritta, gia' presente, non
+ * iniziata, non conclusa, non trovata, ambigua...
  */
 
 const SOGLIA = 0.72;          // quanto devono somigliare i nomi, come nello script
@@ -135,14 +142,43 @@ export default async (req: Request): Promise<Response> => {
 
   const days = Math.max(1, Math.min(MAX_GIORNI, parseInt(url.searchParams.get("days") || "3", 10) || 3));
   const dry = url.searchParams.get("dry") === "1";
-  const giorni = giorniIndietro(oggi, days);
-  const dal = giorni[giorni.length - 1];
+
+  // Partite scelte (Schedina): dalla query o dal corpo.
+  let ids: string[] = (url.searchParams.get("ids") || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!ids.length && req.method === "POST") {
+    try { const b: any = await req.json(); if (Array.isArray(b?.ids)) ids = b.ids.map(String).filter(Boolean); } catch { /* corpo vuoto */ }
+  }
+  const soloScelte = ids.length > 0;
+  type EsitoPartita = { id: string; partita: string; giorno: string; esito: string; risultato?: string; fonte?: string };
+  const esiti: EsitoPartita[] = [];
+
+  let giorni = giorniIndietro(oggi, days);
+  let dal = giorni[giorni.length - 1];
 
   try {
-    const daFare = await pgGetAll(
-      `matches?result=is.null&day=gte.${dal}&day=lte.${oggi}&select=id,day,time,manifestazione,squadra1,squadra2`,
-      "day.asc,time.asc",
-    );
+    let daFare: any[];
+    if (soloScelte) {
+      const lista = ids.map((i) => `"${i}"`).join(",");
+      const righe: any[] = await pgGetAll(`matches?id=in.(${lista})&select=id,day,time,manifestazione,squadra1,squadra2,result`, "day.asc,time.asc");
+      const trovate = new Set(righe.map((r) => r.id));
+      for (const id of ids) if (!trovate.has(id)) esiti.push({ id, partita: "?", giorno: "", esito: "non nel database" });
+      const ora = Date.now();
+      daFare = [];
+      for (const r of righe) {
+        const partita = `${r.squadra1} - ${r.squadra2}`;
+        if (r.result) { esiti.push({ id: r.id, partita, giorno: r.day, esito: "gia' presente", risultato: r.result }); continue; }
+        const inizio = inizioPartitaMs(r.day, r.time);
+        if (inizio !== null && inizio > ora) { esiti.push({ id: r.id, partita, giorno: r.day, esito: "non iniziata" }); continue; }
+        daFare.push(r);
+      }
+      giorni = [...new Set(daFare.map((r) => r.day as string))].sort().reverse();
+      dal = giorni[giorni.length - 1] || oggi;
+    } else {
+      daFare = await pgGetAll(
+        `matches?result=is.null&day=gte.${dal}&day=lte.${oggi}&select=id,day,time,manifestazione,squadra1,squadra2`,
+        "day.asc,time.asc",
+      );
+    }
 
     const alias = await pgGetAll("team_alias?select=da,a").catch(() => []);
     impostaAlias(alias as { da: string; a: string }[]);
@@ -178,6 +214,13 @@ export default async (req: Request): Promise<Response> => {
         }
 
         if (e.tipo !== "trovata") {
+          if (soloScelte) {
+            esiti.push({
+              id: r.id, partita: `${r.squadra1} - ${r.squadra2}`, giorno,
+              esito: e.tipo === "non_finita" ? "non conclusa" : e.tipo === "non_trovata" ? "non trovata"
+                : e.tipo === "supplementari" ? "ai supplementari, non scritta" : e.tipo === "ambigua" ? "ambigua, non scritta" : "incerta, non scritta",
+            });
+          }
           conteggi[e.tipo === "ambigua" ? "ambigue" : e.tipo === "non_finita" ? "non_finite"
             : e.tipo === "supplementari" ? "supplementari" : e.tipo === "incerta" ? "incerte" : "non_trovate"]++;
           if (e.tipo === "ambigua" && daControllare.length < 50) {
@@ -189,10 +232,15 @@ export default async (req: Request): Promise<Response> => {
         const risultato = `${e.gc}-${e.go}`;
         if (!dry) {
           try { await applyMatchResult(r.id, risultato, e.gc, e.go); }
-          catch { conteggi.non_trovate++; continue; }
+          catch {
+            conteggi.non_trovate++;
+            if (soloScelte) esiti.push({ id: r.id, partita: `${r.squadra1} - ${r.squadra2}`, giorno, esito: "errore di scrittura" });
+            continue;
+          }
         }
         conteggi.scritte++;
         perFonte[e.fonte] = (perFonte[e.fonte] || 0) + 1;
+        if (soloScelte) esiti.push({ id: r.id, partita: `${r.squadra1} - ${r.squadra2}`, giorno, esito: e.verifica ? "scritta (da controllare: nomi poco simili)" : "scritta", risultato, fonte: e.fonte });
         if (e.verifica) {
           conteggi.da_verificare++;
           if (daControllare.length < 50) {
@@ -212,6 +260,7 @@ export default async (req: Request): Promise<Response> => {
       per_fonte: perFonte,
       fonti_non_raggiungibili: fontiKo,
       da_controllare: daControllare,
+      ...(soloScelte ? { esiti } : {}),
     });
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 502);

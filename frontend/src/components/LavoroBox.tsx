@@ -107,6 +107,12 @@ export function riepilogoLavoro(l: Lavoro): string {
         p.illeggibili ? `Illeggibili: ${n(p.illeggibili)}` : "",
         p.non_trovate ? `Partita non trovata: ${n(p.non_trovate)}` : "",
       ].filter(Boolean).join(" · ");
+    case "ai_schedina": {
+      const esiti: { partita: string; esito: string }[] = p.esiti || [];
+      const conta = (f: (x: string) => boolean) => esiti.filter((e) => f(e.esito)).length;
+      const righe = esiti.map((e) => `• ${e.partita}: ${e.esito}`).join("\n");
+      return `Generati ${conta((x) => x === "pronostico AI generato")} · gia' presenti ${conta((x) => x.includes("gia' presente"))} · saltate ${conta((x) => x.includes("iniziata") || x.includes("non trovata"))} · errori ${conta((x) => x.startsWith("errore"))}${righe ? `\n${righe}` : ""}`;
+    }
     case "sync_risultati":
       return [
         `Partite esaminate: ${n(p.partite_esaminate)}`, `Risultati scritti: ${n(p.scritte)}`,

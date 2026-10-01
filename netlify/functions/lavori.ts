@@ -2,13 +2,16 @@ import { pgGet, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import {
   accumulaBacktest, sommaBacktestVuota,
   type Lavoro, type TipoLavoro, type BacktestResponse, type RebuildResponse,
-  type ResultsImportResponse, type SommaBacktest,
+  type ResultsImportResponse, type SommaBacktest, inizioPartitaMs,
 } from "../../frontend/src/api";
 import ricalcolo from "./ricalcolo";
 import rebuildLearning from "./rebuild-learning";
 import backtest from "./backtest";
 import resultsImport from "./results-import";
 import syncResults from "./sync-results";
+import aiPredict from "./ai-predict";
+import { verdettoDiPartita } from "./lib/verdettoServer";
+import { readMinOdd } from "./odd-settings";
 
 /**
  * LAVORI IN BACKGROUND (01/10/2026) — /lavori
@@ -56,7 +59,7 @@ const FERMO_DOPO_MS = 75_000;
 const MAX_ERRORI_DI_FILA = 5;
 const BLOCCO_IMPORT = 300;
 
-const TIPI: TipoLavoro[] = ["ricalcolo", "ricostruzione", "pagella", "import_risultati", "sync_risultati"];
+const TIPI: TipoLavoro[] = ["ricalcolo", "ricostruzione", "pagella", "import_risultati", "sync_risultati", "ai_schedina"];
 
 type LavoroInterno = Lavoro & {
   lucchetto: string | null;
@@ -163,6 +166,49 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
       l.partito = true;
       l.pos += fetta.length;
       return l.pos >= items.length;
+    }
+    case "ai_schedina": {
+      // Pronostico AI delle partite in Schedina, una alla volta dalla prima
+      // (01/10/2026): quello che Rossi faceva a mano aprendo ogni scheda.
+      // Solo partite NON iniziate (dopo il calcio d'inizio il pronostico non
+      // conterebbe); se c'e' gia' un pronostico AI non si rigenera. Dopo ogni
+      // pronostico si ricalcola e salva il verdetto della partita.
+      const ids: string[] = p.ids || [];
+      l.totale = ids.length;
+      const id = ids[l.pos];
+      if (id) {
+        const esiti: { id: string; partita: string; esito: string }[] = l.parziale.esiti || [];
+        const righe = await pgGet(`matches?id=eq.${encodeURIComponent(id)}&select=*`);
+        const m = righe[0];
+        const partita = m ? `${m.squadra1} - ${m.squadra2}` : "?";
+        let esito: string;
+        if (!m) esito = "partita non trovata";
+        else {
+          const inizio = inizioPartitaMs(m.day, m.time);
+          if (m.result || (inizio !== null && inizio <= Date.now())) esito = "gia' iniziata: saltata";
+          else {
+            const prima = await pgGet(`predictions?match_id=eq.${encodeURIComponent(id)}&select=id&limit=1`);
+            if (prima.length) esito = "pronostico AI gia' presente";
+            else {
+              try {
+                await chiama(aiPredict, `/ai-predict?matchId=${encodeURIComponent(id)}`, "POST");
+                esito = "pronostico AI generato";
+              } catch (e: any) {
+                // Un errore su una partita non ferma le altre.
+                esito = `errore: ${String(e?.message || e).slice(0, 120)}`;
+              }
+            }
+            if (!esito.startsWith("errore")) {
+              try { await verdettoDiPartita(m, await readMinOdd().catch(() => 1.4), true); } catch { /* il verdetto si aggiorna anche aprendo la scheda */ }
+            }
+          }
+        }
+        esiti.push({ id, partita, esito });
+        l.parziale.esiti = esiti;
+      }
+      l.partito = true;
+      l.pos += 1;
+      return l.pos >= ids.length;
     }
     case "sync_risultati": {
       const r = await chiama(syncResults, `/sync-results?days=${p.days ?? 3}`, "GET");

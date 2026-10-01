@@ -521,6 +521,40 @@ export default function MatchDetail() {
           );
         })()}
 
+        {/* ============ IL CONSIGLIO DELL'AI (01/10/2026, Rossi) ============
+            Fra scenario e verdetto: il mercato su cui l'AI punterebbe di piu'
+            per QUESTA partita, a qualunque quota e fascia ("il consiglio di un
+            amico"). Solo dopo "Genera pronostico AI" e solo se generato PRIMA
+            del calcio d'inizio. Non cambia il verdetto della fascia scelta. */}
+        {(() => {
+          if (!predVerdetto?.main_prediction || !predVerdetto.fasce) return null;
+          const c = valutaPuntaSu(predVerdetto.main_prediction, { odds: match.odds as any, structural, manuale: manualeFasce });
+          if (!c) return null;
+          const perche = dividiAnalisi(predVerdetto.analysis).perche;
+          return (
+            <View style={styles.puntaBox}>
+              <Text style={styles.puntaLbl}>{"IL CONSIGLIO DELL'AI · PUNTA SU QUESTO"}</Text>
+              <Text style={styles.puntaVal}>{c.market}</Text>
+              <Text style={styles.puntaMeta}>
+                {c.odd !== null ? `${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : "quota n/d"}
+                {c.prob !== null ? ` · ${pctProb(c.prob)} Poisson` : ""}
+                {c.fascia !== null ? ` · fascia ${etichettaFascia(c.fascia)}` : ""}
+              </Text>
+              {perche ? <Text style={styles.puntaPerche}>{perche}</Text> : null}
+              <Text style={styles.puntaNota}>
+                {"Indipendente dalla fascia che scegli: è il giudizio dell'AI su questa partita, con tutte le informazioni. Il verdetto qui sotto resta il pick della fascia scelta."}
+              </Text>
+              {c.problema ? (
+                <Text style={styles.puntaAvviso}>⚠ Il controllo lo scarta: {c.problema}. Non può diventare il verdetto.</Text>
+              ) : c.fascia !== null && Math.abs(c.fascia - minOdd) > 0.001 ? (
+                <Text style={styles.puntaAvviso}>
+                  Sta nella fascia {etichettaFascia(c.fascia)}: per giocarlo scegli quella fascia qui sotto.
+                </Text>
+              ) : null}
+            </View>
+          );
+        })()}
+
         {/* ============ VERDETTO FINALE (fusione 3 sistemi) ============ */}
         {(() => {
           if (!structural) return null;
@@ -1431,9 +1465,6 @@ export default function MatchDetail() {
                 const fascia: FasciaValidata | null = fasceV?.find((f) => Math.abs(f.soglia - sogliaAttiva) < 0.001) ?? null;
                 const maxOk = sogliaMassimaAffidabile(fasceV);
                 const principale = fasceV ? fascia?.pick?.market ?? null : prediction.main_prediction ?? null;
-                // PUNTA SU QUESTO: il giudizio migliore dell'AI a qualunque
-                // quota (main_prediction). Il verdetto resta il pick della fascia.
-                const puntaSu = fasceV ? valutaPuntaSu(prediction.main_prediction, { odds: match.odds as any, structural, manuale: manualeFasce }) : null;
                 const pickF = fascia?.pick ?? null;
                 const parti = dividiAnalisi(prediction.analysis);
                 const fonti = (prediction.fonti_web || []).map((f) => f.url).filter(Boolean);
@@ -1451,24 +1482,6 @@ export default function MatchDetail() {
                 return (
                   <>
                     {avvisoPost}
-                    {puntaSu && (
-                      <View style={styles.puntaBox}>
-                        <Text style={styles.puntaLbl}>PUNTA SU QUESTO · GIUDIZIO AI</Text>
-                        <Text style={styles.puntaVal}>{puntaSu.market}</Text>
-                        <Text style={styles.puntaMeta}>
-                          {puntaSu.odd !== null ? `${puntaSu.stimata ? "≈" : "@"} ${puntaSu.odd.toFixed(2)}` : "quota n/d"}
-                          {puntaSu.prob !== null ? ` · ${pctProb(puntaSu.prob)} Poisson` : ""}
-                          {puntaSu.fascia !== null ? ` · fascia ${etichettaFascia(puntaSu.fascia)}` : ""}
-                        </Text>
-                        {puntaSu.problema ? (
-                          <Text style={styles.puntaAvviso}>⚠ Il controllo lo scarta: {puntaSu.problema}. Non può diventare il verdetto.</Text>
-                        ) : puntaSu.fascia !== null && Math.abs(puntaSu.fascia - sogliaAttiva) > 0.001 ? (
-                          <Text style={styles.puntaAvviso}>
-                            Sta nella fascia {etichettaFascia(puntaSu.fascia)}: nella fascia scelta ({etichettaFascia(sogliaAttiva)}) il pick è un altro, qui sotto.
-                          </Text>
-                        ) : null}
-                      </View>
-                    )}
                     {fasceV && (
                       <View style={styles.fasceRow}>
                         {fasceV.map((f) => {
@@ -1827,6 +1840,8 @@ const styles = StyleSheet.create({
   puntaLbl: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   puntaVal: { color: colors.text, fontSize: 20, fontWeight: "900" },
   puntaMeta: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
+  puntaPerche: { color: colors.text, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  puntaNota: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: 6 },
   puntaAvviso: { color: colors.warning, fontSize: 11, lineHeight: 16, marginTop: 4 },
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },
   palettoOk: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },

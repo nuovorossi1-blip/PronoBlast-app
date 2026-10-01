@@ -150,6 +150,36 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (4) — Consiglio AI in cima, swipe indietro, AI e risultati della Schedina (PR #10)
+
+Richieste di Rossi guardando Germania-Serbia:
+- **Il consiglio dell'AI** ("punta su questo", a qualunque quota e fascia, come
+  il consiglio di un amico) va FRA lo scenario e il verdetto finale, non dentro
+  la sezione AI. Si vede solo dopo "Genera pronostico AI" e solo se generato
+  prima del calcio d'inizio (`predVerdetto`). Mostra mercato, quota, %
+  Poisson, fascia e il "perche'" dell'AI (parte PERCHE' QUESTA SCELTA di
+  `analysis`). Non cambia il verdetto della fascia scelta.
+- **Swipe indietro**: trascinamento da sinistra a destra = tasto indietro
+  (`frontend/src/hooks/useSwipeBack.ts`, montato in `_layout.tsx`). Ignora le
+  zone che scorrono in orizzontale e i gesti corti; blocca il gesto nativo del
+  browser, che altrimenti tornava indietro due volte (visto in prova).
+- **PRONOSTICI AI in Schedina**: genera il pronostico AI di ogni partita
+  selezionata, una alla volta dalla prima. E' il lavoro `ai_schedina` di
+  `/lavori`, quindi continua anche a schermo spento. Salta le partite gia'
+  iniziate e quelle che hanno gia' un pronostico; un errore su una non ferma
+  le altre; dopo ogni pronostico ricalcola e salva il verdetto
+  (`verdettoDiPartita`).
+- **RISULTATI in Schedina**: ora usa la stessa ricerca di "Aggiorna risultati"
+  (`sync-results`, API-Football + FotMob, scrive solo se sicuro) con il nuovo
+  parametro `ids`: solo le partite selezionate, qualunque giorno. Per ognuna
+  dice l'esito: scritta, gia' presente, non iniziata, non conclusa, non
+  trovata, ambigua.
+
+**Verifica.** Simulazione del lavoro `ai_schedina` con 5 partite (generata,
+gia' iniziata, gia' presente, errore LLM, inesistente): esiti giusti, AI
+chiamata solo dove serve, verdetto aggiornato. Swipe provato con Playwright
+(touch): sinistra->destra torna indietro, corto o destra->sinistra no.
+
 ### 2026-10-01 (3) — Fasce a intervalli chiusi e "PUNTA SU QUESTO" dell'AI (PR #9)
 
 **Perche'.** Caso Messico-Peru' (1-1): a 1,40 senza AI il sistema sceglie

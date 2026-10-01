@@ -10,6 +10,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { BottomNavProvider } from "@/src/components/BottomNavContext";
 import { ToastProvider } from "@/src/components/Toast";
 import NativeUpdater from "@/src/components/NativeUpdater";
+import { useSwipeBack } from "@/src/hooks/useSwipeBack";
 // FabBack rimosso il 10/09/2026: la freccia circolare flottante duplicava
 // il tasto indietro che ogni schermata ha gia' in alto a sinistra, e da quando
 // c'e' la barra ESCI/PREC/AVANTI nel dettaglio partita ci finiva pure sopra.
@@ -19,6 +20,8 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
+  // Trascinamento da sinistra a destra = indietro (01/10/2026).
+  useSwipeBack();
 
   useEffect(() => {
     if (loaded || error) {
