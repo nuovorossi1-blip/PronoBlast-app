@@ -150,6 +150,23 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (6) — Mercati del manuale anche senza misura caricata (PR #12)
+
+Irlanda-Austria dopo la PR #11: fra le alternative del consiglio mancava "X
+oppure GG" e lo scenario mostrava il mercato senza percentuale. La misura
+(`/manuale-stats`, verificata: risponde 200 con 62,4%) arriva alla scheda con
+una sola richiesta all'apertura: se arriva tardi o fallisce, `candidatiManuale`
+torna vuoto e i mercati del manuale spariscono.
+
+- `alternativeDelConsiglio`: aggiunge sempre i mercati del manuale dello
+  scenario che il motore conosce (quota e % del motore); la % archivio solo se
+  la misura c'e'. Nessun doppione.
+- Scheda: la misura si riprova 2 volte (ogni 4 s) se fallisce; nello scenario
+  "misura dell'archivio in caricamento…" finche' non arriva.
+- Nota per Rossi: il riquadro col consiglio motivato si vede solo su un
+  pronostico RIGENERATO ("Rigenera Pronostico", force=true): "Genera" restituisce
+  quello gia' salvato.
+
 ### 2026-10-01 (5) — Il consiglio AI va motivato e confrontato (PR #11)
 
 **Caso Irlanda-Austria.** L'AI ha consigliato GG @ 1,85 (47% Poisson) come
