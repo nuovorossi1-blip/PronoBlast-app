@@ -347,7 +347,55 @@ export function parseAiJson(text: string): AiPrediction {
       continue;
     }
   }
-  return { family: "INSTABILE", analysis: text.slice(0, 300), playable_markets: [], main_prediction: null, confidence: "Bassa" };
+  // RISPOSTA TRONCATA (01/10/2026, Israele-Kosovo): il modello ha finito i
+  // token a meta' JSON. Si prova a chiuderlo e si recupera quello che c'e'.
+  const riparato = riparaJsonTroncato(text);
+  if (riparato && typeof riparato === "object" && "family" in riparato) {
+    return { ...(riparato as AiPrediction), troncato: true } as AiPrediction;
+  }
+  return { family: "INSTABILE", analysis: text.slice(0, 300), playable_markets: [], main_prediction: null, confidence: "Bassa", illeggibile: true } as AiPrediction;
+}
+
+/**
+ * Chiude un JSON tagliato a meta': dal primo "{" tiene traccia di stringhe e
+ * parentesi; alla fine chiude la stringa aperta, toglie l'ultima voce rimasta a
+ * meta' (chiave senza valore, virgola finale) e chiude parentesi e graffe.
+ * Prova piu' tagli all'indietro finche' JSON.parse accetta. null se non riesce.
+ */
+export function riparaJsonTroncato(text: string): any | null {
+  const inizio = text.indexOf("{");
+  if (inizio < 0) return null;
+  const t = text.slice(inizio);
+  // Punti "sicuri" dove tagliare: subito dopo una virgola o un'apertura fuori
+  // dalle stringhe, con la pila delle parentesi aperte in quel momento.
+  const tagli: { pos: number; pila: string[] }[] = [];
+  const pila: string[] = [];
+  let inStringa = false, escape = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStringa) {
+      if (escape) escape = false;
+      else if (c === "\\") escape = true;
+      else if (c === '"') inStringa = false;
+      continue;
+    }
+    if (c === '"') inStringa = true;
+    else if (c === "{" || c === "[") { pila.push(c); tagli.push({ pos: i + 1, pila: [...pila] }); }
+    else if (c === "}" || c === "]") { pila.pop(); tagli.push({ pos: i + 1, pila: [...pila] }); }
+    else if (c === ",") tagli.push({ pos: i, pila: [...pila] });
+  }
+  // Dal taglio piu' lungo al piu' corto: il primo che si legge vince.
+  for (let k = tagli.length - 1; k >= 0 && k >= tagli.length - 400; k--) {
+    const { pos, pila: aperte } = tagli[k];
+    if (!aperte.length) continue;
+    const chiusura = aperte.slice().reverse().map((p) => (p === "{" ? "}" : "]")).join("");
+    try {
+      return JSON.parse(t.slice(0, pos) + chiusura);
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /**

@@ -187,6 +187,12 @@ REGOLE OBBLIGATORIE basate sul PIN:
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 502);
   }
+  // Risposta illeggibile anche dopo la riparazione (01/10/2026, Israele-Kosovo):
+  // NON si salva. Prima finiva in scheda come "INSTABILE" con il JSON grezzo
+  // come lettura, e contava come "pronostico gia' presente".
+  if ((prediction as any).illeggibile || !prediction.analysis || !String(prediction.family || "").trim()) {
+    return jsonResponse({ error: "Risposta dell'AI incompleta o illeggibile: riprova con Rigenera Pronostico." }, 502);
+  }
 
   // Traccia il costo stimato (0 per i provider gratuiti come Groq)
   try {

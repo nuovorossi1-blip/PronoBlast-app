@@ -2317,7 +2317,8 @@ export function validaFasce(
       const { odd, stimata } = quotaMercato(market, ctx);
       let motivo = "";
       const man = delManuale(market);
-      if (!isVerdictMarket(market) && !man) motivo = "fuori dai mercati giocati";
+      const delManualeQui = !!man || mercatoDelManualeQui(market, ctx);
+      if (!isVerdictMarket(market) && !delManualeQui) motivo = "fuori dai mercati giocati";
       else if (!inFascia(odd, soglia)) motivo = `quota ${odd?.toFixed(2) ?? "n/d"} fuori dalla fascia ${etichettaFascia(soglia)}`;
       else if (!ammessoDallaStruttura(market, s)) motivo = "incoerente con pavimento/tetto";
       else if (!man && ranking.length && pos(ranking, market) === null) motivo = "escluso dal motore (struttura della partita)";
@@ -2356,6 +2357,21 @@ export function validaFasce(
  * quota. Non e' il verdetto (quello e' il pick della fascia scelta): qui si dice
  * a che quota sta, in quale fascia cade e se un controllo lo scarterebbe.
  */
+/**
+ * Il mercato e' del manuale di QUESTA partita (scenario delle quote) e il motore
+ * lo conosce? (01/10/2026, Irlanda-Austria: mentre la misura dell'archivio
+ * carica, `ctx.manuale` e' vuoto e "X oppure GG" risultava "fuori dai mercati
+ * giocati".) Vale anche senza misura: quota e % vengono dal motore.
+ */
+export function mercatoDelManualeQui(market: string, ctx: ContestoFasce): boolean {
+  if ((ctx.manuale || []).some((c) => normalizeMarket(c.market) === normalizeMarket(market))) return true;
+  const nota = getScenarioNote(ctx.odds);
+  if (!nota) return false;
+  const ranking = ctx.structural?.ranking || [];
+  return nota.markets.some((m) => normalizeMarket(nomeCatalogoManuale(m)) === normalizeMarket(market))
+    && ranking.some((r) => normalizeMarket(r.market) === normalizeMarket(market));
+}
+
 export function valutaPuntaSu(
   market: string | null | undefined,
   ctx: ContestoFasce,
@@ -2368,7 +2384,7 @@ export function valutaPuntaSu(
   const { odd, stimata } = quotaMercato(market, ctx);
   const dir = letturaDirezionale(ctx.odds, s);
   let problema: string | null = null;
-  if (!isVerdictMarket(market) && !man) problema = "fuori dai mercati giocati";
+  if (!isVerdictMarket(market) && !mercatoDelManualeQui(market, ctx)) problema = "fuori dai mercati giocati";
   else if (!ammessoDallaStruttura(market, s)) problema = "incoerente con pavimento/tetto";
   else if (dir && !coerenteConDirezione(market, dir)) problema = "scommette sui gol con favorita netta e profilo DIFENSIVA";
   else if (odd !== null && fasciaDellaQuota(odd) === null) problema = `quota ${odd.toFixed(2)} sotto la prima fascia (1,40)`;
