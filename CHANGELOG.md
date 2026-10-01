@@ -147,6 +147,31 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (2) — App lentissima: il controllo dei lavori leggeva troppo (PR #9)
+
+**Sintomo.** Dopo la PR #8 l'app Android rispondeva a fatica. Server sano
+(tutte risposte 200), ma nei registri Vercel 5 `GET /lavori` nello stesso
+secondo.
+
+**Causa.** `useLavoro` (`frontend/src/components/LavoroBox.tsx`) leggeva lo
+stato ogni 3 secondi SEMPRE: anche senza lavori in corso e anche dalle pagine
+rimaste sotto (Strumenti apre Manutenzione e Traccia con `router.push`, quindi
+resta montata). E ogni lettura chiamava `setLavoro` con un oggetto nuovo
+identico al vecchio: l'intera pagina (Traccia e' lunga) si ridisegnava ogni
+3 secondi, piu' volte.
+
+**Correzione.** Lettura solo con la pagina in primo piano (`useFocusEffect`);
+una lettura all'ingresso e ogni 3 s solo finche' un lavoro e' in corso; stato
+aggiornato solo se la risposta cambia; in Traccia la pagella si ricopia solo
+quando il lavoro avanza.
+
+**Verifica.** App web costruita e provata con Playwright e API finte: senza
+lavoro 1 lettura entrando e poi nessuna; con lavoro in corso una ogni 3 s e
+solo dalla pagina visibile; a lavoro finito le letture si fermano.
+
+**Regola.** Niente timer che girano sempre: un controllo periodico va legato
+alla pagina in vista e a una condizione che si spegne da sola.
+
 ### 2026-10-01 — Lavori lunghi sul server: continuano a schermo spento (PR #8)
 
 **Perche'.** Ricalcolo, ricostruzione, pagella e caricamento risultati erano un

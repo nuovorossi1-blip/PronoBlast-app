@@ -79,11 +79,14 @@ export default function Traccia() {
   const srv = useLavoro((l) => {
     if (l.tipo === "pagella" && l.stato === "errore") notify("Errore", l.errore || "Pagella non riuscita");
   });
+  // Si ricopia la pagella solo quando il lavoro avanza davvero (firma
+  // id:pos:stato), non a ogni lettura.
+  const firmaPagella = srv.lavoro?.tipo === "pagella" ? `${srv.lavoro.id}:${srv.lavoro.pos}:${srv.lavoro.stato}` : "";
   useEffect(() => {
     const l = srv.lavoro;
     if (!l || l.tipo !== "pagella" || !(l.parziale as Somma)?.per_famiglia) return;
     if (l.parametri?.lambdaVecchi) setVecchi(l.parziale as Somma); else setNuovi(l.parziale as Somma);
-  }, [srv.lavoro]);
+  }, [firmaPagella]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const gira = async (lambdaVecchi: boolean) => {
     try {
