@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { colors } from "@/src/theme";
 import { api, Lavoro, TipoLavoro, NOMI_LAVORO, SommaBacktest } from "@/src/api";
 import { confirmAction } from "@/src/utils/platform";
@@ -9,42 +10,70 @@ import { confirmAction } from "@/src/utils/platform";
  * LAVORI IN BACKGROUND (01/10/2026) — lato app.
  *
  * Il lavoro gira sul server (`/lavori`): l'app lo avvia e poi GUARDA soltanto.
- * Qui c'e' il gancio che legge lo stato ogni 3 secondi mentre la pagina e'
- * aperta (e da' una spinta se il server lo segnala fermo) e il riquadro che
- * mostra avanzamento, esito e il tasto Ferma. Spegnere lo schermo, cambiare
- * app o pagina non ferma niente.
+ * Qui c'e' il gancio che legge lo stato (e da' una spinta se il server lo
+ * segnala fermo) e il riquadro che mostra avanzamento, esito e il tasto Ferma.
+ * Spegnere lo schermo, cambiare app o pagina non ferma niente: il lavoro lo
+ * porta avanti l'orologio in Supabase.
+ *
+ * LEGGERE POCO (01/10/2026, app "lentissima" dopo la PR #8). La prima versione
+ * leggeva ogni 3 secondi SEMPRE: anche senza lavori in corso e anche dalle
+ * pagine rimaste sotto (Strumenti apre Manutenzione e Traccia con push, quindi
+ * resta montata), e ogni lettura ridisegnava l'intera pagina con un oggetto
+ * nuovo identico al vecchio. Ora:
+ *  - si legge solo con la pagina IN PRIMO PIANO (useFocusEffect);
+ *  - entrando basta una lettura; ogni 3 s solo finche' un lavoro e' in corso;
+ *  - lo stato si aggiorna solo se la risposta e' davvero cambiata.
  */
 export function useLavoro(onFinito?: (l: Lavoro) => void) {
   const [lavoro, setLavoro] = useState<Lavoro | null>(null);
+  const [inVista, setInVista] = useState(false);
   /** "id:stato" dell'ultima lettura: serve a vedere il passaggio in_corso -> finito. */
   const prec = useRef<string | null>(null);
+  /** Ultima risposta come testo: se e' uguale, niente ridisegno. */
+  const ultimo = useRef<string>("");
   const cb = useRef(onFinito);
   cb.current = onFinito;
+
+  const aggiorna = useCallback((l: Lavoro | null) => {
+    const testo = JSON.stringify(l);
+    if (testo === ultimo.current) return;
+    ultimo.current = testo;
+    setLavoro(l);
+  }, []);
 
   const leggi = useCallback(async () => {
     try {
       const { lavoro: l } = await api.lavoroStato();
-      setLavoro(l);
+      aggiorna(l);
       if (l?.fermo) api.lavoroSpinta();
       if (l && prec.current === `${l.id}:in_corso` && l.stato !== "in_corso") cb.current?.(l);
       prec.current = l ? `${l.id}:${l.stato}` : null;
     } catch {
       // rete assente: si riprova al giro dopo
     }
-  }, []);
+  }, [aggiorna]);
 
-  useEffect(() => {
+  // Una lettura ogni volta che la pagina torna in primo piano.
+  useFocusEffect(useCallback(() => {
+    setInVista(true);
     leggi();
+    return () => setInVista(false);
+  }, [leggi]));
+
+  // Lettura periodica solo con la pagina in vista E un lavoro in corso.
+  const inCorso = lavoro?.stato === "in_corso";
+  useEffect(() => {
+    if (!inVista || !inCorso) return;
     const t = setInterval(leggi, 3000);
     return () => clearInterval(t);
-  }, [leggi]);
+  }, [inVista, inCorso, leggi]);
 
   const avvia = useCallback(async (tipo: TipoLavoro, parametri: Record<string, any> = {}) => {
     const r = await api.lavoroAvvia(tipo, parametri);
-    setLavoro(r.lavoro);
+    aggiorna(r.lavoro);
     prec.current = `${r.lavoro.id}:in_corso`;
     api.lavoroSpinta();
-  }, []);
+  }, [aggiorna]);
 
   const ferma = useCallback(async () => {
     await api.lavoroAnnulla();

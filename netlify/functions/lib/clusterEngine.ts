@@ -6,7 +6,7 @@
  * Porting 1:1 dalla versione Python originale (backend/cluster_engine.py).
  * Nessuna dipendenza esterna: solo Math nativo.
  */
-import { underAmmessiATettoAperto } from "../../../frontend/src/api";
+import { underAmmessiATettoAperto, inFascia } from "../../../frontend/src/api";
 
 export type Odds = Record<string, number | string[] | undefined>;
 
@@ -1177,7 +1177,7 @@ export function structuralAnalysis(
     // alla fusione. (Rossi aveva notato l'assenza di `DC 1X + GG`, che stava
     // appena fuori dalla ventesima posizione.)
     ranking: [...top20, ...ranked.filter((r) => isVerdictMarket(r.market) && !top20.includes(r))],
-    pick: selezionaPick(ranked, odds, minOdd),
+    pick: selezionaPick(ranked, odds, minOdd, true),
     explanation: buildExplanation(structure, top20),
   };
 }
@@ -1285,12 +1285,15 @@ export function selezionaPick(
   ranked: RankedMarket[],
   odds: Odds,
   minOdd: number,
+  /** true = solo quote DENTRO la fascia di minOdd (01/10/2026, pick del motore
+   *  nella scheda); false = da minOdd in su (backtest, come prima). */
+  fasciaChiusa = false,
 ): RankedMarket | null {
   // Dal 18/09 la logica vive in `giocateAmmissibili`: il pick e' la PRIMA
   // giocata ammissibile, le altre servono alla multipla automatica
   // (build-multipla.ts) come alternative sulla stessa partita. Stesso
   // risultato di prima, verificato con quote finte alle quattro soglie.
-  return giocateAmmissibili(ranked, odds, minOdd)[0] ?? null;
+  return giocateAmmissibili(ranked, odds, minOdd, fasciaChiusa)[0] ?? null;
 }
 
 /**
@@ -1302,6 +1305,8 @@ export function giocateAmmissibili(
   ranked: RankedMarket[],
   odds: Odds,
   minOdd: number,
+  /** Vedi selezionaPick. La multipla usa "da minOdd in su". */
+  fasciaChiusa = false,
 ): RankedMarket[] {
   const ammessi = ranked.filter((r) => isVerdictMarket(r.market));
   if (!ammessi.length) return [];
@@ -1333,7 +1338,7 @@ export function giocateAmmissibili(
     // Se un mercato piu' probabile dice il contrario, quello sotto non si gioca.
     if (leggibili.slice(0, i).some((sopra) => contraddice(sopra.market, r.market))) continue;
     if (!isVerdictMarket(r.market)) continue;   // solo veto: vieta, non si gioca
-    if ((r.odd ?? 0) >= minOdd) out.push(r);
+    if (fasciaChiusa ? inFascia(r.odd, minOdd) : (r.odd ?? 0) >= minOdd) out.push(r);
   }
   return out;
 }

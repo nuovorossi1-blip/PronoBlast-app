@@ -66,16 +66,28 @@ DC 1X + O2.5...): se lo metti, il codice lo scarta.
 Il risultato della partita non esiste per te: ragiona SOLO con le informazioni
 disponibili prima del calcio d'inizio.
 
+PUNTA SU QUESTO — campo "main_prediction":
+il mercato del CATALOGO su cui punteresti DI PIU' per questa partita, a
+QUALUNQUE quota: il tuo giudizio migliore con tutte le informazioni (quote,
+motore, scenario, dati web). Puoi ribaltare il motore e il PRE se i dati web lo
+giustificano (es. assenze pesanti della favorita: meglio DC 1X + O1.5 che 1
+secco), e devi dire perche' nella parte "PERCHE' QUESTA SCELTA" di "analysis".
+Non sceglierlo per la quota: sceglilo perche' e' il piu' probabile e il piu'
+solido per QUESTA partita.
+
 CLASSIFICA PER FASCIA DI QUOTA — campo "fasce":
-per ciascuna fascia 1.40, 1.50, 1.60, 1.75 una classifica di 1-5 mercati del
-CATALOGO con quota >= della fascia (una quota 1.45 vale per la fascia 1.40, non
-per la 1.50), dal piu' affidabile al meno, e un "perche" di 1-2 frasi: perche'
-QUELLA scelta a QUELLA quota e dove sta nel ranking del motore. Se a una fascia
-la scelta migliore e' sotto il 58% di probabilita', dillo nel "perche" ("non
-affidabile a questa quota: non superare 1.50"). Se a una fascia non c'e'
-niente di coerente con la tua lettura, lascia la classifica vuota: meglio
-nessuna giocata che una giocata contro la lettura.
-"playable_markets" e "main_prediction" = la classifica della fascia 1.40.
+le fasce sono INTERVALLI CHIUSI: "1.40" = quote da 1.40 a 1.49, "1.50" = da
+1.50 a 1.59, "1.60" = da 1.60 a 1.74, "1.75" = da 1.75 in su. Una quota 1.48
+sta SOLO nella fascia 1.40; una 1.62 SOLO nella 1.60. Per ciascuna fascia una
+classifica di 1-5 mercati del CATALOGO con quota DENTRO quella fascia, dal piu'
+PROBABILE al meno — mai dal piu' pagato: se 1, O2.5 e GG pagano 1.47, 1.48 e
+1.49, decide quale e' piu' probabile in questa partita. Un "perche" di 1-2
+frasi per fascia: perche' QUELLA scelta e dove sta nel ranking del motore. Se a
+una fascia la scelta migliore e' sotto il 58% di probabilita', dillo nel
+"perche" ("non affidabile a questa quota"). Se a una fascia non c'e' niente di
+coerente con la tua lettura, lascia la classifica vuota: meglio nessuna giocata
+che una giocata contro la lettura.
+"playable_markets" = i mercati delle tue classifiche, dal piu' solido.
 
 ORDINE FISSO DEL CAMPO "analysis" (due parti, in quest'ordine):
   (1) LETTURA DELLA PARTITA — 2-3 frasi: le quote lette come SISTEMA (non
@@ -117,9 +129,9 @@ OUTPUT (SOLO JSON, niente markdown)
   "xg_ospite": 1.25,
   "h2h_over_pct": 33.3,
   "fasce": {
-    "1.40": {"classifica": ["MG 2-4 totali", "DC 1X + O1.5"], "perche": "Il range chiuso e' la lettura piu' solida (motore #1, 64%)."},
-    "1.50": {"classifica": ["MG 2-4 totali"], "perche": "Stessa lettura, quota 1.54: ancora sopra il 58%."},
-    "1.60": {"classifica": ["GG + O2.5"], "perche": "Unica coerente sopra 1.60, ma al 47%: non affidabile, non superare 1.50."},
+    "1.40": {"classifica": ["DC 1X + O1.5"], "perche": "Quota 1.45, la piu' probabile fra quelle da 1.40 a 1.49 (motore #2, 63%)."},
+    "1.50": {"classifica": ["MG 2-4 totali"], "perche": "Stessa lettura, quota 1.54 (fascia 1.50-1.59): ancora sopra il 58%."},
+    "1.60": {"classifica": ["GG + O2.5"], "perche": "Unica coerente fra 1.60 e 1.74, ma al 47%: non affidabile, non superare 1.50."},
     "1.75": {"classifica": [], "perche": "Niente di coerente con la lettura a questa quota."}
   },
   "statistiche_squadre": {
