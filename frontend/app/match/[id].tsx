@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -528,9 +528,23 @@ export default function MatchDetail() {
             del calcio d'inizio. Non cambia il verdetto della fascia scelta. */}
         {(() => {
           if (!predVerdetto?.main_prediction || !predVerdetto.fasce) return null;
-          const c = valutaPuntaSu(predVerdetto.main_prediction, { odds: match.odds as any, structural, manuale: manualeFasce });
+          const ctxC = { odds: match.odds as any, structural, manuale: manualeFasce };
+          const c = valutaPuntaSu(predVerdetto.main_prediction, ctxC);
           if (!c) return null;
-          const perche = dividiAnalisi(predVerdetto.analysis).perche;
+          // Il consiglio motivato (pronostici dal 01/10): perche', cosa sa il
+          // web, perche' no alle alternative. I pronostici vecchi hanno solo
+          // la parte PERCHE' dell'analisi.
+          const cons = consiglioDi(predVerdetto);
+          const perche = cons?.perche || dividiAnalisi(predVerdetto.analysis).perche;
+          // Anche gli altri mercati che l'AI ha proposto per QUESTA partita.
+          const proposteAI = [
+            ...(predVerdetto.playable_markets || []).map((p) => p.market),
+            ...FASCE_AI.flatMap((f) => (predVerdetto.fasce as any)?.[chiaveFascia(f)]?.classifica || []),
+          ];
+          const alternative = alternativeDelConsiglio(c.market, ctxC, proposteAI);
+          const cautela = consiglioDaCautela(c.prob, cons ? cons.web : null, alternative);
+          const percheNo = (m: string) =>
+            cons?.alternative.find((a) => normalizeMarket(a.mercato) === normalizeMarket(m))?.perche_no || "";
           return (
             <View style={styles.puntaBox}>
               <Text style={styles.puntaLbl}>{"IL CONSIGLIO DELL'AI · PUNTA SU QUESTO"}</Text>
@@ -540,7 +554,41 @@ export default function MatchDetail() {
                 {c.prob !== null ? ` · ${pctProb(c.prob)} Poisson` : ""}
                 {c.fascia !== null ? ` · fascia ${etichettaFascia(c.fascia)}` : ""}
               </Text>
-              {perche ? <Text style={styles.puntaPerche}>{perche}</Text> : null}
+              {perche ? (
+                <>
+                  <Text style={styles.puntaSez}>PERCHÉ QUESTO</Text>
+                  <Text style={styles.puntaPerche}>{perche}</Text>
+                </>
+              ) : null}
+              <Text style={styles.puntaSez}>COSA SA IL WEB CHE IL SISTEMA NON SA</Text>
+              <Text style={styles.puntaPerche}>
+                {cons ? (cons.web || "L'AI non l'ha detto.") : "Pronostico generato prima del consiglio motivato: rigeneralo per vederlo."}
+              </Text>
+              {alternative.length ? (
+                <>
+                  <Text style={styles.puntaSez}>LE ALTERNATIVE (numeri del sistema)</Text>
+                  {alternative.map((a) => (
+                    <View key={a.market} style={styles.altRow}>
+                      <Text style={styles.altNome}>
+                        {a.market}
+                        <Text style={styles.altMeta}>
+                          {a.odd !== null ? `  ${a.stimata ? "≈" : "@"} ${a.odd.toFixed(2)}` : ""}
+                          {a.prob !== null ? ` · ${pctProb(a.prob)} Poisson` : ""}
+                          {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% archivio` : ""}
+                          {a.rankMotore !== null ? ` · motore #${a.rankMotore}` : ""}
+                          {` · ${a.motivo}`}
+                        </Text>
+                      </Text>
+                      {percheNo(a.market) ? <Text style={styles.altPercheNo}>Perché no: {percheNo(a.market)}</Text> : null}
+                    </View>
+                  ))}
+                </>
+              ) : null}
+              {cautela ? (
+                <Text style={styles.puntaAvviso}>
+                  ⚠ Meno probabile di {cautela.market} ({cautela.prob !== null ? pctProb(cautela.prob) : "?"}) senza un motivo dal web: valuta con cautela.
+                </Text>
+              ) : null}
               <Text style={styles.puntaNota}>
                 {"Indipendente dalla fascia che scegli: è il giudizio dell'AI su questa partita, con tutte le informazioni. Il verdetto qui sotto resta il pick della fascia scelta."}
               </Text>
@@ -1841,6 +1889,11 @@ const styles = StyleSheet.create({
   puntaVal: { color: colors.text, fontSize: 20, fontWeight: "900" },
   puntaMeta: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   puntaPerche: { color: colors.text, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  puntaSez: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1, marginTop: 8 },
+  altRow: { marginTop: 4 },
+  altNome: { color: colors.text, fontSize: 13, fontWeight: "800" },
+  altMeta: { color: colors.textMuted, fontSize: 11, fontWeight: "600" },
+  altPercheNo: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   puntaNota: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: 6 },
   puntaAvviso: { color: colors.warning, fontSize: 11, lineHeight: 16, marginTop: 4 },
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },

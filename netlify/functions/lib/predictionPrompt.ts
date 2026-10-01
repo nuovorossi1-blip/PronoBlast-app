@@ -75,6 +75,28 @@ secco), e devi dire perche' nella parte "PERCHE' QUESTA SCELTA" di "analysis".
 Non sceglierlo per la quota: sceglilo perche' e' il piu' probabile e il piu'
 solido per QUESTA partita.
 
+IL CONSIGLIO VA MOTIVATO — campo "consiglio" (caso Irlanda-Austria: l'AI ha
+consigliato GG al 47% come "veicolo" di X oppure GG, che era giocabile col suo
+nome al 57%, senza un solo fatto dal web a sostegno):
+  "mercato": uguale a main_prediction;
+  "perche": 1-2 frasi, perche' e' il migliore per QUESTA partita;
+  "web": cosa dicono le fonti web che il motore e le quote NON sanno (assenze,
+         forma, moduli, motivazioni) e come sposta la scelta; se il web non
+         aggiunge niente scrivi esattamente "niente di nuovo dal web: decidono i
+         numeri";
+  "alternative": per OGNUNO di questi mercati, perche' NON lo preferisci:
+         il piu' probabile del CATALOGO, il primo del PRE, ogni mercato del
+         manuale ammesso in questa partita e gli altri mercati che tu stesso
+         proponi nelle fasce o in playable_markets (cambiano di partita in
+         partita).
+REGOLE VINCOLANTI:
+- Se il consiglio ha una probabilita' PIU' BASSA di un'alternativa, "web" deve
+  citare un fatto preciso che lo giustifica. Senza un fatto cosi', consiglia il
+  piu' probabile e solido.
+- Un mercato del manuale ammesso nel CATALOGO (es. "X oppure GG", "1 AH -0,75")
+  si propone CON IL SUO NOME: vietato scegliere un "veicolo piu' vicino" o un
+  surrogato quando il mercato vero e' giocabile.
+
 CLASSIFICA PER FASCIA DI QUOTA — campo "fasce":
 le fasce sono INTERVALLI CHIUSI: "1.40" = quote da 1.40 a 1.49, "1.50" = da
 1.50 a 1.59, "1.60" = da 1.60 a 1.74, "1.75" = da 1.75 in su. Una quota 1.48
@@ -87,6 +109,8 @@ una fascia la scelta migliore e' sotto il 58% di probabilita', dillo nel
 "perche" ("non affidabile a questa quota"). Se a una fascia non c'e' niente di
 coerente con la tua lettura, lascia la classifica vuota: meglio nessuna giocata
 che una giocata contro la lettura.
+I mercati del manuale ammessi stanno nelle fasce con la loro probabilita',
+come gli altri.
 "playable_markets" = i mercati delle tue classifiche, dal piu' solido.
 
 ORDINE FISSO DEL CAMPO "analysis" (due parti, in quest'ordine):
@@ -128,6 +152,15 @@ OUTPUT (SOLO JSON, niente markdown)
   "xg_casa": 1.15,
   "xg_ospite": 1.25,
   "h2h_over_pct": 33.3,
+  "consiglio": {
+    "mercato": "MG 2-4 totali",
+    "perche": "Range chiuso 2-4 e la probabilita' piu' alta del catalogo (64%).",
+    "web": "Niente di nuovo dal web: decidono i numeri.",
+    "alternative": [
+      {"mercato": "DC 1X + O1.5", "perche_no": "Dipende dalla direzione casa, che il web non conferma (formazioni incerte)."},
+      {"mercato": "GG + O2.5", "perche_no": "47%: troppo sotto per una partita a range chiuso."}
+    ]
+  },
   "fasce": {
     "1.40": {"classifica": ["DC 1X + O1.5"], "perche": "Quota 1.45, la piu' probabile fra quelle da 1.40 a 1.49 (motore #2, 63%)."},
     "1.50": {"classifica": ["MG 2-4 totali"], "perche": "Stessa lettura, quota 1.54 (fascia 1.50-1.59): ancora sopra il 58%."},
@@ -225,6 +258,26 @@ export type StatisticheSquadre = { casa: StatisticheSquadra; ospite: Statistiche
  * pronostico non si blocca mai per questo campo (e il verdetto torna alla
  * fusione).
  */
+export type ConsiglioAI = {
+  mercato: string;
+  perche: string;
+  web: string;
+  alternative: { mercato: string; perche_no: string }[];
+};
+
+/** Normalizza "consiglio" della risposta del modello. null se manca. */
+export function normalizzaConsiglio(v: any, mainPrediction?: string | null): ConsiglioAI | null {
+  if (!v || typeof v !== "object") return null;
+  const str = (x: any, max: number) => (typeof x === "string" ? x.trim().slice(0, max) : "");
+  const mercato = str(v.mercato, 60) || str(mainPrediction, 60);
+  if (!mercato) return null;
+  const alternative = (Array.isArray(v.alternative) ? v.alternative : [])
+    .map((a: any) => ({ mercato: str(a?.mercato ?? a?.market, 60), perche_no: str(a?.perche_no ?? a?.perche, 300) }))
+    .filter((a: { mercato: string }) => a.mercato)
+    .slice(0, 5);
+  return { mercato, perche: str(v.perche, 500), web: str(v.web, 500), alternative };
+}
+
 export function normalizzaFasce(v: any): Record<string, { classifica: string[]; perche: string }> | null {
   if (!v || typeof v !== "object") return null;
   const out: Record<string, { classifica: string[]; perche: string }> = {};

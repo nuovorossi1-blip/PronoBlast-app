@@ -5,7 +5,7 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, type VoceManuale } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, normalizzaConsiglio, type VoceManuale } from "./lib/predictionPrompt";
 import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
@@ -207,8 +207,14 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // Classifica per fascia (01/10/2026). main_prediction e' il "PUNTA SU QUESTO"
   // dell'AI, a qualunque quota; solo se manca si ripiega sul primo della fascia
   // 1.40, per chi legge ancora i campi vecchi.
-  const fasce = normalizzaFasce((prediction as any).fasce);
-  if (fasce && !prediction.main_prediction) prediction.main_prediction = fasce[chiaveFascia(FASCE_AI[0])]?.classifica[0] ?? null;
+  const fasceAI = normalizzaFasce((prediction as any).fasce);
+  if (fasceAI && !prediction.main_prediction) prediction.main_prediction = fasceAI[chiaveFascia(FASCE_AI[0])]?.classifica[0] ?? null;
+  // Il consiglio motivato (01/10/2026) viaggia DENTRO la colonna `fasce`
+  // (chiave "consiglio"): nessuna colonna nuova. validaFasce legge solo le
+  // chiavi 1.40/1.50/1.60/1.75, quindi non lo vede.
+  const consiglio = normalizzaConsiglio((prediction as any).consiglio, prediction.main_prediction);
+  if (consiglio && prediction.main_prediction) consiglio.mercato = prediction.main_prediction;
+  const fasce = fasceAI || consiglio ? { ...(fasceAI || {}), ...(consiglio ? { consiglio } : {}) } : null;
 
   // I tre campi nuovi (28/09/2026) esistono solo se Rossi ha aggiunto le colonne
   // con la ALTER TABLE. Se non ci sono, PostgREST rifiuta TUTTA la riga: si

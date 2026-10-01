@@ -150,6 +150,35 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (5) — Il consiglio AI va motivato e confrontato (PR #11)
+
+**Caso Irlanda-Austria.** L'AI ha consigliato GG @ 1,85 (47% Poisson) come
+"veicolo piu' vicino" della lettura da manuale "X oppure GG", che pero' era
+GIOCABILE col suo nome (≈1,67, 57% Poisson, 62,4% in archivio). Nessun fatto
+dal web a sostegno; MG 2-4 (59%) e 1X (56%, PRE #1) erano piu' probabili.
+Rossi: "perche' GG? cosa sa il web che il sistema non sa?".
+
+**Cosa.**
+- Prompt: nuovo campo `consiglio` {mercato, perche, web, alternative[{mercato,
+  perche_no}]}. Regole: se il consiglio e' meno probabile di un'alternativa,
+  "web" deve citare un fatto preciso, altrimenti si consiglia il piu'
+  probabile; i mercati del manuale nel catalogo si propongono col loro nome,
+  mai un surrogato.
+- `normalizzaConsiglio`; il consiglio si salva DENTRO la colonna `fasce`
+  (chiave `consiglio`): nessun SQL. `validaFasce` non lo vede.
+- `api.ts`: `consiglioDi`, `alternativeDelConsiglio` (il piu' probabile del
+  catalogo, il primo del PRE, i mercati del manuale e gli altri mercati che
+  l'AI stessa propone per QUELLA partita, che cambiano di partita in partita:
+  calcolati dal CODICE),
+  `consiglioDaCautela`.
+- Scheda: il riquadro del consiglio mostra PERCHE' QUESTO, COSA SA IL WEB CHE
+  IL SISTEMA NON SA, LE ALTERNATIVE con quota/%/motore/% archivio e il "perche'
+  no" dell'AI, e l'avviso "meno probabile di X senza un motivo dal web".
+
+**Verifica.** Quote di Irlanda-Austria: alternative MG 2-4 (59%), 1X (PRE),
+X oppure GG (57%, 62,4%); cautela con "niente di nuovo dal web", nessuna con
+un fatto; consiglio dentro `fasce` non disturba `validaFasce`.
+
 ### 2026-10-01 (4) — Consiglio AI in cima, swipe indietro, AI e risultati della Schedina (PR #10)
 
 Richieste di Rossi guardando Germania-Serbia:
