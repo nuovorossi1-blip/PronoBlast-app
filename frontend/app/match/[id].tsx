@@ -100,12 +100,21 @@ export default function MatchDetail() {
   const [caricoStorico, setCaricoStorico] = useState(false);
   // Ticket 8: quante volte ogni mercato del manuale e' uscito, per scenario.
   const [manualeStats, setManualeStats] = useState<ManualeStatsResponse | null>(null);
+  // Si riprova due volte se non arriva (01/10/2026, Irlanda-Austria): senza
+  // misura i mercati del manuale sparivano da fasce e alternative del consiglio.
   useEffect(() => {
     let alive = true;
-    api.manualeStats()
-      .then((r) => { if (alive) setManualeStats(r); })
-      .catch((e) => { console.error("[manuale-stats]", e); });
-    return () => { alive = false; };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const prova = (tentativo: number) => {
+      api.manualeStats()
+        .then((r) => { if (alive) setManualeStats(r); })
+        .catch((e) => {
+          console.error("[manuale-stats]", e);
+          if (alive && tentativo < 2) timer = setTimeout(() => prova(tentativo + 1), 4000);
+        });
+    };
+    prova(0);
+    return () => { alive = false; if (timer) clearTimeout(timer); };
   }, []);
   const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
   const [showClusterAll, setShowClusterAll] = useState(false);
@@ -500,7 +509,9 @@ export default function MatchDetail() {
           return (
             <View style={styles.scenarioNoteBox}>
               <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
-              <Text style={styles.scenarioNoteSub}>Mercati da considerare:</Text>
+              <Text style={styles.scenarioNoteSub}>
+                Mercati da considerare:{manualeStats ? "" : " (misura dell'archivio in caricamento…)"}
+              </Text>
               {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
                   uscito nello storico con QUESTO scenario; a risultato inserito,
                   VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}

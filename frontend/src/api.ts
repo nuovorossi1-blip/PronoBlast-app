@@ -2441,6 +2441,13 @@ export function alternativeDelConsiglio(
   if (migliore) aggiungi(migliore.r.market, "il più probabile del catalogo");
   if (pre[0]) aggiungi(pre[0].market, "il primo del PRE");
   for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
+  // Anche senza la misura dell'archivio (non ancora caricata): i mercati del
+  // manuale dello scenario che il motore conosce, con la sua quota e la sua %.
+  const nota = getScenarioNote(ctx.odds);
+  for (const m of nota?.markets || []) {
+    const nome = nomeCatalogoManuale(m);
+    if (ranking.some((r) => normalizeMarket(r.market) === normalizeMarket(nome))) aggiungi(nome, "dal manuale dello scenario");
+  }
   for (const m of proposteAI) if (m) aggiungi(m, "proposto anche dall'AI");
   return out.slice(0, 6);
 }
