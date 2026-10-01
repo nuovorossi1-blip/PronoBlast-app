@@ -2380,6 +2380,83 @@ export function valutaPuntaSu(
   };
 }
 
+/** Il consiglio motivato dell'AI (01/10/2026), salvato dentro `fasce.consiglio`. */
+export type ConsiglioAI = {
+  mercato: string;
+  perche: string;
+  web: string;
+  alternative: { mercato: string; perche_no: string }[];
+};
+
+export function consiglioDi(prediction: { fasce?: any } | null | undefined): ConsiglioAI | null {
+  const c = prediction?.fasce?.consiglio;
+  return c && typeof c === "object" && typeof c.mercato === "string" ? c as ConsiglioAI : null;
+}
+
+export type AlternativaConsiglio = {
+  market: string;
+  motivo: string;
+  odd: number | null;
+  stimata: boolean;
+  prob: number | null;
+  rankMotore: number | null;
+  pctManuale: number | null;
+};
+
+/**
+ * LE ALTERNATIVE DEL CONSIGLIO (01/10/2026, caso Irlanda-Austria): calcolate
+ * dal codice, non dall'AI, cosi' compaiono anche se l'AI se ne dimentica:
+ * il piu' probabile del catalogo (quota >= 1,40), il primo del PRE e i mercati
+ * del manuale ammessi in questa partita. Il consiglio stesso e' escluso.
+ */
+export function alternativeDelConsiglio(
+  consigliato: string | null | undefined,
+  ctx: ContestoFasce,
+): AlternativaConsiglio[] {
+  const ranking = ctx.structural?.ranking || [];
+  const pre = ctx.structural?.pre_ranking || [];
+  const out: AlternativaConsiglio[] = [];
+  const presente = (m: string) =>
+    (consigliato && normalizeMarket(m) === normalizeMarket(consigliato)) || out.some((a) => normalizeMarket(a.market) === normalizeMarket(m));
+  const aggiungi = (market: string, motivo: string) => {
+    if (presente(market)) return;
+    const { odd, stimata } = quotaMercato(market, ctx);
+    const i = ranking.findIndex((r) => normalizeMarket(r.market) === normalizeMarket(market));
+    const man = (ctx.manuale || []).find((c) => normalizeMarket(c.market) === normalizeMarket(market));
+    out.push({
+      market, motivo, odd, stimata,
+      prob: i >= 0 ? ranking[i].coverage : null,
+      rankMotore: i >= 0 ? i + 1 : null,
+      pctManuale: man ? man.pct : null,
+    });
+  };
+  const migliore = ranking
+    .filter((r) => isVerdictMarket(r.market))
+    .map((r) => ({ r, q: quotaMercato(r.market, ctx) }))
+    .filter(({ q }) => q.odd !== null && fasciaDellaQuota(q.odd) !== null)
+    .sort((a, b) => b.r.coverage - a.r.coverage)[0];
+  if (migliore) aggiungi(migliore.r.market, "il più probabile del catalogo");
+  if (pre[0]) aggiungi(pre[0].market, "il primo del PRE");
+  for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
+  return out;
+}
+
+/** Il consiglio e' meno probabile di un'alternativa e il web non porta un
+ *  motivo: va mostrato con cautela. */
+export function consiglioDaCautela(
+  probConsiglio: number | null,
+  web: string | null | undefined,
+  alternative: AlternativaConsiglio[],
+): AlternativaConsiglio | null {
+  if (probConsiglio === null) return null;
+  const senzaWeb = !web || !web.trim() || /niente di nuovo/i.test(web);
+  if (!senzaWeb) return null;
+  const meglio = alternative
+    .filter((a) => a.prob !== null && a.prob - probConsiglio >= 0.02)
+    .sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))[0];
+  return meglio || null;
+}
+
 /** La fascia piu' alta con un pick affidabile (>= 58%): oltre, "non superare". */
 export function sogliaMassimaAffidabile(fasce: FasciaValidata[] | null): number | null {
   let max: number | null = null;
