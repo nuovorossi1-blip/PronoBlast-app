@@ -39,7 +39,7 @@ import {
  * rimasti, altrimenti si riparte da capo (reset=1).
  */
 
-export const VERSIONE_RICALCOLO = "2026-10-01";
+export const VERSIONE_RICALCOLO = "2026-10-01b"; // fasce a intervalli chiusi
 const BLOCCO = 150;
 
 type Tasso = { v: number; p: number };

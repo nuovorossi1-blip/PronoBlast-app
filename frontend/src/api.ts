@@ -1386,7 +1386,7 @@ export function buildFinalVerdict(
     if (b.market.includes("+")) {
       const baseSign = b.market.split("+")[0].replace(/^dc\s*/i, "").trim();
       const baseOdd = getMarketOdd(baseSign, odds);
-      if (baseOdd !== undefined && baseOdd >= minOdd) {
+      if (baseOdd !== undefined && inFascia(baseOdd, minOdd)) {
         fattore(b, "combo ridondante: il segno singolo paga gi\u00e0", 0.5);
       }
     }
@@ -1568,7 +1568,7 @@ export function buildFinalVerdict(
   });
   if (!leggibili.length) return [];      // nessuna famiglia leggibile: si sta fuori
 
-  const sopra = (b: VerdictPick) => (b.odd ?? 0) >= minOdd;
+  const sopra = (b: VerdictPick) => inFascia(b.odd, minOdd);
   // Un mercato e' valido solo se non contraddice NESSUNO di quelli piu' in alto,
   // non solo la direzione: se un mercato piu' probabile dice il contrario,
   // quello sotto non si gioca. Senza questo, alzando la soglia il pick poteva
@@ -2066,6 +2066,9 @@ export function candidatiManuale(
   stats: ManualeStatsResponse["scenari"] | null | undefined,
   minOdd: number,
   marketOdds?: Record<string, { odd: number; estimated: boolean }> | null,
+  /** true = tutte le quote da `minOdd` in su (per le fasce AI, che poi dividono
+   *  per fascia in validaFasce); false = solo dentro la fascia di `minOdd`. */
+  tutteLeFasce = false,
 ): CandidatoManuale[] {
   if (!odds || !stats) return [];
   const nota = getScenarioNote(odds);
@@ -2078,7 +2081,7 @@ export function candidatiManuale(
     const c = misure[manuale];
     if (!c || c.pct === null || c.pct <= 50) continue;
     const q = quotaManuale(manuale, odds, marketOdds);
-    if (!q || q.odd < minOdd) continue;
+    if (!q || (tutteLeFasce ? q.odd < minOdd : !inFascia(q.odd, minOdd))) continue;
     // Il nome da giocare: quello del catalogo del motore se lo conosce
     // (i multigol casa/ospite), altrimenti quello del manuale (AH, X oppure GG).
     const market = /AH|oppure/i.test(manuale) ? manuale : nome;
@@ -2156,6 +2159,46 @@ export const FASCE_AI = [1.40, 1.50, 1.60, 1.75];
 export const PROB_AFFIDABILE = 0.58;
 
 export const chiaveFascia = (s: number) => s.toFixed(2);
+
+/**
+ * FASCE A INTERVALLI CHIUSI (01/10/2026, decisione di Rossi). Prima "fascia
+ * 1,50" voleva dire "quota da 1,50 in su" (ci entrava anche un 1,80). Ora ogni
+ * fascia e' un intervallo: 1,40-1,49 · 1,50-1,59 · 1,60-1,74 · 1,75 e oltre.
+ * Dentro la fascia vince il mercato PIU' PROBABILE, non il piu' pagato: se 1,
+ * O2.5 e GG pagano 1,47, 1,48 e 1,49, decide la probabilita'.
+ * Una soglia che non e' una fascia (es. 1,35) resta "da X in su".
+ * Unica sede della regola: verdetto (scheda, server, ricalcolo), fasce AI,
+ * pick del motore. Multipla e backtest restano "da X in su".
+ */
+export function limitiFascia(soglia: number): { da: number; a: number } {
+  const i = FASCE_AI.findIndex((f) => Math.abs(f - soglia) < 0.001);
+  if (i < 0) return { da: soglia, a: Infinity };
+  return { da: FASCE_AI[i], a: i + 1 < FASCE_AI.length ? FASCE_AI[i + 1] : Infinity };
+}
+
+/** La quota sta dentro la fascia? (`da` <= quota < `a`). */
+export function inFascia(odd: number | null | undefined, soglia: number): boolean {
+  if (odd === null || odd === undefined || !isFinite(odd)) return false;
+  const { da, a } = limitiFascia(soglia);
+  // Si confronta la quota come appare a schermo (due decimali): 1,4999 da
+  // calcolo e' 1,50 e sta nella fascia 1,50.
+  const q = Math.round(odd * 100) / 100;
+  return q >= da - 1e-9 && q < a - 1e-9;
+}
+
+/** "1,50–1,59" · "1,75 e oltre" · "da 1,35" (soglia libera). */
+export function etichettaFascia(soglia: number): string {
+  const { da, a } = limitiFascia(soglia);
+  const f = (x: number) => x.toFixed(2).replace(".", ",");
+  if (!FASCE_AI.some((x) => Math.abs(x - soglia) < 0.001)) return `da ${f(da)}`;
+  return a === Infinity ? `${f(da)} e oltre` : `${f(da)}–${f(a - 0.01)}`;
+}
+
+/** La fascia in cui cade una quota (null se sotto la prima). */
+export function fasciaDellaQuota(odd: number | null | undefined): number | null {
+  for (const f of FASCE_AI) if (inFascia(odd, f)) return f;
+  return null;
+}
 
 /** Probabilita' in % con un decimale ("57,8%"): arrotondata all'intero,
  *  57,8% diventava "58%" accanto a "sotto il 58%", una contraddizione. */
@@ -2269,7 +2312,7 @@ export function validaFasce(
       let motivo = "";
       const man = delManuale(market);
       if (!isVerdictMarket(market) && !man) motivo = "fuori dai mercati giocati";
-      else if (odd === null || odd < soglia) motivo = `quota ${odd?.toFixed(2) ?? "n/d"} sotto ${soglia.toFixed(2)}`;
+      else if (!inFascia(odd, soglia)) motivo = `quota ${odd?.toFixed(2) ?? "n/d"} fuori dalla fascia ${etichettaFascia(soglia)}`;
       else if (!ammessoDallaStruttura(market, s)) motivo = "incoerente con pavimento/tetto";
       else if (!man && ranking.length && pos(ranking, market) === null) motivo = "escluso dal motore (struttura della partita)";
       else if (dir && !coerenteConDirezione(market, dir)) motivo = "scommette sui gol: favorita netta con profilo DIFENSIVA";
@@ -2283,7 +2326,7 @@ export function validaFasce(
       const candidati = ranking
         .filter((r) => isVerdictMarket(r.market) && coerenteConDirezione(r.market, dir) && ammessoDallaStruttura(r.market, s))
         .map((r) => ({ r, q: quotaMercato(r.market, ctx) }))
-        .filter(({ q }) => q.odd !== null && q.odd >= soglia)
+        .filter(({ q }) => inFascia(q.odd, soglia))
         .sort((a, b) => b.r.coverage - a.r.coverage);
       for (const { r, q } of candidati.slice(0, 3)) {
         voci.push({ market: r.market, odd: q.odd, stimata: q.stimata, prob: r.coverage, rankAI: 0, rankMotore: pos(ranking, r.market), rankPre: pos(pre, r.market), aggiunto: true });
@@ -2300,6 +2343,35 @@ export function validaFasce(
     });
   }
   return out.length ? out : null;
+}
+
+/**
+ * "PUNTA SU QUESTO" (01/10/2026): il main_prediction dell'AI, a qualunque
+ * quota. Non e' il verdetto (quello e' il pick della fascia scelta): qui si dice
+ * a che quota sta, in quale fascia cade e se un controllo lo scarterebbe.
+ */
+export function valutaPuntaSu(
+  market: string | null | undefined,
+  ctx: ContestoFasce,
+): { market: string; odd: number | null; stimata: boolean; prob: number | null; fascia: number | null; problema: string | null } | null {
+  if (!market) return null;
+  const s = ctx.structural?.structure;
+  const ranking = ctx.structural?.ranking || [];
+  const man = (ctx.manuale || []).find((c) => normalizeMarket(c.market) === normalizeMarket(market));
+  const r = ranking.find((x) => normalizeMarket(x.market) === normalizeMarket(market));
+  const { odd, stimata } = quotaMercato(market, ctx);
+  const dir = letturaDirezionale(ctx.odds, s);
+  let problema: string | null = null;
+  if (!isVerdictMarket(market) && !man) problema = "fuori dai mercati giocati";
+  else if (!ammessoDallaStruttura(market, s)) problema = "incoerente con pavimento/tetto";
+  else if (dir && !coerenteConDirezione(market, dir)) problema = "scommette sui gol con favorita netta e profilo DIFENSIVA";
+  else if (odd !== null && fasciaDellaQuota(odd) === null) problema = `quota ${odd.toFixed(2)} sotto la prima fascia (1,40)`;
+  return {
+    market, odd, stimata,
+    prob: r ? r.coverage : man ? man.pct / 100 : null,
+    fascia: fasciaDellaQuota(odd),
+    problema,
+  };
 }
 
 /** La fascia piu' alta con un pick affidabile (>= 58%): oltre, "non superare". */

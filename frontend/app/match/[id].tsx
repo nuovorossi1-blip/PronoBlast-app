@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -205,7 +205,7 @@ export default function MatchDetail() {
     <View style={styles.verdictBlock}>
       <Text style={styles.verdictTitle}>VERDETTO FINALE</Text>
       <View style={styles.minOddRow}>
-        <Text style={styles.minOddLabel}>Quota minima</Text>
+        <Text style={styles.minOddLabel}>Fascia di quota</Text>
         <View style={styles.minOddChips}>
           {minOddOptions.map((v) => (
             <TouchableOpacity
@@ -221,10 +221,9 @@ export default function MatchDetail() {
         </View>
       </View>
       <View style={styles.sogliaWarn}>
-        <Text style={styles.sogliaWarnTitle}>Nessuna giocata a quota {minOdd.toFixed(2)}</Text>
+        <Text style={styles.sogliaWarnTitle}>Nessuna giocata nella fascia {etichettaFascia(minOdd)}</Text>
         <Text style={styles.sogliaWarnBody}>
-          Sopra questa soglia non resta nessun mercato coerente con la lettura della partita.
-          Abbassa la quota minima qui sopra per vedere cosa propone il motore.
+          {"In questa fascia di quota non c'è nessun mercato coerente con la lettura della partita. Prova un'altra fascia qui sopra per vedere cosa propone il motore."}
         </Text>
       </View>
     </View>
@@ -237,7 +236,7 @@ export default function MatchDetail() {
   // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
   // archivio, quota >= soglia). Per le fasce AI si parte da 1.40.
   const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds);
-  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds);
+  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true);
 
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
@@ -736,7 +735,7 @@ export default function MatchDetail() {
 
               {/* FASE 2 — soglia di quota minima: la scelta e' dell'utente */}
               <View style={styles.minOddRow}>
-                <Text style={styles.minOddLabel}>Quota minima</Text>
+                <Text style={styles.minOddLabel}>Fascia di quota</Text>
                 <View style={styles.minOddChips}>
                   {minOddOptions.map((v) => (
                     <TouchableOpacity
@@ -756,6 +755,7 @@ export default function MatchDetail() {
                   ))}
                 </View>
               </View>
+              <Text style={styles.fasciaNota}>Fascia {etichettaFascia(minOdd)}: il pick è il più probabile fra i mercati con quota dentro questo intervallo.</Text>
 
               <View style={styles.verdictHero}>
                 <View style={styles.verdictMedal}>
@@ -765,6 +765,11 @@ export default function MatchDetail() {
                   <Text style={styles.verdictLabel}>
                     {congelato ? "GIOCATA CONSIGLIATA (congelata)" : soloRicalcolo ? "RICALCOLATA CON LE REGOLE DI OGGI" : "GIOCATA CONSIGLIATA"}
                   </Text>
+                  {congelato && !verdettoDiverso && (
+                    <Text style={styles.congelatoNota}>
+                      Data prima della partita, con le regole e la quota minima di allora: non dipende dalla fascia scelta qui sopra.
+                    </Text>
+                  )}
                   {verdettoDiverso && (
                     <Text style={styles.congelatoNota}>
                       Ricalcolando adesso uscirebbe {verdictCalcolato[0].market}: lo storico è cambiato
@@ -1426,6 +1431,9 @@ export default function MatchDetail() {
                 const fascia: FasciaValidata | null = fasceV?.find((f) => Math.abs(f.soglia - sogliaAttiva) < 0.001) ?? null;
                 const maxOk = sogliaMassimaAffidabile(fasceV);
                 const principale = fasceV ? fascia?.pick?.market ?? null : prediction.main_prediction ?? null;
+                // PUNTA SU QUESTO: il giudizio migliore dell'AI a qualunque
+                // quota (main_prediction). Il verdetto resta il pick della fascia.
+                const puntaSu = fasceV ? valutaPuntaSu(prediction.main_prediction, { odds: match.odds as any, structural, manuale: manualeFasce }) : null;
                 const pickF = fascia?.pick ?? null;
                 const parti = dividiAnalisi(prediction.analysis);
                 const fonti = (prediction.fonti_web || []).map((f) => f.url).filter(Boolean);
@@ -1443,6 +1451,24 @@ export default function MatchDetail() {
                 return (
                   <>
                     {avvisoPost}
+                    {puntaSu && (
+                      <View style={styles.puntaBox}>
+                        <Text style={styles.puntaLbl}>PUNTA SU QUESTO · GIUDIZIO AI</Text>
+                        <Text style={styles.puntaVal}>{puntaSu.market}</Text>
+                        <Text style={styles.puntaMeta}>
+                          {puntaSu.odd !== null ? `${puntaSu.stimata ? "≈" : "@"} ${puntaSu.odd.toFixed(2)}` : "quota n/d"}
+                          {puntaSu.prob !== null ? ` · ${pctProb(puntaSu.prob)} Poisson` : ""}
+                          {puntaSu.fascia !== null ? ` · fascia ${etichettaFascia(puntaSu.fascia)}` : ""}
+                        </Text>
+                        {puntaSu.problema ? (
+                          <Text style={styles.puntaAvviso}>⚠ Il controllo lo scarta: {puntaSu.problema}. Non può diventare il verdetto.</Text>
+                        ) : puntaSu.fascia !== null && Math.abs(puntaSu.fascia - sogliaAttiva) > 0.001 ? (
+                          <Text style={styles.puntaAvviso}>
+                            Sta nella fascia {etichettaFascia(puntaSu.fascia)}: nella fascia scelta ({etichettaFascia(sogliaAttiva)}) il pick è un altro, qui sotto.
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
                     {fasceV && (
                       <View style={styles.fasceRow}>
                         {fasceV.map((f) => {
@@ -1469,7 +1495,7 @@ export default function MatchDetail() {
                         style={styles.mainPred}
                       >
                         <Text style={styles.mainPredLbl}>
-                          PRONOSTICO PRINCIPALE{fascia ? ` · FASCIA ${chiaveFascia(fascia.soglia)}` : ""}
+                          {fascia ? `PICK DELLA FASCIA ${etichettaFascia(fascia.soglia)}` : "PRONOSTICO PRINCIPALE"}
                         </Text>
                         <Text style={styles.mainPredVal}>{principale}</Text>
                         {pickF && (
@@ -1484,7 +1510,7 @@ export default function MatchDetail() {
                     ) : fasceV ? (
                       <View style={styles.palettoBox}>
                         <Text style={styles.palettoTxt}>
-                          Nessuna giocata coerente a {sogliaAttiva.toFixed(2)}: meglio nessun pronostico che uno contro la lettura.
+                          Nessuna giocata coerente nella fascia {etichettaFascia(sogliaAttiva)}: meglio nessun pronostico che uno contro la lettura.
                         </Text>
                       </View>
                     ) : null}
@@ -1796,6 +1822,12 @@ const styles = StyleSheet.create({
   ricEsito: { fontSize: 12, fontWeight: "900" },
   ricVuoto: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
   mainPredMeta: { color: "#FFF", fontSize: 11, fontWeight: "700", marginTop: 4, opacity: 0.9 },
+  fasciaNota: { color: colors.textDim, fontSize: 11, marginTop: -4, marginBottom: 8 },
+  puntaBox: { borderWidth: 1, borderColor: colors.primary, backgroundColor: "rgba(255,87,34,0.10)", borderRadius: 10, padding: 12, gap: 2 },
+  puntaLbl: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  puntaVal: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  puntaMeta: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
+  puntaAvviso: { color: colors.warning, fontSize: 11, lineHeight: 16, marginTop: 4 },
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },
   palettoOk: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },
   palettoTxt: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 17 },

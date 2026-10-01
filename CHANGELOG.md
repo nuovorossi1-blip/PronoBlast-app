@@ -56,6 +56,9 @@ Supabase.
   criterio λ ≤ 3,5).
 - Il motore conta anche i mercati sotto 1,40 nel suo ranking (#12): va bene.
 - Il merge in produzione si fa solo quando Rossi scrive "merge".
+- Fasce di quota a intervalli chiusi (1,40-1,49 · 1,50-1,59 · 1,60-1,74 · 1,75+);
+  dentro la fascia vince il piu' probabile. Il "PUNTA SU QUESTO" dell'AI e'
+  a parte e non cambia il verdetto della fascia.
 
 ---
 
@@ -146,6 +149,38 @@ codice + `.md` insieme -> costruisce.
 > Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
+
+### 2026-10-01 (3) — Fasce a intervalli chiusi e "PUNTA SU QUESTO" dell'AI (PR #9)
+
+**Perche'.** Caso Messico-Peru' (1-1): a 1,40 senza AI il sistema sceglie
+`1 @ 1,48` (Poisson 63% contro 62% di `DC 1X + O1.5`), a 1,50 la combo. Rossi
+accetta il criterio di probabilita' senza AI, ma vuole che (a) dentro una
+fascia vinca il mercato piu' PROBABILE fra quelli con quota DENTRO la fascia, e
+(b) l'AI dica su cosa puntare di piu' per la partita, a qualunque quota.
+
+**Decisioni di Rossi.** Fasce a INTERVALLI CHIUSI: 1,40-1,49 · 1,50-1,59 ·
+1,60-1,74 · 1,75 e oltre (prima "1,50" = "da 1,50 in su"). Il pick principale
+AI va in un riquadro a parte; il verdetto resta il pick della fascia scelta.
+
+**Cosa.**
+- `frontend/src/api.ts`: `limitiFascia`, `inFascia` (quota a due decimali),
+  `etichettaFascia`, `fasciaDellaQuota`, `valutaPuntaSu`. Usati in
+  `buildFinalVerdict` (scelta e combo ridondante), `validaFasce` (scarto
+  "fuori dalla fascia"), `candidatiManuale` (`tutteLeFasce` per le fasce AI).
+- `clusterEngine.ts`: `selezionaPick`/`giocateAmmissibili` con `fasciaChiusa`
+  (vero per il pick del motore in scheda; Multipla e backtest restano "da X in
+  su").
+- Prompt: `main_prediction` = PUNTA SU QUESTO a qualunque quota, motivato;
+  fasce descritte come intervalli, "il piu' probabile, mai il piu' pagato".
+- Scheda: riquadro PUNTA SU QUESTO (quota, % Poisson, fascia, avviso se fuori
+  fascia o scartato); "PICK DELLA FASCIA 1,50-1,59"; selettore "Fascia di
+  quota"; sotto il congelato "data con le regole e la quota minima di allora".
+- `VERSIONE_RICALCOLO` = `2026-10-01b`: **il ricalcolo va rilanciato** da
+  Strumenti per avere le fasce nuove sulle partite passate.
+
+**Verifica.** Caso Messico-Peru' con le quote reali: ogni pick (verdetto e
+motore) sta dentro la sua fascia; fascia 1,50 -> `DC 1X + O1.5`, `1 @ 1,48`
+scartato "fuori dalla fascia 1,50-1,59"; PUNTA SU `1` -> fascia 1,40-1,49.
 
 ### 2026-10-01 (2) — App lentissima: il controllo dei lavori leggeva troppo (PR #9)
 

@@ -112,7 +112,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   let manualeQui: CandidatoManuale[] = [];
   try {
     const stats = await manualeStatsRecenti();
-    manualeQui = candidatiManuale(rowToOdds(match) as any, stats.scenari as any, minOdd, quoteCatalogo(rowToOdds(match)));
+    manualeQui = candidatiManuale(rowToOdds(match) as any, stats.scenari as any, minOdd, quoteCatalogo(rowToOdds(match)), true);
   } catch (e) {
     console.error("[ai-predict] candidati manuale", e);
   }
@@ -204,8 +204,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
     ? `${prediction.analysis}\n\nFonti web consultate: ${fonti.map((f) => f.url).join(" | ")}`
     : prediction.analysis;
 
-  // Classifica per fascia (01/10/2026). Il primo della fascia 1.40 e' anche il
-  // main_prediction, per chi legge ancora i campi vecchi.
+  // Classifica per fascia (01/10/2026). main_prediction e' il "PUNTA SU QUESTO"
+  // dell'AI, a qualunque quota; solo se manca si ripiega sul primo della fascia
+  // 1.40, per chi legge ancora i campi vecchi.
   const fasce = normalizzaFasce((prediction as any).fasce);
   if (fasce && !prediction.main_prediction) prediction.main_prediction = fasce[chiaveFascia(FASCE_AI[0])]?.classifica[0] ?? null;
 
