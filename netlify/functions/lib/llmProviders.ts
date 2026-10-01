@@ -119,7 +119,9 @@ export async function callLlm(
   // Su OpenRouter il tetto resta piu' basso: i modelli :free sono lenti e con
   // 8000 token di uscita la funzione Netlify va in timeout prima della fine.
   // Meglio una risposta corta che arriva di una lunga che non arriva mai.
-  const maxTokens = option.provider === "openrouter" ? 3000 : isReasoningModel ? 8000 : 2000;
+  // 01/10/2026: 2000 non bastavano piu' (consiglio motivato, 4 fasce,
+  // alternative, statistiche): Israele-Kosovo arrivava troncato a meta' JSON.
+  const maxTokens = isReasoningModel ? 8000 : 4500;
 
   // DeepSeek V4 (sia Flash che Pro) attiva di default la "thinking mode" —
   // diversamente dal vecchio V3.2 (deepseek-chat), che non ragionava affatto.

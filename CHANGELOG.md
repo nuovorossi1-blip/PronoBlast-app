@@ -150,6 +150,20 @@ codice + `.md` insieme -> costruisce.
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
 
+### 2026-10-01 (8) — Pronostico AI troncato e manuale riconosciuto senza misura (PR #14)
+
+- **Israele-Kosovo**: la scheda AI mostrava "INSTABILE" e JSON grezzo come
+  lettura. La risposta era TRONCATA: tetto `max_tokens` 2000 (modelli diretti)
+  troppo basso col consiglio motivato, 4 fasce, alternative e statistiche;
+  `parseAiJson` ripiegava sul testo grezzo e il pronostico rotto veniva SALVATO.
+  Ora: tetto 4500 (reasoning 8000); `riparaJsonTroncato` chiude un JSON tagliato
+  e recupera cio' che c'e'; se resta illeggibile (o senza analysis) NON si salva:
+  errore "Risposta dell'AI incompleta: riprova con Rigenera Pronostico".
+- **Irlanda-Austria**: "Il controllo lo scarta: fuori dai mercati giocati" sotto
+  "X oppure GG" mentre la misura dell'archivio caricava. Nuova
+  `mercatoDelManualeQui` (manuale dello scenario + mercato noto al motore) usata
+  in `valutaPuntaSu` e `validaFasce`.
+
 ### 2026-10-01 (7) — Scheda: niente doppioni nel ranking strutturale (PR #13)
 
 Domanda di Rossi su Irlanda-Austria: "vedi doppioni o qualcosa che non convince?".
