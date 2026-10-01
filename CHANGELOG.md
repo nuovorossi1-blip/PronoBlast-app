@@ -167,7 +167,9 @@ Rossi: "perche' GG? cosa sa il web che il sistema non sa?".
 - `normalizzaConsiglio`; il consiglio si salva DENTRO la colonna `fasce`
   (chiave `consiglio`): nessun SQL. `validaFasce` non lo vede.
 - `api.ts`: `consiglioDi`, `alternativeDelConsiglio` (il piu' probabile del
-  catalogo, il primo del PRE, i mercati del manuale: calcolati dal CODICE),
+  catalogo, il primo del PRE, i mercati del manuale e gli altri mercati che
+  l'AI stessa propone per QUELLA partita, che cambiano di partita in partita:
+  calcolati dal CODICE),
   `consiglioDaCautela`.
 - Scheda: il riquadro del consiglio mostra PERCHE' QUESTO, COSA SA IL WEB CHE
   IL SISTEMA NON SA, LE ALTERNATIVE con quota/%/motore/% archivio e il "perche'

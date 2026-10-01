@@ -536,7 +536,12 @@ export default function MatchDetail() {
           // la parte PERCHE' dell'analisi.
           const cons = consiglioDi(predVerdetto);
           const perche = cons?.perche || dividiAnalisi(predVerdetto.analysis).perche;
-          const alternative = alternativeDelConsiglio(c.market, ctxC);
+          // Anche gli altri mercati che l'AI ha proposto per QUESTA partita.
+          const proposteAI = [
+            ...(predVerdetto.playable_markets || []).map((p) => p.market),
+            ...FASCE_AI.flatMap((f) => (predVerdetto.fasce as any)?.[chiaveFascia(f)]?.classifica || []),
+          ];
+          const alternative = alternativeDelConsiglio(c.market, ctxC, proposteAI);
           const cautela = consiglioDaCautela(c.prob, cons ? cons.web : null, alternative);
           const percheNo = (m: string) =>
             cons?.alternative.find((a) => normalizeMarket(a.mercato) === normalizeMarket(m))?.perche_no || "";

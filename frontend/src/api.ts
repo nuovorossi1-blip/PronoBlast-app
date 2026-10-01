@@ -2406,12 +2406,15 @@ export type AlternativaConsiglio = {
 /**
  * LE ALTERNATIVE DEL CONSIGLIO (01/10/2026, caso Irlanda-Austria): calcolate
  * dal codice, non dall'AI, cosi' compaiono anche se l'AI se ne dimentica:
- * il piu' probabile del catalogo (quota >= 1,40), il primo del PRE e i mercati
- * del manuale ammessi in questa partita. Il consiglio stesso e' escluso.
+ * il piu' probabile del catalogo (quota >= 1,40), il primo del PRE, i mercati
+ * del manuale ammessi in questa partita e gli altri mercati che l'AI stessa ha
+ * proposto per QUESTA partita (playable_markets e classifiche delle fasce):
+ * cambiano di partita in partita. Il consiglio stesso e' escluso.
  */
 export function alternativeDelConsiglio(
   consigliato: string | null | undefined,
   ctx: ContestoFasce,
+  proposteAI: string[] = [],
 ): AlternativaConsiglio[] {
   const ranking = ctx.structural?.ranking || [];
   const pre = ctx.structural?.pre_ranking || [];
@@ -2438,7 +2441,8 @@ export function alternativeDelConsiglio(
   if (migliore) aggiungi(migliore.r.market, "il più probabile del catalogo");
   if (pre[0]) aggiungi(pre[0].market, "il primo del PRE");
   for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
-  return out;
+  for (const m of proposteAI) if (m) aggiungi(m, "proposto anche dall'AI");
+  return out.slice(0, 6);
 }
 
 /** Il consiglio e' meno probabile di un'alternativa e il web non porta un

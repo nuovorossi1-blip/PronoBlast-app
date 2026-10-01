@@ -86,7 +86,9 @@ nome al 57%, senza un solo fatto dal web a sostegno):
          numeri";
   "alternative": per OGNUNO di questi mercati, perche' NON lo preferisci:
          il piu' probabile del CATALOGO, il primo del PRE, ogni mercato del
-         manuale ammesso in questa partita.
+         manuale ammesso in questa partita e gli altri mercati che tu stesso
+         proponi nelle fasce o in playable_markets (cambiano di partita in
+         partita).
 REGOLE VINCOLANTI:
 - Se il consiglio ha una probabilita' PIU' BASSA di un'alternativa, "web" deve
   citare un fatto preciso che lo giustifica. Senza un fatto cosi', consiglia il
