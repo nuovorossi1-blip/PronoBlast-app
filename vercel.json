@@ -169,6 +169,10 @@
       "destination": "/api/backtest"
     },
     {
+      "source": "/backtest-fusione",
+      "destination": "/api/backtest-fusione"
+    },
+    {
       "source": "/verdetto",
       "destination": "/api/verdetto"
     },

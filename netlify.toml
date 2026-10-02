@@ -208,6 +208,11 @@
   status = 200
 
 [[redirects]]
+  from = "/backtest-fusione"
+  to = "/.netlify/functions/backtest-fusione"
+  status = 200
+
+[[redirects]]
   from = "/verdetto"
   to = "/.netlify/functions/verdetto"
   status = 200

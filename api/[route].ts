@@ -37,6 +37,7 @@ import manuale_stats from "../netlify/functions/manuale-stats";
 import web_probe from "../netlify/functions/web-probe";
 import af_probe from "../netlify/functions/af-probe";
 import backtest from "../netlify/functions/backtest";
+import backtest_fusione from "../netlify/functions/backtest-fusione";
 import verdetto from "../netlify/functions/verdetto";
 import apif_probe from "../netlify/functions/apif-probe";
 import delete_all from "../netlify/functions/delete-all";
@@ -82,6 +83,7 @@ const ROUTES: Record<string, Handler> = {
   "web-probe": web_probe,
   "af-probe": af_probe,
   "backtest": backtest,
+  "backtest-fusione": backtest_fusione,
   "verdetto": verdetto,
   "apif-probe": apif_probe,
   "delete-all": delete_all,

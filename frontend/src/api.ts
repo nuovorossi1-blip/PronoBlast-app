@@ -1099,7 +1099,13 @@ export function buildFinalVerdict(
   aiMarkets: { market: string; reasoning?: string }[] | string[] | undefined,
   odds?: any,
   history?: MatchHistory | null,
-  options?: { minOdd?: number; manuale?: CandidatoManuale[] },
+  options?: {
+    minOdd?: number;
+    manuale?: CandidatoManuale[];
+    /** SOLO per /backtest-fusione (variante "no-concordanza", round 2 TICKET 3):
+     *  niente bonus di concordanza nel punteggio. L'app non lo passa mai. */
+    senzaConcordanza?: boolean;
+  },
 ): VerdictPick[] {
   const minOdd = options?.minOdd ?? MIN_VALUE_ODD;
   // Mercati del manuale ammessi SOLO in questa partita (candidatiManuale).
@@ -1285,7 +1291,8 @@ export function buildFinalVerdict(
     // pareri indipendenti sono comunque meno.
     const eligible = eligibleSystemsFor(b.market, preEligible);
     const agree = b.sources.size;
-    if (agree >= 2 && agree >= eligible) punti(b, `concordanza ${agree}/${eligible} sistemi`, eligible >= 3 ? 8 : 4);
+    if (options?.senzaConcordanza) { /* variante di misura: nessun bonus */ }
+    else if (agree >= 2 && agree >= eligible) punti(b, `concordanza ${agree}/${eligible} sistemi`, eligible >= 3 ? 8 : 4);
     else if (agree === 2) punti(b, "concordanza 2 sistemi", 2.5);
     b.eligibleSystems = eligible;
   }
