@@ -29,7 +29,7 @@ senza leggere il CHANGELOG.
 | **1** | Scheda essenziale (solo presentazione) | ✅ 02/10/2026, branch `claude/ticket-round-2` |
 | **2** | Lista del manuale GAP TECNICO | ✅ 02/10/2026, branch `claude/ticket-round-2` |
 | **3** | Backtest della fusione (strumento di misura) | ✅ 02/10/2026, branch `claude/ticket-round-2` (`/backtest-fusione`; numeri dopo il deploy) |
-| **4** | Archivio nel calcolo | 🟡 02/10/2026: pronto ma **SPENTO** (opzione `archivioNelCalcolo`, misurabile con `/backtest-fusione?variante=archivio-calcolo`); si accende solo se batte `base` e decide il proprietario |
+| **4** | Archivio nel calcolo | ✅ misurato 03/10/2026: delta nullo (57,67% contro 57,65% su 23.911 pick) → **resta spento**, come prescritto |
 | **5** | `1 AH -0,75`: decisione del proprietario | ✅ deciso 02/10/2026: **lasciare com'è** (nessun codice) |
 | **2-bis** | Equilibrio, ramo normale: decisione del proprietario | ✅ deciso 02/10/2026: **non toccare** (`X oppure GG` resta solo nel fallback) |
 | **6** | Stime delle quote: misura sui dati, poi eventuale upgrade | ✅ 02/10/2026 primo tempo: `/misura-stime` (sola lettura, benchmark del documento riprodotto); il secondo tempo lo decide il proprietario |

@@ -154,6 +154,50 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-03 — Round 2, le misure sull'archivio vero: TICKET 4 resta spento
+
+Lanciate in produzione dopo il merge di #16, sola lettura, su **8.563 partite
+concluse** (nessuna scartata). Codice misurato = quello di oggi (ticket 2 e 7
+gia' dentro).
+
+**/backtest-fusione** — stesse partite, tre varianti, pick indovinati / giocati:
+
+| fascia | base | archivio-calcolo | no-concordanza |
+|---|---|---|---|
+| 1,40 | 3.412 / 5.371 = **63,53%** | 3.413 = 63,54% | 3.414 = 63,56% |
+| 1,50 | 3.402 / 5.648 = 60,23% | 3.406 = 60,30% | 3.402 = 60,23% |
+| 1,60 | 3.666 / 6.339 = 57,83% | 3.667 = 57,85% | 3.663 = 57,79% |
+| 1,75 | 3.304 / 6.553 = 50,42% | 3.303 = 50,40% | 3.302 = 50,39% |
+| tutte | 13.784 / 23.911 = 57,65% | 13.789 = 57,67% | 13.781 = 57,63% |
+
+- **TICKET 4: delta nullo** (+5 pick su 23.911, +0,02 punti: rumore). Come
+  prescrive il ticket, **non si attiva**: l'opzione `archivioNelCalcolo` resta
+  spenta. Motivo tecnico: l'archivio entra solo per i mercati del manuale con
+  n >= 100 e quota nella fascia, che sono pochi pick.
+- **Bonus di concordanza: inutile anche qui** (-3 pick senza). Coerente con D3:
+  l'ordine del verdetto segue il ranking del motore, il bonus decide solo gli
+  spareggi. Toglierlo e' una decisione di Rossi, non presa.
+- La fascia 1,40 conferma §2.1 (63,4% su 5.227 allora, 63,53% su 5.371 ora).
+
+**/misura-stime** — 8.563 partite con tutte le 11 quote:
+
+- Fedelta' ai 7 prezzi del book: app **1,39 pp** (max 17,07) contro bivariata
+  **0,74 pp** (max 3,68). Il "due volte piu' fedele" misurato su 5 partite
+  regge su tutto l'archivio.
+- Sui risultati, frequenza reale contro probabilita' media stimata (12 mercati
+  non prezzati): i due modelli sono **pari**. Bivariata piu' vicina su
+  2 + U4.5 (24,9 reale: 26,1 app, 24,9 biv) e GG + O2.5 (43,9: 42,4 / 43,7);
+  app piu' vicina su MG 2-4 totali (59,9: 60,1 / 57,9) e MG 3-6 totali (51,4:
+  50,2 / 49,2); X oppure GG a meta' (60,8: 59,4 / 61,8). Nessuno scarto supera
+  2,2 punti: sotto la soglia risolvibile (§TICKET 6).
+- Conclusione: piu' fedele ai prezzi non vuol dire piu' pronostici indovinati.
+  Sostituire il motore **non e' giustificato** dai numeri di oggi; resta il
+  candidato del round 3 come scritto nel ticket.
+
+**TICKET 7** sull'archivio vero: non misurabile a posteriori (il codice di
+prima non e' piu' in produzione per confrontarlo sulle stesse partite); sulle
+simulazioni cambiava lo 0,35% dei verdetti.
+
 ### 2026-10-02 — Round 2: ticket 1, 2, 3, 4 (spento), 6 (misura) e 7; 5 e 2-bis decisi
 
 Branch `claude/ticket-round-2`, un commit per ticket. Nessuna scrittura sul
