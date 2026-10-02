@@ -1,6 +1,6 @@
 import { pgGet, pgGetAll, pgPatch, pgPost, jsonResponse, rowToOdds } from "./lib/supabaseRest";
 import {
-  structuralAnalysis, quoteCatalogo, evaluateMarketStrict, CANDIDATE_MARKETS,
+  structuralAnalysis, classifyFamily, quoteCatalogo, evaluateMarketStrict, CANDIDATE_MARKETS,
   type Odds, type MlScoreEntry,
 } from "./lib/clusterEngine";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
@@ -117,7 +117,7 @@ export function verdettoRicalcolato(odds: Odds, risultato: string, stato: Pick<S
 
   const fasce: Record<string, RicalcoloFascia> = {};
   for (const f of FASCE_AI) {
-    const manuale = candidatiManuale(odds as any, stats, f, marketOdds);
+    const manuale = candidatiManuale(odds as any, stats, f, marketOdds, false, sa.structure);
     const v = buildFinalVerdict(ingresso.structural, preRanked, [], odds, null, { minOdd: f, manuale })
       .filter((x) => ammessoDallaStruttura(x.market, sa.structure));
     const top = v[0];
@@ -141,7 +141,7 @@ function applicaRisultato(stato: Stato, odds: Odds, home: number, away: number, 
       if (e) c.w++;
     }
   }
-  const nota = getScenarioNote(odds as any);
+  const nota = getScenarioNote(odds as any, classifyFamily(odds));
   if (nota) {
     const k = chiaveScenario(nota);
     const s = stato.man[k] = stato.man[k] || {};

@@ -147,8 +147,8 @@ export async function verdettoDiPartita(
   } catch (e) {
     console.error("[verdettoServer] manuale", e);
   }
-  const manuale = candidatiManuale(odds, statsScenari, minOdd, marketOdds);
-  const manualeFasce = candidatiManuale(odds, statsScenari, FASCE_AI[0], marketOdds, true);
+  const manuale = candidatiManuale(odds, statsScenari, minOdd, marketOdds, false, structural.structure);
+  const manualeFasce = candidatiManuale(odds, statsScenari, FASCE_AI[0], marketOdds, true, structural.structure);
   const daAI = verdettoDaAI(
     { fasce: fasceAI },
     {

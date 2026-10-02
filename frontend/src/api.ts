@@ -2075,9 +2075,11 @@ export function candidatiManuale(
   /** true = tutte le quote da `minOdd` in su (per le fasce AI, che poi dividono
    *  per fascia in validaFasce); false = solo dentro la fascia di `minOdd`. */
   tutteLeFasce = false,
+  /** Struttura del motore: vedi `getScenarioNote`. */
+  profilo?: { offensive_profile?: string } | null,
 ): CandidatoManuale[] {
   if (!odds || !stats) return [];
-  const nota = getScenarioNote(odds);
+  const nota = getScenarioNote(odds, profilo);
   if (!nota) return [];
   const misure = stats[chiaveScenario(nota)]?.mercati || {};
   const out: CandidatoManuale[] = [];
@@ -2220,7 +2222,7 @@ export const pctProb = (p: number) => `${(p * 100).toFixed(1).replace(".", ",")}
  */
 export function letturaDirezionale(odds: Odds | null | undefined, s: StrutturaGol): "1" | "2" | null {
   if (!odds || !s) return null;
-  const nota = getScenarioNote(odds);
+  const nota = getScenarioNote(odds, s);
   if (!nota || nota.scenario !== "Gap Tecnico" || !nota.favorita) return null;
   return underAmmessiATettoAperto(s) ? (nota.favorita as "1" | "2") : null;
 }
@@ -2365,7 +2367,7 @@ export function validaFasce(
  */
 export function mercatoDelManualeQui(market: string, ctx: ContestoFasce): boolean {
   if ((ctx.manuale || []).some((c) => normalizeMarket(c.market) === normalizeMarket(market))) return true;
-  const nota = getScenarioNote(ctx.odds);
+  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
   if (!nota) return false;
   const ranking = ctx.structural?.ranking || [];
   return nota.markets.some((m) => normalizeMarket(nomeCatalogoManuale(m)) === normalizeMarket(market))
@@ -2459,7 +2461,7 @@ export function alternativeDelConsiglio(
   for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
   // Anche senza la misura dell'archivio (non ancora caricata): i mercati del
   // manuale dello scenario che il motore conosce, con la sua quota e la sua %.
-  const nota = getScenarioNote(ctx.odds);
+  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
   for (const m of nota?.markets || []) {
     const nome = nomeCatalogoManuale(m);
     if (ranking.some((r) => normalizeMarket(r.market) === normalizeMarket(nome))) aggiungi(nome, "dal manuale dello scenario");
@@ -2596,7 +2598,15 @@ export type ManualeStatsResponse = {
   confronto_profilo?: Record<string, { partite: number; mercati: Record<string, { vinte: number; perse: number; pct: number | null }> }>;
 };
 
-export function getScenarioNote(odds: Odds): ScenarioNote | null {
+/**
+ * `profilo` = la struttura del motore (`structural.structure`, oppure
+ * `classifyFamily(odds)` sul server: e' la stessa cosa, dipende solo dalle
+ * quote). Serve SOLO al GAP TECNICO con favorita sotto 1,40 per scegliere il
+ * sostituto (round 2, TICKET 2). Se manca vale "non difensivo": tutti i
+ * chiamanti che hanno la struttura DEVONO passarla, altrimenti scheda, server e
+ * misura dell'archivio direbbero mercati diversi.
+ */
+export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: string } | null): ScenarioNote | null {
   const q1 = odds.odd_1, qx = odds.odd_X, q2 = odds.odd_2;
   if (q1 == null || qx == null || q2 == null) return null;
 
@@ -2673,15 +2683,24 @@ export function getScenarioNote(odds: Odds): ScenarioNote | null {
   if (qx >= SOGLIA_GAP) {
     // GAP TECNICO. AH -0,75 non e' giocabile al palinsesto: il sostituto
     // giocabile proposto da Rossi e' MG favorita 2-4 (decidera' la pagella).
-    return {
-      scenario: "Gap Tecnico",
-      favorita,
-      markets: [
-        `${favorita} fisso`,
-        `${favorita} AH -0,75`,
-        "GG + Over 2,5",
-      ],
-    };
+    // La voce AH resta com'e' (TICKET 5: decisione del proprietario, 02/10).
+    //
+    // Round 2, TICKET 2: "GG + Over 2,5" tolto in ogni caso, era il PEGGIORE in
+    // tutti e quattro i gruppi del GAP TECNICO (32,6 / 33,9 / 39,4 / 48,9%).
+    // Con la favorita sotto 1,40 il fisso non e' giocabile: al suo posto UN
+    // sostituto scelto dal profilo del motore (misure del 02/10/2026):
+    //   DIFENSIVA -> MG 2-4 totali        (62,6-64,6%)
+    //   altro     -> DC favorita + O2.5   (64,0-65,1%)
+    // Da 1,40 in su il fisso e' giocabile (61,5%, il migliore del gruppo) e la
+    // lista resta quella.
+    const markets = [`${favorita} fisso`, `${favorita} AH -0,75`];
+    const quotaFavorita = favorita === "1" ? q1 : q2;
+    if (quotaFavorita < 1.40) {
+      markets.push(underAmmessiATettoAperto(profilo)
+        ? "MG 2-4 totali"
+        : favorita === "1" ? "DC 1X + O2.5" : "DC X2 + O2.5");
+    }
+    return { scenario: "Gap Tecnico", favorita, markets };
   }
 
   // PROGRESSIONE (casa o ospite, speculare). DNB non e' giocabile: il

@@ -242,8 +242,8 @@ export default function MatchDetail() {
   const predVerdetto = aiPostPartita ? null : prediction;
   // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
   // archivio, quota >= soglia). Per le fasce AI si parte da 1.40.
-  const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds);
-  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true);
+  const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds, false, structural?.structure);
+  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true, structural?.structure);
 
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
@@ -516,7 +516,7 @@ export default function MatchDetail() {
             lo storico. Solo promemoria dello scenario e dei mercati "da
             manuale" indicati per quello scenario. */}
         {(() => {
-          const note = getScenarioNote(match.odds);
+          const note = getScenarioNote(match.odds, structural?.structure);
           if (!note) return null;
           return (
             <View style={styles.scenarioNoteBox}>
