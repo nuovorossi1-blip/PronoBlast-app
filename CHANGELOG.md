@@ -169,41 +169,12 @@ Solo documentazione: nessuna riga di codice, nessun deploy (`[skip ci]`).
   round 1: la cartella resta come memoria delle decisioni.
 - **Referenze aggiornate:** il puntatore del Log qui sopra. Nessun'altra parte del
   repo citava i file dei ticket (verificato con grep).
-
-### 2026-10-02 — Manuale GAP TECNICO: `MG casa/ospite 2-4` al posto di `1 AH -0,75`
-
-Decisione del proprietario, chiesta guardando Malta-Gibilterra 1-1 e
-Germania-Serbia 2-0 (entrambe GAP TECNICO con favorita corta).
-
-- **Cosa.** In `getScenarioNote` (`frontend/src/api.ts`), ramo GAP TECNICO, la
-  voce `1 AH -0,75` diventa `MG casa 2-4` / `MG ospite 2-4` secondo la favorita.
-  Era gia' la conversione scritta nel Ticket 8 ("sostituto giacabile MG favorita
-  2-4, la pagella decidera'"): il codice pero' restituiva ancora l'AH.
-- **Perche'.** L'AH -0,75 non e' nel palinsesto: la sua quota era presa dalla
-  doppia chance della favorita (1X per "1 AH"), quindi per costruzione finisce
-  sotto 1,40 (Germania 1,03 · Malta 1,01) e non e' mai giocabile. Nei GAP
-  TECNICI con favorita corta il manuale offriva due voci non giocabili (fisso e
-  AH) piu' `GG + Over 2,5`, quasi sempre sconsigliato dal profilo o sotto il
-  50%: restava senza nessun mercato giocabile — la scheda lo scriveva da sola
-  ("lettura da manuale non giocabile con la soglia attuale"). Il multigol della
-  favorita 2-4 e' invece in fascia col prezzo stimato dal motore (Germania
-  ≈1,52 · Malta ≈1,72).
-- **Misura.** L'archivio si ricalcola sulla lista ATTUALE del manuale
-  (`lib/manuale.ts` rigioca `getScenarioNote` su tutte le concluse), quindi la
-  voce nuova ha subito lo storico di tutti i GAP TECNICI passati: nessun
-  azzeramento, nessuna migrazione. Diventa candidata solo con `pct > 50` e quota
-  in fascia (`candidatiManuale`), altrimenti resta una lettura con la sua
-  percentuale. `1 AH -0,75` esce dalle statistiche; il suo valutatore resta in
-  `esitoMercato` (comprese le "mezze") per le righe storiche e per un eventuale
-  ritorno.
-- **Prompt.** Aggiornati l'esempio sui mercati del manuale e la CLAUSOLA DI
-  COERENZA in `lib/predictionPrompt.ts`, che citavano ancora l'AH come contenuto
-  del manuale del GAP TECNICO.
-- **Da tenere d'occhio (nota onesta).** `MG casa 2-4` non copre il **1-0**, che
-  per una favorita con lambda basso e' il risultato singolo piu' probabile
-  (Malta: 16,8%). L'alternativa `MG favorita 1-3` non e' stata scelta perche' sui
-  GAP con favorita corta scende sotto 1,40. Sara' la pagella per scenario a dire
-  se il buco del 1-0 costa piu' di quanto renda la banda 2-4.
+- **Cosa NON entra in questo merge (voluto dal proprietario):** la conversione
+  `1 AH -0,75` -> `MG casa/ospite 2-4` (commit `9df2161`, rimasto sul branch di
+  sessione; il suo revert e' in coda a questo stesso branch). Su `main` la lista
+  dello scenario GAP TECNICO e' ancora `[favorita fisso, favorita AH -0,75,
+  GG + Over 2,5]`: il TICKET 5 del round 2 e' la decisione del proprietario sulla
+  sorte dell'AH, e fino a quella nessun codice del manuale cambia.
 
 ### 2026-10-01 (8) — Pronostico AI troncato e manuale riconosciuto senza misura (PR #14)
 

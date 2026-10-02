@@ -2010,14 +2010,12 @@ export function conLetturaGol(
  *    scenario (misura del Ticket 8, /manuale-stats);
  *  - hanno una quota >= Quota minima.
  * Poi sono "candidati come gli altri": nessuna corsia preferenziale.
- * Esempi: "X oppure GG" nell'EQUILIBRIO di fallback; "MG casa 2-4" nel GAP
- * TECNICO (dal 02/10/2026 al posto di "1 AH -0,75", che non era mai
- * giocabile). Fuori dal loro scenario non entrano mai (Belgio-Galles, 01/10:
+ * Esempi: "X oppure GG" nell'EQUILIBRIO di fallback; "1 AH -0,75" nel GAP
+ * TECNICO. Fuori dal loro scenario non entrano mai (Belgio-Galles, 01/10:
  * "X oppure GG" compariva in un GAP TECNICO).
  *
  * Quote (regole di Rossi): X oppure GG = GG x 0,90; AH -0,75 favorita = quota
- * della doppia chance della favorita (1X per "1 AH", X2 per "2 AH") — l'AH non
- * e' piu' nel manuale, la regola resta in piedi per eventuali ritorni; i
+ * della doppia chance della favorita (1X per "1 AH", X2 per "2 AH"); i
  * multigol casa/ospite = quota stimata dal motore (market_odds). DNB: nessuna
  * regola di quota, quindi non candidabile.
  */
@@ -2673,22 +2671,14 @@ export function getScenarioNote(odds: Odds): ScenarioNote | null {
   }
 
   if (qx >= SOGLIA_GAP) {
-    // GAP TECNICO. AH -0,75 non e' giocabile al palinsesto: il book non lo
-    // prezza (la sua quota era presa dalla doppia chance della favorita, quindi
-    // per costruzione sotto 1,40) e resta una lettura, non una giocata. Al suo
-    // posto entra il sostituto del Ticket 8 — conversione proposta da Rossi e
-    // confermata il 02/10/2026 — cioe' il multigol della FAVORITA 2-4:
-    // direzione piu' "la favorita segna senza dilagare". Quota stimata dal
-    // motore (i multigol non sono nel palinsesto). Se l'archivio non lo
-    // conferma (>50%) o la quota non e' in fascia, candidatiManuale lo lascia
-    // fuori: la pagella decide.
-    const favGap = favorita === "1" ? "casa" : "ospite";
+    // GAP TECNICO. AH -0,75 non e' giocabile al palinsesto: il sostituto
+    // giocabile proposto da Rossi e' MG favorita 2-4 (decidera' la pagella).
     return {
       scenario: "Gap Tecnico",
       favorita,
       markets: [
         `${favorita} fisso`,
-        `MG ${favGap} 2-4`,
+        `${favorita} AH -0,75`,
         "GG + Over 2,5",
       ],
     };

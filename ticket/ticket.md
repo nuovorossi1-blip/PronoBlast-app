@@ -248,6 +248,12 @@ due mercati migliori *giocabili* — `DC favorita + O2.5` (64,0-65,1%) e
 **Dove:** `frontend/src/api.ts`, `getScenarioNote`, ramo GAP TECNICO (righe
 ~2674-2693).
 
+**Punto di partenza su `main`:** la lista è ancora
+`["{favorita} fisso", "{favorita} AH -0,75", "GG + Over 2,5"]`. La conversione
+dell'AH in `MG casa/ospite 2-4` (commit `9df2161`) **non è in `main`**: è rimasta
+sul branch di sessione, in attesa della decisione del proprietario (TICKET 5).
+Questo ticket tocca **solo** la voce `GG + Over 2,5`, non l'AH.
+
 **Fix minimo** (attenzione: la sostituzione serve **solo quando la favorita paga
 sotto 1,40**, perché sopra è il `fisso` stesso a essere giocabile — 61,5% nel
 gruppo da 1.148 partite, il migliore giocabile di quel gruppo):
@@ -370,9 +376,11 @@ il modello, con centinaia vince l'archivio.
 
 ## TICKET 5 🟡 — Decisione del proprietario: `1 AH -0,75` (nessun codice finché non decide)
 
-**Stato.** Già convertito in `MG casa/ospite 2-4` (commit `9df2161`, branch di
-sessione, **non pushato**). Nato dal Ticket 8 del round 1 ("sostituto giocabile
-MG favorita 2-4, la pagella deciderà").
+**Stato.** Convertito in `MG casa/ospite 2-4` con il commit `9df2161`, che però è
+**rimasto sul branch di sessione e NON è in `main`** (scelta del proprietario: su
+`main` sono arrivati solo i ticket). Su `main` la lista dello scenario ha ancora
+`1 AH -0,75`. Nato dal Ticket 8 del round 1 ("sostituto giocabile MG favorita
+2-4, la pagella deciderà").
 
 **Cosa dice la pagella adesso** (§2.3):
 
@@ -389,7 +397,9 @@ totali` (gruppi difensivi) e `DC favorita + O2.5` (gli altri) nella lista dello
 scenario: quella è la parte che si può fare. **La sorte della voce `AH -0,75` /
 `MG favorita 2-4` va decisa dal proprietario** fra: tenerla così, sostituirla con
 `MG favorita 1-3`, o toglierla del tutto (lo scenario avrebbe già i suoi
-candidati misurati).
+candidati misurati). Quando decide, il codice si tocca in un colpo solo: se dice
+"tenerla così" si riapplica `9df2161` (`git revert` del revert); altrimenti si
+scrive la voce nuova.
 
 **Nota tecnica:** il valutatore `esitoMercato` conosce l'AH e le sue "mezze":
 **non va toccato**, serve alle righe storiche anche se il mercato esce dalla
