@@ -50,7 +50,10 @@ Supabase.
   esistono solo dentro Supabase).
 
 **Decisioni di Rossi da non riaprire senza chiederglielo.**
-- AH -0,75: resta com'e' (vale come 1X per la quota; X2 se e' 2AH).
+- AH -0,75: nel manuale GAP TECNICO non c'e' piu' — dal 02/10/2026 il suo posto
+  e' di **MG casa/ospite 2-4** (non era mai giocabile: la quota era presa dalla
+  doppia chance della favorita, quindi sotto 1,40 per costruzione). La regola di
+  quota dell'AH (vale come 1X; X2 se e' 2AH) resta scritta in `quotaManuale`.
 - Regola strutturale MG casa/ospite: resta com'e'.
 - Ticket 6-bis: under a tetto aperto solo col profilo DIFENSIVA (niente
   criterio λ ≤ 3,5).
@@ -149,6 +152,41 @@ codice + `.md` insieme -> costruisce.
 > Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/ticket.md`.
+
+### 2026-10-02 — Manuale GAP TECNICO: `MG casa/ospite 2-4` al posto di `1 AH -0,75`
+
+Decisione del proprietario, chiesta guardando Malta-Gibilterra 1-1 e
+Germania-Serbia 2-0 (entrambe GAP TECNICO con favorita corta).
+
+- **Cosa.** In `getScenarioNote` (`frontend/src/api.ts`), ramo GAP TECNICO, la
+  voce `1 AH -0,75` diventa `MG casa 2-4` / `MG ospite 2-4` secondo la favorita.
+  Era gia' la conversione scritta nel Ticket 8 ("sostituto giacabile MG favorita
+  2-4, la pagella decidera'"): il codice pero' restituiva ancora l'AH.
+- **Perche'.** L'AH -0,75 non e' nel palinsesto: la sua quota era presa dalla
+  doppia chance della favorita (1X per "1 AH"), quindi per costruzione finisce
+  sotto 1,40 (Germania 1,03 · Malta 1,01) e non e' mai giocabile. Nei GAP
+  TECNICI con favorita corta il manuale offriva due voci non giocabili (fisso e
+  AH) piu' `GG + Over 2,5`, quasi sempre sconsigliato dal profilo o sotto il
+  50%: restava senza nessun mercato giocabile — la scheda lo scriveva da sola
+  ("lettura da manuale non giocabile con la soglia attuale"). Il multigol della
+  favorita 2-4 e' invece in fascia col prezzo stimato dal motore (Germania
+  ≈1,52 · Malta ≈1,72).
+- **Misura.** L'archivio si ricalcola sulla lista ATTUALE del manuale
+  (`lib/manuale.ts` rigioca `getScenarioNote` su tutte le concluse), quindi la
+  voce nuova ha subito lo storico di tutti i GAP TECNICI passati: nessun
+  azzeramento, nessuna migrazione. Diventa candidata solo con `pct > 50` e quota
+  in fascia (`candidatiManuale`), altrimenti resta una lettura con la sua
+  percentuale. `1 AH -0,75` esce dalle statistiche; il suo valutatore resta in
+  `esitoMercato` (comprese le "mezze") per le righe storiche e per un eventuale
+  ritorno.
+- **Prompt.** Aggiornati l'esempio sui mercati del manuale e la CLAUSOLA DI
+  COERENZA in `lib/predictionPrompt.ts`, che citavano ancora l'AH come contenuto
+  del manuale del GAP TECNICO.
+- **Da tenere d'occhio (nota onesta).** `MG casa 2-4` non copre il **1-0**, che
+  per una favorita con lambda basso e' il risultato singolo piu' probabile
+  (Malta: 16,8%). L'alternativa `MG favorita 1-3` non e' stata scelta perche' sui
+  GAP con favorita corta scende sotto 1,40. Sara' la pagella per scenario a dire
+  se il buco del 1-0 costa piu' di quanto renda la banda 2-4.
 
 ### 2026-10-01 (8) — Pronostico AI troncato e manuale riconosciuto senza misura (PR #14)
 

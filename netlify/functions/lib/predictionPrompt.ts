@@ -93,7 +93,7 @@ REGOLE VINCOLANTI:
 - Se il consiglio ha una probabilita' PIU' BASSA di un'alternativa, "web" deve
   citare un fatto preciso che lo giustifica. Senza un fatto cosi', consiglia il
   piu' probabile e solido.
-- Un mercato del manuale ammesso nel CATALOGO (es. "X oppure GG", "1 AH -0,75")
+- Un mercato del manuale ammesso nel CATALOGO (es. "X oppure GG", "MG casa 2-4")
   si propone CON IL SUO NOME: vietato scegliere un "veicolo piu' vicino" o un
   surrogato quando il mercato vero e' giocabile.
 
@@ -448,8 +448,10 @@ export function bloccoScenarioManuale(args: {
   const clausola = gapTecnico
     ? `
 CLAUSOLA DI COERENZA (caso Belgio-Galles 1-0): il veicolo deve preservare la
-NATURA della lettura del manuale. Il manuale del GAP TECNICO e' direzione pura
-(favorita fisso, AH -0,75): un veicolo che aggiunge rischio gol (DC 1X + O2.5,
+NATURA della lettura del manuale. Il manuale del GAP TECNICO e' direzione con
+la favorita che segna (favorita fisso, MG favorita 2-4 — dal 02/10/2026 al
+posto dell'AH -0,75, che era sotto soglia per costruzione): un veicolo che
+aggiunge rischio gol (DC 1X + O2.5,
 1 + O2.5, e speculari) — E ALLO STESSO MODO un mercato di soli gol (O2.5,
 MG 3-6, GG) — va messo primo SOLO se la componente gol non e' sconsigliata
 dallo scenario stesso (GG + Over 2,5 da manuale >= 50%: qui ${args.ggO25Manuale != null ? pct1(args.ggO25Manuale) + "%" : "non misurato"}) ne' dal
