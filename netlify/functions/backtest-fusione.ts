@@ -30,6 +30,9 @@ import { verdettoRicalcolato, applicaRisultato, type StoricoCronologico, type Va
  * VARIANTI (stesse partite, cambia solo il calcolo):
  *   base            il codice di oggi
  *   no-concordanza  senza il bonus di concordanza nel punteggio (+8 / +4 / +2,5)
+ *   archivio-calcolo  la misura d'archivio del manuale entra nel calcolo
+ *                   (TICKET 4, spento nell'app: si accende solo se questa
+ *                   variante batte "base" e il proprietario decide)
  *
  * L'esito si valuta con `esitoMercato`, come il ricalcolo: conosce anche i
  * mercati del manuale (AH -0,75, X oppure GG, MG casa/ospite).
@@ -42,6 +45,7 @@ const MAX_BLOCCO = 500;
 const VARIANTI: Record<string, VarianteFusione> = {
   "base": {},
   "no-concordanza": { senzaConcordanza: true },
+  "archivio-calcolo": { archivioNelCalcolo: true },
 };
 
 type Tasso = { vinte: number; perse: number };

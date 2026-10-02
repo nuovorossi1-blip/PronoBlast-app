@@ -98,7 +98,7 @@ export type StoricoCronologico = Pick<Stato, "scen" | "man">;
 
 /** Varianti di misura per /backtest-fusione: l'app e il ricalcolo non le
  *  passano mai, quindi per loro il comportamento non cambia. */
-export type VarianteFusione = { senzaConcordanza?: boolean };
+export type VarianteFusione = { senzaConcordanza?: boolean; archivioNelCalcolo?: boolean };
 
 /**
  * Verdetto con le regole di oggi per UNA partita, usando solo lo storico

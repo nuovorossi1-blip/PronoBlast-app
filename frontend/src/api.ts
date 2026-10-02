@@ -1093,6 +1093,12 @@ function getHistoricalRate(
   return undefined;
 }
 
+/** TICKET 4 (spento): sotto questo numero di partite d'archivio la misura del
+ *  manuale non entra nel calcolo, comportamento identico a oggi. */
+export const ARCHIVIO_N_MIN = 100;
+/** Stesso SHRINK della FASE 3 del motore (clusterEngine): k = n / (n + 80). */
+const ARCHIVIO_SHRINK = 80;
+
 export function buildFinalVerdict(
   structural: StructuralAnalysis | null,
   preRanked: RankedPick[],
@@ -1105,6 +1111,10 @@ export function buildFinalVerdict(
     /** SOLO per /backtest-fusione (variante "no-concordanza", round 2 TICKET 3):
      *  niente bonus di concordanza nel punteggio. L'app non lo passa mai. */
     senzaConcordanza?: boolean;
+    /** Round 2, TICKET 4 — SPENTO: solo /backtest-fusione (variante
+     *  "archivio-calcolo") lo passa. Si accende nell'app solo se il backtest
+     *  misura un guadagno e il proprietario decide. Vedi ARCHIVIO_N_MIN. */
+    archivioNelCalcolo?: boolean;
   },
 ): VerdictPick[] {
   const minOdd = options?.minOdd ?? MIN_VALUE_ODD;
@@ -1235,9 +1245,21 @@ export function buildFinalVerdict(
 
   // MERCATI DEL MANUALE (01/10/2026): candidati come gli altri, con la
   // probabilita' misurata in archivio sullo scenario al posto del Poisson.
+  /** probabilita' mescolata archivio+motore, per mercato (solo archivioNelCalcolo) */
+  const mescolata = new Map<string, number>();
   for (const c of manuale) {
     const b = ensure(c.market);
     const delMotore = structural?.ranking?.find((r) => norm(r.market) === norm(c.market));
+    if (options?.archivioNelCalcolo && delMotore && c.valutate >= ARCHIVIO_N_MIN) {
+      // TICKET 4: l'archivio ENTRA nel calcolo, mescolato al motore con lo
+      // stesso shrinkage della FASE 3 dell'engine: con poche partite vince il
+      // modello, con centinaia vince l'archivio.
+      const k = c.valutate / (c.valutate + ARCHIVIO_SHRINK);
+      const p = k * (c.pct / 100) + (1 - k) * delMotore.coverage;
+      b.coverage = p;
+      mescolata.set(norm(c.market), p);
+      b.dettaglio.push({ voce: `archivio nel calcolo: ${Math.round(p * 1000) / 10}% (motore ${Math.round(delMotore.coverage * 1000) / 10}%, archivio ${c.pct.toFixed(1)}% su ${c.valutate}, peso ${Math.round(k * 100)}%)`, punti: 0 });
+    }
     if (b.coverage === undefined) b.coverage = delMotore ? delMotore.coverage : c.pct / 100;
     if (b.fragility === undefined && delMotore) b.fragility = delMotore.fragility;
     if (b.odd === undefined || b.odd === null) { b.odd = c.odd; b.oddEstimated = c.stimata; }
@@ -1507,10 +1529,16 @@ export function buildFinalVerdict(
   // mercato del ranking con copertura piu' bassa.
   for (const c of manuale) {
     const k = norm(c.market);
-    if (posizione.has(k)) continue;
-    const r = structural?.ranking || [];
-    const i = r.findIndex((x) => x.coverage < c.pct / 100);
-    posizione.set(k, (i >= 0 ? i : r.length) - 0.5);
+    // Con l'archivio nel calcolo (TICKET 4, spento) anche un mercato del
+    // manuale GIA' nel ranking si sposta dove lo porta la probabilita'
+    // mescolata: senza, l'archivio cambierebbe solo un numero e non l'ordine.
+    const pm = mescolata.get(k);
+    if (posizione.has(k) && pm === undefined) continue;
+    const r = (structural?.ranking || []).filter((x) => norm(x.market) !== k);
+    const soglia = pm ?? c.pct / 100;
+    const i = r.findIndex((x) => x.coverage < soglia);
+    const dove = i >= 0 ? (structural?.ranking || []).findIndex((x) => norm(x.market) === norm(r[i].market)) : (structural?.ranking || []).length;
+    posizione.set(k, dove - 0.5);
   }
   out.sort((a, b) => {
     const ia = posizione.get(norm(a.market)), ib = posizione.get(norm(b.market));
