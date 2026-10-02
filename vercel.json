@@ -169,6 +169,14 @@
       "destination": "/api/backtest"
     },
     {
+      "source": "/backtest-fusione",
+      "destination": "/api/backtest-fusione"
+    },
+    {
+      "source": "/misura-stime",
+      "destination": "/api/misura-stime"
+    },
+    {
       "source": "/verdetto",
       "destination": "/api/verdetto"
     },

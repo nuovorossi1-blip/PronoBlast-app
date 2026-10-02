@@ -114,7 +114,7 @@ export async function calcolaManualeStats(): Promise<ManualeStats> {
     }
 
     const odds = rowToOdds(r) as any;
-    const nota = getScenarioNote(odds);
+    const nota = getScenarioNote(odds, classifyFamily(odds));
     if (!nota) continue;                                     // quote 1X2 mancanti
 
     // GAP TECNICO per profilo: direzione + pochi gol contro O2.5.

@@ -112,7 +112,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
   let manualeQui: CandidatoManuale[] = [];
   try {
     const stats = await manualeStatsRecenti();
-    manualeQui = candidatiManuale(rowToOdds(match) as any, stats.scenari as any, minOdd, quoteCatalogo(rowToOdds(match)), true);
+    manualeQui = candidatiManuale(rowToOdds(match) as any, stats.scenari as any, minOdd, quoteCatalogo(rowToOdds(match)), true, structuralAnalysis(rowToOdds(match)).structure);
   } catch (e) {
     console.error("[ai-predict] candidati manuale", e);
   }
@@ -482,7 +482,7 @@ function quotaCatalogo(m: string, odds: Odds): { quota: number | null; stimata: 
  * senza percentuali.
  */
 export async function scenarioManuale(odds: Odds, minOdd: number): Promise<string> {
-  const nota = getScenarioNote(odds as any);
+  const nota = getScenarioNote(odds as any, structuralAnalysis(odds).structure);
   if (!nota) return "";
   let misura: ManualeStats["scenari"][string] | undefined;
   try {

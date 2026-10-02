@@ -12,7 +12,6 @@ import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, sel
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
-import { FamilyLegendModal } from "@/src/components/FamilyLegendModal";
 import { predictionQueue } from "@/src/utils/predictionQueue";
 import BottomNav, { useNavMetrics } from "@/src/components/BottomNav";
 import { confirmAction, notify } from "@/src/utils/platform";
@@ -86,10 +85,8 @@ export default function MatchDetail() {
   const [aiPending, setAiPending] = useState(false);
   const [result, setResult] = useState("");
   const [marketStats, setMarketStats] = useState<{ market: string; win_rate: number; total: number; family: string }[]>([]);
-  const [yellowCandidates, setYellowCandidates] = useState<{ market: string; family: string; missed: number; family_total: number; miss_rate: number }[]>([]);
-  const [showAlternatives, setShowAlternatives] = useState(false);
-  const [showLegend, setShowLegend] = useState(false);
   const [mostraPerche, setMostraPerche] = useState(false);
+  const [rankingTutto, setRankingTutto] = useState(false);
   // Fascia mostrata nella scheda AI: parte dalla Quota minima, si puo' sfogliare.
   const [fasciaAI, setFasciaAI] = useState<number | null>(null);
   const [fontiAperte, setFontiAperte] = useState(false);
@@ -137,7 +134,6 @@ export default function MatchDetail() {
     setMatch(b.match);
     setPrediction(b.match?.prediction ?? null);
     setResult(b.match?.result || "");
-    setYellowCandidates(b.cands?.candidates || []);
     setStructural(b.struct as StructuralAnalysis | null);
     setHistory(b.hist as MatchHistory | null);
   }, []);
@@ -156,14 +152,16 @@ export default function MatchDetail() {
       if (!force && !matchDetailCache.isStale(id, minOdd)) return;
     }
     try {
-      const [m, stats, cands, struct, hist] = await Promise.all([
+      // Le "opportunita' non sfruttate" (/match-candidates) non si mostrano piu'
+      // (round 2, TICKET 1): erano costanti di famiglia, non numeri di questa
+      // partita. L'endpoint resta in piedi, la scheda non lo chiama.
+      const [m, stats, struct, hist] = await Promise.all([
         api.match(id),
         getMarketStatsCached(),
-        api.matchCandidates(id).catch(() => ({ candidates: [], family: null, family_total: 0 })),
         api.matchStructural(id, minOdd).catch(() => null),
         api.matchHistory(id).catch(() => null),
       ]);
-      const bundle = { match: m, cands, struct, hist };
+      const bundle = { match: m, cands: null, struct, hist };
       matchDetailCache.set(id, minOdd, bundle);
       applyBundle(bundle);
       setMarketStats(stats?.markets || []);
@@ -244,8 +242,8 @@ export default function MatchDetail() {
   const predVerdetto = aiPostPartita ? null : prediction;
   // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
   // archivio, quota >= soglia). Per le fasce AI si parte da 1.40.
-  const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds);
-  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true);
+  const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds, false, structural?.structure);
+  const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true, structural?.structure);
 
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
@@ -421,14 +419,13 @@ export default function MatchDetail() {
     const timer = setTimeout(() => {
       Promise.all([
         api.match(nid),
-        api.matchCandidates(nid).catch(() => ({ candidates: [], family: null, family_total: 0 })),
         api.matchStructural(nid, minOdd).catch(() => null),
         api.matchHistory(nid).catch(() => null),
       ])
-        .then(([m, cands, struct, hist]) => {
-          if (alive) matchDetailCache.set(nid, minOdd, { match: m, cands, struct, hist });
+        .then(([m, struct, hist]) => {
+          if (alive) matchDetailCache.set(nid, minOdd, { match: m, cands: null, struct, hist });
         })
-        .catch(() => { /* il precaricamento non deve mai disturbare */ });
+        .catch((e) => { console.error("[precarica scheda successiva]", e); /* non deve mai disturbare: solo log */ });
     }, 1200);
     return () => { alive = false; clearTimeout(timer); };
   }, [oddReady, loading, nextSel?.id, minOdd]);
@@ -469,6 +466,21 @@ export default function MatchDetail() {
     return { name: fam.name, items, topIdx };
   });
 
+  // Il mercato del VERDETTO mostrato, scritto dal blocco del verdetto (che si
+  // valuta prima nello stesso render) e letto dal RANKING STRUTTURALE per
+  // mettere "Rotto da" solo sulla riga del pick (round 2, TICKET 1).
+  let pickVerdetto: string | null = null;
+
+  // Legenda delle due fonti dei numeri (round 2, TICKET 1): una stima del
+  // motore e una misura sulle partite concluse non devono sembrare la stessa cosa.
+  const apriLegendaFonti = () => confirmAction({
+    title: "DA DOVE VENGONO I NUMERI",
+    message: "«Poisson» = probabilità STIMATA dal motore con le quote di questa partita: è un calcolo, non una misura.\n\n«in archivio (vinte/totale)» = quante volte il mercato è uscito DAVVERO nelle partite concluse dello stesso tipo. Il numero fra parentesi dice su quante partite: più è grande, più la percentuale è affidabile.",
+    confirmText: "Ho capito",
+    cancelText: "Chiudi",
+    onConfirm: () => {},
+  });
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {/* Header */}
@@ -504,7 +516,7 @@ export default function MatchDetail() {
             lo storico. Solo promemoria dello scenario e dei mercati "da
             manuale" indicati per quello scenario. */}
         {(() => {
-          const note = getScenarioNote(match.odds);
+          const note = getScenarioNote(match.odds, structural?.structure);
           if (!note) return null;
           return (
             <View style={styles.scenarioNoteBox}>
@@ -512,6 +524,9 @@ export default function MatchDetail() {
               <Text style={styles.scenarioNoteSub}>
                 Mercati da considerare:{manualeStats ? "" : " (misura dell'archivio in caricamento…)"}
               </Text>
+              <TouchableOpacity testID="legenda-fonti" onPress={apriLegendaFonti} activeOpacity={0.7}>
+                <Text style={styles.legendaFonti}>ⓘ «Poisson» o «in archivio»: cosa vuol dire</Text>
+              </TouchableOpacity>
               {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
                   uscito nello storico con QUESTO scenario; a risultato inserito,
                   VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}
@@ -519,7 +534,7 @@ export default function MatchDetail() {
                 const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
                 const n = st ? st.vinte + st.perse : 0;
                 const misura = st && n > 0 && st.pct !== null
-                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% (${st.vinte}/${n})`
+                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% in archivio (${st.vinte}/${n})`
                   : "";
                 const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
                 return (
@@ -585,7 +600,7 @@ export default function MatchDetail() {
                         <Text style={styles.altMeta}>
                           {a.odd !== null ? `  ${a.stimata ? "≈" : "@"} ${a.odd.toFixed(2)}` : ""}
                           {a.prob !== null ? ` · ${pctProb(a.prob)} Poisson` : ""}
-                          {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% archivio` : ""}
+                          {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% in archivio` : ""}
                           {a.rankMotore !== null ? ` · motore #${a.rankMotore}` : ""}
                           {` · ${a.motivo}`}
                         </Text>
@@ -704,6 +719,7 @@ export default function MatchDetail() {
             ? [pickRic, ...verdict.filter((v) => normalizeMarket(v.market) !== normalizeMarket(pickRic.market))]
             : verdict;
           const top = verdictMostrato[0];
+          pickVerdetto = top.market;
           const esitoRic = ricQui?.esito === "vinta" ? "won" : ricQui?.esito === "persa" ? "lost" : null;
           const verdettoDiverso = congelato && !ricQui && !!verdictCalcolato[0]
             && normalizeMarket(verdictCalcolato[0].market) !== normalizeMarket(match.pick_finale!);
@@ -723,8 +739,10 @@ export default function MatchDetail() {
 
           const concColor = top.concordance === 3 ? colors.success
             : top.concordance === 2 ? colors.primary : colors.textDim;
-          const concLabel = top.concordance === 3 ? "CONCORDANZA PIENA 3/3"
-            : top.concordance === 2 ? "CONCORDANZA FORTE 2/3" : "SEGNALE PARZIALE 1/3";
+          // Nota piccola accanto al pick, non piu' titolo del verdetto (round 2,
+          // TICKET 1): su 588 verdetti la concordanza non distingue i vinti dai
+          // persi (3/3 = 58,5%, 0/3 = 59,7%). Il numero resta visibile.
+          const concLabel = `concordanza ${top.concordance}/3`;
 
           // Esito del pick col risultato: stessa funzione del resto dell'app
           // (conosce anche AH -0,75, X oppure GG, MG casa/ospite e le combo).
@@ -767,9 +785,6 @@ export default function MatchDetail() {
               <View style={styles.verdictHeader}>
                 <Ionicons name="trophy" size={16} color="#FFD700" />
                 <Text style={styles.verdictTitle}>VERDETTO FINALE</Text>
-                <View style={[styles.verdictConcTag, { borderColor: concColor }]}>
-                  <Text style={[styles.verdictConcTxt, { color: concColor }]}>{concLabel}</Text>
-                </View>
               </View>
               <Text style={styles.verdictHint}>
                 {daAI
@@ -890,10 +905,13 @@ export default function MatchDetail() {
                       </View>
                     )}
                   </View>
-                  <View style={{ marginTop: 6 }}>{rankBadges(top)}</View>
+                  <View style={{ marginTop: 6, flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    {rankBadges(top)}
+                    <Text style={[styles.verdictConcMini, { color: concColor }]}>{concLabel}</Text>
+                  </View>
                   {top.coverage !== undefined && (
                     <Text style={styles.verdictMeta}>
-                      Coverage {Math.round(top.coverage * 100)}% · Fragility {Math.round((top.fragility || 0) * 100)}%
+                      Coverage {Math.round(top.coverage * 100)}% Poisson · Fragility {Math.round((top.fragility || 0) * 100)}%
                     </Text>
                   )}
                 </View>
@@ -1210,6 +1228,9 @@ export default function MatchDetail() {
               return o >= 1.40;
             });
           if (filtered.length === 0) return null;
+          // 3 righe + "mostra tutti" (round 2, TICKET 1).
+          const visibili = rankingTutto ? filtered : filtered.slice(0, 3);
+          const pickNorm = pickVerdetto ? normalizeMarket(pickVerdetto) : null;
           return (
           <View style={styles.structRankBlock}>
             <View style={styles.structHeader}>
@@ -1217,7 +1238,7 @@ export default function MatchDetail() {
               <Text style={styles.structTitle}>RANKING STRUTTURALE</Text>
               <Text style={styles.clusterHint}>posizione nel motore · solo quote ≥ 1,40 (≈ stimate)</Text>
             </View>
-            {filtered.map((r, i) => {
+            {visibili.map((r, i) => {
               const cov = Math.round(r.coverage * 100);
               // Prima la quota del motore (combo stimate con Poisson o con la
               // formula GG + O2.5); getMarketOdd moltiplicava le due quote.
@@ -1237,7 +1258,7 @@ export default function MatchDetail() {
                         <Text style={[styles.srOdd, i === 0 && { color: colors.aiText }]}>{oddStimata ? "≈" : "@"} {odd.toFixed(2)}</Text>
                       )}
                       <View style={[styles.srTag, { backgroundColor: "rgba(16,185,129,0.15)", borderColor: colors.success }]}>
-                        <Text style={[styles.srTagTxt, { color: colors.success }]}>COV {cov}%</Text>
+                        <Text style={[styles.srTagTxt, { color: colors.success }]}>COV {cov}% Poisson</Text>
                       </View>
                       <View style={[styles.srTag, { backgroundColor: `${fragColor}22`, borderColor: fragColor }]}>
                         {/* La fragilita' e' 100 - COV: la percentuale ripeteva lo stesso
@@ -1251,18 +1272,24 @@ export default function MatchDetail() {
                         return (
                           <View style={[styles.srTag, { backgroundColor: mlBg, borderColor: mlColor }]}>
                             <Ionicons name={isBoost ? "trending-up" : "trending-down"} size={9} color={mlColor} style={{ marginRight: 2 }} />
-                            <Text style={[styles.srTagTxt, { color: mlColor }]}>ML {r.ml_adjustment.delta} ({r.ml_adjustment.win_rate}%, n={r.ml_adjustment.total})</Text>
+                            <Text style={[styles.srTagTxt, { color: mlColor }]}>ML {r.ml_adjustment.delta} ({r.ml_adjustment.win_rate}% in archivio, n={r.ml_adjustment.total})</Text>
                           </View>
                         );
                       })()}
                     </View>
-                    {r.broken_by.length > 0 && (
+                    {r.broken_by.length > 0 && pickNorm !== null && normalizeMarket(r.market) === pickNorm && (
                       <Text style={styles.srBroken}>Rotto da: {r.broken_by.join(", ")}</Text>
                     )}
                   </View>
                 </View>
               );
             })}
+            {filtered.length > 3 && (
+              <TouchableOpacity testID="ranking-tutto" onPress={() => setRankingTutto(!rankingTutto)} style={styles.altToggle}>
+                <Ionicons name={rankingTutto ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
+                <Text style={styles.altToggleTxt}>{rankingTutto ? "Mostra solo i primi 3" : `Mostra tutti (${filtered.length})`}</Text>
+              </TouchableOpacity>
+            )}
           </View>
           );
         })()}
@@ -1293,6 +1320,9 @@ export default function MatchDetail() {
             ? rankedRaw.filter((p) => ammessoDallaStruttura(p.market, structural.structure))
             : rankedRaw;
           if (ranked.length === 0) return null;
+          // Sezione vuota = niente titolo (round 2, TICKET 1): a ricerca fatta
+          // senza mercati resta solo la riga che spiega perche'.
+          const storicoVuoto = !!storicoQuote && (!storicoQuote.ok || !(storicoQuote.mercati || []).length);
           return (
             <>
             {/* ===== STORICO QUOTE SIMILI =====
@@ -1302,10 +1332,12 @@ export default function MatchDetail() {
                 con 432 partite concluse il 76% non ne trovava nemmeno una simile;
                 con 7.855 la mediana e' 52. */}
             <View style={styles.preBlock}>
-              <View style={styles.preHeader}>
-                <Ionicons name="albums-outline" size={14} color={colors.primary} />
-                <Text style={styles.preTitle}>STORICO QUOTE SIMILI</Text>
-              </View>
+              {!storicoVuoto && (
+                <View style={styles.preHeader}>
+                  <Ionicons name="albums-outline" size={14} color={colors.primary} />
+                  <Text style={styles.preTitle}>STORICO QUOTE SIMILI</Text>
+                </View>
+              )}
               {!storicoQuote && !caricoStorico && (
                 <TouchableOpacity
                   testID="storico-quote"
@@ -1354,112 +1386,20 @@ export default function MatchDetail() {
               )}
             </View>
 
-            <View style={styles.preBlock}>
-              <View style={styles.preHeader}>
-                <Ionicons name="flash" size={14} color={colors.primary} />
-                <Text style={styles.preTitle}>EURISTICA RAPIDA (solo quote)</Text>
-                <TouchableOpacity onPress={() => setShowLegend(true)} style={styles.helpBtn} testID="open-legend">
-                  <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
-                </TouchableOpacity>
+            {/* TERZO PARERE (round 2, TICKET 1): una riga sola, il pick del PRE con
+                la sua quota. Prima qui c'era il blocco "EURISTICA RAPIDA" con il
+                PICK CONSIGLIATO, la lista delle alternative e le "opportunita' non
+                sfruttate": numeri costanti di famiglia, non di questa partita, con
+                la stessa grafica dei numeri misurati. rankPicks resta: serve alla
+                fusione, qui si toglie solo la visualizzazione. */}
+            {ranked[0] && (
+              <View style={styles.terzoParere} testID="terzo-parere">
+                <Ionicons name="flash" size={12} color={colors.primary} />
+                <Text style={styles.terzoParereLbl}>Terzo parere (solo quote):</Text>
+                <Text style={styles.terzoParereMercato}>{ranked[0].market}</Text>
+                {ranked[0].odd > 0 && <Text style={styles.terzoParereQuota}>@ {ranked[0].odd.toFixed(2)}</Text>}
               </View>
-              {/* 27/09/2026 — Questa lista compariva anche nella card della
-                  Schedina come se fosse un pronostico del sistema. Non lo e':
-                  e' un calcolo fatto sul momento dalle sole quote. Dirlo qui
-                  evita di scambiarla per il verdetto. */}
-              <Text style={styles.euristicaNota}>
-                Calcolata sul momento dalle sole quote del bookmaker: non conosce il motore Poisson,
-                né il pronostico AI, né lo storico. Serve come terzo parere indipendente nella fusione,
-                non è il verdetto.
-              </Text>
-              <Text style={styles.preHint}>Mercati validi ordinati per quota reale del bookmaker e win-rate storico. Questa lista NON tiene conto del pronostico AI: resta un parere indipendente, così la concordanza fra i tre sistemi è reale e non un’eco.</Text>
-
-              {/* RANK #1 - HIGHLIGHTED PICK */}
-              {ranked[0] && (() => {
-                const p = ranked[0];
-                return (
-                  <View style={styles.pickHero}>
-                    <View style={styles.pickStar}><Ionicons name="star" size={18} color="#FFF" /></View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.pickLabel}>★ PICK CONSIGLIATO</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                        <Text style={styles.pickMarket}>{p.market}</Text>
-                        {p.odd > 0 && <Text style={styles.pickOdd}>@ {p.odd.toFixed(2)}</Text>}
-                        <Text style={styles.pickFamily}>{p.family}</Text>
-                        {p.source === "pre+ai" && (
-                          <View style={styles.concordTag}>
-                            <Ionicons name="checkmark-done" size={10} color="#10B981" />
-                            <Text style={styles.concordTxt}>PRE+AI</Text>
-                          </View>
-                        )}
-                        {p.win_rate !== null && (
-                          <View style={[styles.wrTag, p.win_rate >= 60 ? { backgroundColor: "rgba(16,185,129,0.18)" } : { backgroundColor: "rgba(239,68,68,0.18)" }]}>
-                            <Text style={[styles.wrTxt, p.win_rate >= 60 ? { color: "#10B981" } : { color: "#EF4444" }]}>WR {p.win_rate.toFixed(0)}% ({p.total})</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                );
-              })()}
-
-              {/* YELLOW CANDIDATES - opportunità non sfruttate */}
-              {yellowCandidates.map((c, i) => (
-                <View key={`yc-${i}`} style={styles.yellowItem}>
-                  <View style={styles.yellowIcon}><Ionicons name="bulb" size={12} color="#F59E0B" /></View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <Text style={styles.yellowMarket}>{c.market}</Text>
-                      <Text style={styles.yellowFamily}>{c.family}</Text>
-                      <Text style={styles.yellowDetail}>Opportunità non sfruttata: {c.missed}/{c.family_total} ({c.miss_rate}%)</Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-
-              {/* Alternatives toggle */}
-              {ranked.length > 1 && (
-                <TouchableOpacity testID="toggle-alt" onPress={() => setShowAlternatives(!showAlternatives)} style={styles.altToggle}>
-                  <Ionicons name={showAlternatives ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
-                  <Text style={styles.altToggleTxt}>{showAlternatives ? "Nascondi" : "Mostra"} {ranked.length - 1} alternative</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Alternatives (rank 2..N) */}
-              {showAlternatives && ranked.slice(1).map((p, idx) => {
-                const i = idx + 1;
-                return (
-                <View key={i} style={[styles.preItem, { opacity: 0.7 }, p.source === "pre+ai" && styles.preItemConcord]}>
-                  <View style={styles.preRank}>
-                    <Text style={styles.preRankTxt}>{i + 1}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <Text style={styles.preMarket}>{p.market}</Text>
-                      {p.odd > 0 && <Text style={styles.preOdd}>@ {p.odd.toFixed(2)}</Text>}
-                      <Text style={styles.preFamily}>{p.family}</Text>
-                      {p.source === "pre+ai" && (
-                        <View style={styles.concordTag}>
-                          <Ionicons name="checkmark-done" size={10} color="#10B981" />
-                          <Text style={styles.concordTxt}>PRE+AI</Text>
-                        </View>
-                      )}
-                      {p.source === "ai" && (
-                        <View style={[styles.concordTag, { backgroundColor: colors.aiBg, borderColor: colors.aiText }]}>
-                          <Ionicons name="sparkles" size={10} color={colors.aiText} />
-                          <Text style={[styles.concordTxt, { color: colors.aiText }]}>SOLO AI</Text>
-                        </View>
-                      )}
-                      {p.win_rate !== null && (
-                        <View style={[styles.wrTag, p.win_rate >= 60 ? { backgroundColor: "rgba(16,185,129,0.18)" } : { backgroundColor: "rgba(239,68,68,0.18)" }]}>
-                          <Text style={[styles.wrTxt, p.win_rate >= 60 ? { color: "#10B981" } : { color: "#EF4444" }]}>WR {p.win_rate.toFixed(0)}% ({p.total})</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </View>
-                );
-              })}
-            </View>
+            )}
             </>
           );
         })()}
@@ -1505,11 +1445,9 @@ export default function MatchDetail() {
           </View>
           {prediction ? (
             <>
-              {prediction.family && (
-                <View style={styles.familyTag}>
-                  <Text style={styles.familyTxt}>{prediction.family}</Text>
-                </View>
-              )}
+              {/* La famiglia dell'AI (prediction.family) non si mostra piu': in
+                  scheda la famiglia e' una sola, quella del motore in STRUTTURA
+                  MATCH (round 2, TICKET 1). */}
               {(() => {
                 // ============================================================
                 // SCHEDA AI (01/10/2026): fasce di quota in alto, pronostico
@@ -1836,7 +1774,6 @@ export default function MatchDetail() {
 
       {/* La legenda delle famiglie era importata e il tasto "?" ne accendeva lo
           stato, ma il modale non veniva mai montato: il tasto non apriva nulla. */}
-      <FamilyLegendModal visible={showLegend} onClose={() => setShowLegend(false)} />
 
       <BottomNav />
     </SafeAreaView>
@@ -1888,8 +1825,6 @@ const styles = StyleSheet.create({
   aiTitle: { color: colors.aiText, fontSize: 12, fontWeight: "900", letterSpacing: 1, flex: 1 },
   confBadge: { backgroundColor: colors.aiBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   confTxt: { color: colors.aiText, fontSize: 10, fontWeight: "800" },
-  familyTag: { alignSelf: "flex-start", backgroundColor: colors.clusterBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  familyTxt: { color: colors.clusterText, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
   mainPred: { padding: 12, borderRadius: 10, alignItems: "center" },
   mainPredLbl: { color: "#FFE4D9", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   mainPredVal: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 4 },
@@ -1940,32 +1875,9 @@ const styles = StyleSheet.create({
   preBlock: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "rgba(255,140,0,0.35)", gap: 8 },
   preHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   preTitle: { color: colors.primary, fontSize: 12, fontWeight: "900", letterSpacing: 1, flex: 1 },
-  preHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginBottom: 4 },
-  preItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: colors.surfaceHi, borderRadius: 10 },
-  pickHero: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, backgroundColor: "rgba(255,140,0,0.15)", borderWidth: 2, borderColor: colors.primary, borderRadius: 14 },
-  pickStar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  pickLabel: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
-  pickMarket: { color: colors.text, fontSize: 18, fontWeight: "900" },
-  pickOdd: { color: colors.primary, fontSize: 14, fontWeight: "900" },
-  pickFamily: { color: colors.textDim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" },
-  yellowItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: "rgba(245,158,11,0.12)", borderWidth: 1, borderColor: "rgba(245,158,11,0.40)", borderRadius: 10 },
-  yellowIcon: { width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(245,158,11,0.25)", alignItems: "center", justifyContent: "center" },
-  yellowMarket: { color: "#F59E0B", fontSize: 13, fontWeight: "900" },
-  yellowFamily: { color: colors.textDim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" },
-  yellowDetail: { color: colors.textMuted, fontSize: 11 },
   altToggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 8, marginTop: 4 },
   altToggleTxt: { color: colors.primary, fontSize: 11, fontWeight: "800" },
-  preItemConcord: { borderWidth: 1, borderColor: "rgba(16,185,129,0.45)", backgroundColor: "rgba(16,185,129,0.10)" },
-  preRank: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.border, alignItems: "center", justifyContent: "center" },
   preRankTop: { backgroundColor: colors.primary },
-  preRankTxt: { color: colors.textMuted, fontWeight: "900", fontSize: 11 },
-  preMarket: { color: colors.text, fontSize: 13, fontWeight: "900" },
-  preOdd: { color: colors.primary, fontSize: 12, fontWeight: "800" },
-  preFamily: { color: colors.textDim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" },
-  concordTag: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(16,185,129,0.20)", borderWidth: 1, borderColor: "rgba(16,185,129,0.45)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
-  concordTxt: { color: "#10B981", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
-  wrTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
-  wrTxt: { fontSize: 9, fontWeight: "900", letterSpacing: 0.3 },
   aiBtn: { borderRadius: 12, overflow: "hidden" },
   aiBtnInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14 },
   aiBtnTxt: { color: "#FFF", fontSize: 14, fontWeight: "800" },
@@ -2153,6 +2065,11 @@ const styles = StyleSheet.create({
   },
   scenarioNoteTitle: { color: colors.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
   scenarioNoteSub: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
+  legendaFonti: { color: colors.primary, fontSize: 10, fontWeight: "700", marginTop: 2 },
+  terzoParere: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 10, marginTop: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 10 },
+  terzoParereLbl: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
+  terzoParereMercato: { color: colors.text, fontSize: 12, fontWeight: "900" },
+  terzoParereQuota: { color: colors.primary, fontSize: 12, fontWeight: "800" },
   scenarioNoteMarket: { color: colors.textDim, fontSize: 11, lineHeight: 15 },
   scenarioNoteMarketVinto: { color: colors.success, fontWeight: "800" },
 
@@ -2163,8 +2080,6 @@ const styles = StyleSheet.create({
   },
   verdictHeader: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   verdictTitle: { color: "#FFD700", fontSize: 13, fontWeight: "900", letterSpacing: 1.2, flex: 1 },
-  verdictConcTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-  verdictConcTxt: { fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
   verdictHint: { color: colors.textMuted, fontSize: 10, lineHeight: 14, fontStyle: "italic" },
   sogliaWarn: {
     backgroundColor: "rgba(245,158,11,0.12)",
@@ -2235,7 +2150,6 @@ const styles = StyleSheet.create({
   vetoTxt: { color: "#FFF", fontSize: 9, fontWeight: "900", letterSpacing: 0.3 },
 
   // Tasto "?" della legenda famiglie (era usato ma mai definito)
-  helpBtn: { marginLeft: "auto", padding: 4 },
 
   aiFuoriWrap: {
     flexDirection: "row", alignItems: "center", gap: 6,

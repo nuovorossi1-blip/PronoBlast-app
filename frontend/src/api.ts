@@ -1093,13 +1093,29 @@ function getHistoricalRate(
   return undefined;
 }
 
+/** TICKET 4 (spento): sotto questo numero di partite d'archivio la misura del
+ *  manuale non entra nel calcolo, comportamento identico a oggi. */
+export const ARCHIVIO_N_MIN = 100;
+/** Stesso SHRINK della FASE 3 del motore (clusterEngine): k = n / (n + 80). */
+const ARCHIVIO_SHRINK = 80;
+
 export function buildFinalVerdict(
   structural: StructuralAnalysis | null,
   preRanked: RankedPick[],
   aiMarkets: { market: string; reasoning?: string }[] | string[] | undefined,
   odds?: any,
   history?: MatchHistory | null,
-  options?: { minOdd?: number; manuale?: CandidatoManuale[] },
+  options?: {
+    minOdd?: number;
+    manuale?: CandidatoManuale[];
+    /** SOLO per /backtest-fusione (variante "no-concordanza", round 2 TICKET 3):
+     *  niente bonus di concordanza nel punteggio. L'app non lo passa mai. */
+    senzaConcordanza?: boolean;
+    /** Round 2, TICKET 4 — SPENTO: solo /backtest-fusione (variante
+     *  "archivio-calcolo") lo passa. Si accende nell'app solo se il backtest
+     *  misura un guadagno e il proprietario decide. Vedi ARCHIVIO_N_MIN. */
+    archivioNelCalcolo?: boolean;
+  },
 ): VerdictPick[] {
   const minOdd = options?.minOdd ?? MIN_VALUE_ODD;
   // Mercati del manuale ammessi SOLO in questa partita (candidatiManuale).
@@ -1229,9 +1245,21 @@ export function buildFinalVerdict(
 
   // MERCATI DEL MANUALE (01/10/2026): candidati come gli altri, con la
   // probabilita' misurata in archivio sullo scenario al posto del Poisson.
+  /** probabilita' mescolata archivio+motore, per mercato (solo archivioNelCalcolo) */
+  const mescolata = new Map<string, number>();
   for (const c of manuale) {
     const b = ensure(c.market);
     const delMotore = structural?.ranking?.find((r) => norm(r.market) === norm(c.market));
+    if (options?.archivioNelCalcolo && delMotore && c.valutate >= ARCHIVIO_N_MIN) {
+      // TICKET 4: l'archivio ENTRA nel calcolo, mescolato al motore con lo
+      // stesso shrinkage della FASE 3 dell'engine: con poche partite vince il
+      // modello, con centinaia vince l'archivio.
+      const k = c.valutate / (c.valutate + ARCHIVIO_SHRINK);
+      const p = k * (c.pct / 100) + (1 - k) * delMotore.coverage;
+      b.coverage = p;
+      mescolata.set(norm(c.market), p);
+      b.dettaglio.push({ voce: `archivio nel calcolo: ${Math.round(p * 1000) / 10}% (motore ${Math.round(delMotore.coverage * 1000) / 10}%, archivio ${c.pct.toFixed(1)}% su ${c.valutate}, peso ${Math.round(k * 100)}%)`, punti: 0 });
+    }
     if (b.coverage === undefined) b.coverage = delMotore ? delMotore.coverage : c.pct / 100;
     if (b.fragility === undefined && delMotore) b.fragility = delMotore.fragility;
     if (b.odd === undefined || b.odd === null) { b.odd = c.odd; b.oddEstimated = c.stimata; }
@@ -1246,28 +1274,33 @@ export function buildFinalVerdict(
     : null;
 
   for (const b of buckets.values()) {
-    if (odds && (b.odd === undefined || b.odd === null)) {
-      const computed = getMarketOdd(b.market, odds);
-      if (computed) b.odd = computed;
-    }
-    // Se il bookmaker non dà un prezzo (tutti i multigol, diverse combo), usiamo
-    // la quota stimata dal motore strutturale. Prima questi mercati restavano
-    // senza quota e sfuggivano a ogni filtro: erano la maggioranza dei pick.
+    // PRIMA la mappa del motore, POI la moltiplicazione (round 2, TICKET 7).
+    // `getMarketOdd` prezza le combo MOLTIPLICANDO le due quote, giusto solo
+    // per eventi indipendenti: "DC 1X" e "O2.5" non lo sono. Prima la
+    // moltiplicazione veniva per prima, e una combo della top-6 del motore
+    // (che qui arriva senza quota) prendeva il prodotto anche quando
+    // `market_odds` aveva la stima congiunta: DC 1X + O2.5 a 1,32 invece di
+    // 1,41, e quindi fuori dalla fascia 1,40 senza che nessuno lo vedesse.
+    // `market_odds` copre l'intero catalogo, con la quota reale quando il
+    // bookmaker la da' (stesso numero di getMarketOdd per i mercati singoli).
     if (b.odd === undefined || b.odd === null) {
-      // Prima si cercava solo dentro `ranking`, che e' il TOP 20: i mercati
-      // scartati dal motore restavano senza prezzo e sfuggivano al filtro.
-      // `market_odds` copre invece l'intero catalogo.
       const fromMap = structural?.market_odds?.[norm(b.market)]
         || structural?.market_odds?.[b.market];
       if (fromMap?.odd) {
         b.odd = fromMap.odd;
         b.oddEstimated = !!fromMap.estimated;
-      } else {
-        const fromEngine = structural?.ranking?.find((r) => norm(r.market) === norm(b.market));
-        if (fromEngine?.odd) {
-          b.odd = fromEngine.odd;
-          b.oddEstimated = !!fromEngine.odd_estimated;
-        }
+      }
+    }
+    if (odds && (b.odd === undefined || b.odd === null)) {
+      const computed = getMarketOdd(b.market, odds);
+      if (computed) b.odd = computed;
+    }
+    // Ultimo ripiego: la quota della voce del ranking (TOP 20).
+    if (b.odd === undefined || b.odd === null) {
+      const fromEngine = structural?.ranking?.find((r) => norm(r.market) === norm(b.market));
+      if (fromEngine?.odd) {
+        b.odd = fromEngine.odd;
+        b.oddEstimated = !!fromEngine.odd_estimated;
       }
     }
     // La concordanza fra sistemi INDIPENDENTI è il segnale più forte che
@@ -1285,7 +1318,8 @@ export function buildFinalVerdict(
     // pareri indipendenti sono comunque meno.
     const eligible = eligibleSystemsFor(b.market, preEligible);
     const agree = b.sources.size;
-    if (agree >= 2 && agree >= eligible) punti(b, `concordanza ${agree}/${eligible} sistemi`, eligible >= 3 ? 8 : 4);
+    if (options?.senzaConcordanza) { /* variante di misura: nessun bonus */ }
+    else if (agree >= 2 && agree >= eligible) punti(b, `concordanza ${agree}/${eligible} sistemi`, eligible >= 3 ? 8 : 4);
     else if (agree === 2) punti(b, "concordanza 2 sistemi", 2.5);
     b.eligibleSystems = eligible;
   }
@@ -1500,10 +1534,16 @@ export function buildFinalVerdict(
   // mercato del ranking con copertura piu' bassa.
   for (const c of manuale) {
     const k = norm(c.market);
-    if (posizione.has(k)) continue;
-    const r = structural?.ranking || [];
-    const i = r.findIndex((x) => x.coverage < c.pct / 100);
-    posizione.set(k, (i >= 0 ? i : r.length) - 0.5);
+    // Con l'archivio nel calcolo (TICKET 4, spento) anche un mercato del
+    // manuale GIA' nel ranking si sposta dove lo porta la probabilita'
+    // mescolata: senza, l'archivio cambierebbe solo un numero e non l'ordine.
+    const pm = mescolata.get(k);
+    if (posizione.has(k) && pm === undefined) continue;
+    const r = (structural?.ranking || []).filter((x) => norm(x.market) !== k);
+    const soglia = pm ?? c.pct / 100;
+    const i = r.findIndex((x) => x.coverage < soglia);
+    const dove = i >= 0 ? (structural?.ranking || []).findIndex((x) => norm(x.market) === norm(r[i].market)) : (structural?.ranking || []).length;
+    posizione.set(k, dove - 0.5);
   }
   out.sort((a, b) => {
     const ia = posizione.get(norm(a.market)), ib = posizione.get(norm(b.market));
@@ -2075,9 +2115,11 @@ export function candidatiManuale(
   /** true = tutte le quote da `minOdd` in su (per le fasce AI, che poi dividono
    *  per fascia in validaFasce); false = solo dentro la fascia di `minOdd`. */
   tutteLeFasce = false,
+  /** Struttura del motore: vedi `getScenarioNote`. */
+  profilo?: { offensive_profile?: string } | null,
 ): CandidatoManuale[] {
   if (!odds || !stats) return [];
-  const nota = getScenarioNote(odds);
+  const nota = getScenarioNote(odds, profilo);
   if (!nota) return [];
   const misure = stats[chiaveScenario(nota)]?.mercati || {};
   const out: CandidatoManuale[] = [];
@@ -2220,7 +2262,7 @@ export const pctProb = (p: number) => `${(p * 100).toFixed(1).replace(".", ",")}
  */
 export function letturaDirezionale(odds: Odds | null | undefined, s: StrutturaGol): "1" | "2" | null {
   if (!odds || !s) return null;
-  const nota = getScenarioNote(odds);
+  const nota = getScenarioNote(odds, s);
   if (!nota || nota.scenario !== "Gap Tecnico" || !nota.favorita) return null;
   return underAmmessiATettoAperto(s) ? (nota.favorita as "1" | "2") : null;
 }
@@ -2365,7 +2407,7 @@ export function validaFasce(
  */
 export function mercatoDelManualeQui(market: string, ctx: ContestoFasce): boolean {
   if ((ctx.manuale || []).some((c) => normalizeMarket(c.market) === normalizeMarket(market))) return true;
-  const nota = getScenarioNote(ctx.odds);
+  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
   if (!nota) return false;
   const ranking = ctx.structural?.ranking || [];
   return nota.markets.some((m) => normalizeMarket(nomeCatalogoManuale(m)) === normalizeMarket(market))
@@ -2459,7 +2501,7 @@ export function alternativeDelConsiglio(
   for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
   // Anche senza la misura dell'archivio (non ancora caricata): i mercati del
   // manuale dello scenario che il motore conosce, con la sua quota e la sua %.
-  const nota = getScenarioNote(ctx.odds);
+  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
   for (const m of nota?.markets || []) {
     const nome = nomeCatalogoManuale(m);
     if (ranking.some((r) => normalizeMarket(r.market) === normalizeMarket(nome))) aggiungi(nome, "dal manuale dello scenario");
@@ -2596,7 +2638,15 @@ export type ManualeStatsResponse = {
   confronto_profilo?: Record<string, { partite: number; mercati: Record<string, { vinte: number; perse: number; pct: number | null }> }>;
 };
 
-export function getScenarioNote(odds: Odds): ScenarioNote | null {
+/**
+ * `profilo` = la struttura del motore (`structural.structure`, oppure
+ * `classifyFamily(odds)` sul server: e' la stessa cosa, dipende solo dalle
+ * quote). Serve SOLO al GAP TECNICO con favorita sotto 1,40 per scegliere il
+ * sostituto (round 2, TICKET 2). Se manca vale "non difensivo": tutti i
+ * chiamanti che hanno la struttura DEVONO passarla, altrimenti scheda, server e
+ * misura dell'archivio direbbero mercati diversi.
+ */
+export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: string } | null): ScenarioNote | null {
   const q1 = odds.odd_1, qx = odds.odd_X, q2 = odds.odd_2;
   if (q1 == null || qx == null || q2 == null) return null;
 
@@ -2673,15 +2723,24 @@ export function getScenarioNote(odds: Odds): ScenarioNote | null {
   if (qx >= SOGLIA_GAP) {
     // GAP TECNICO. AH -0,75 non e' giocabile al palinsesto: il sostituto
     // giocabile proposto da Rossi e' MG favorita 2-4 (decidera' la pagella).
-    return {
-      scenario: "Gap Tecnico",
-      favorita,
-      markets: [
-        `${favorita} fisso`,
-        `${favorita} AH -0,75`,
-        "GG + Over 2,5",
-      ],
-    };
+    // La voce AH resta com'e' (TICKET 5: decisione del proprietario, 02/10).
+    //
+    // Round 2, TICKET 2: "GG + Over 2,5" tolto in ogni caso, era il PEGGIORE in
+    // tutti e quattro i gruppi del GAP TECNICO (32,6 / 33,9 / 39,4 / 48,9%).
+    // Con la favorita sotto 1,40 il fisso non e' giocabile: al suo posto UN
+    // sostituto scelto dal profilo del motore (misure del 02/10/2026):
+    //   DIFENSIVA -> MG 2-4 totali        (62,6-64,6%)
+    //   altro     -> DC favorita + O2.5   (64,0-65,1%)
+    // Da 1,40 in su il fisso e' giocabile (61,5%, il migliore del gruppo) e la
+    // lista resta quella.
+    const markets = [`${favorita} fisso`, `${favorita} AH -0,75`];
+    const quotaFavorita = favorita === "1" ? q1 : q2;
+    if (quotaFavorita < 1.40) {
+      markets.push(underAmmessiATettoAperto(profilo)
+        ? "MG 2-4 totali"
+        : favorita === "1" ? "DC 1X + O2.5" : "DC X2 + O2.5");
+    }
+    return { scenario: "Gap Tecnico", favorita, markets };
   }
 
   // PROGRESSIONE (casa o ospite, speculare). DNB non e' giocabile: il

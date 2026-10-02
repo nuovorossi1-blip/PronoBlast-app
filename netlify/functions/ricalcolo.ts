@@ -1,6 +1,6 @@
 import { pgGet, pgGetAll, pgPatch, pgPost, jsonResponse, rowToOdds } from "./lib/supabaseRest";
 import {
-  structuralAnalysis, quoteCatalogo, evaluateMarketStrict, CANDIDATE_MARKETS,
+  structuralAnalysis, classifyFamily, quoteCatalogo, evaluateMarketStrict, CANDIDATE_MARKETS,
   type Odds, type MlScoreEntry,
 } from "./lib/clusterEngine";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
@@ -92,11 +92,21 @@ function manualeComeStats(man: Stato["man"]): ManualeStatsResponse["scenari"] {
 export type RicalcoloFascia = { market: string; odd: number | null; stimata: boolean; prob: number | null; esito: EsitoMercato | null } | null;
 export type Ricalcolo = { versione: string; data: string; fasce: Record<string, RicalcoloFascia> };
 
+/** Lo storico cronologico che serve a un verdetto: correzione per scenario e
+ *  misura del manuale, solo delle partite gia' passate. */
+export type StoricoCronologico = Pick<Stato, "scen" | "man">;
+
+/** Varianti di misura per /backtest-fusione: l'app e il ricalcolo non le
+ *  passano mai, quindi per loro il comportamento non cambia. */
+export type VarianteFusione = { senzaConcordanza?: boolean; archivioNelCalcolo?: boolean };
+
 /**
  * Verdetto con le regole di oggi per UNA partita, usando solo lo storico
  * passato (`scen`, `man`). Nessuna scrittura: e' la parte pura del ricalcolo.
+ * La usa anche /backtest-fusione: una sola implementazione della fusione
+ * rigiocata.
  */
-export function verdettoRicalcolato(odds: Odds, risultato: string, stato: Pick<Stato, "scen" | "man">): Ricalcolo {
+export function verdettoRicalcolato(odds: Odds, risultato: string, stato: StoricoCronologico, variante: VarianteFusione = {}): Ricalcolo {
   const scenario = classifyScenario(odds);
   const ml: Record<string, MlScoreEntry> = {};
   for (const [m, c] of Object.entries(stato.scen[scenario] || {})) {
@@ -117,8 +127,8 @@ export function verdettoRicalcolato(odds: Odds, risultato: string, stato: Pick<S
 
   const fasce: Record<string, RicalcoloFascia> = {};
   for (const f of FASCE_AI) {
-    const manuale = candidatiManuale(odds as any, stats, f, marketOdds);
-    const v = buildFinalVerdict(ingresso.structural, preRanked, [], odds, null, { minOdd: f, manuale })
+    const manuale = candidatiManuale(odds as any, stats, f, marketOdds, false, sa.structure);
+    const v = buildFinalVerdict(ingresso.structural, preRanked, [], odds, null, { minOdd: f, manuale, ...variante })
       .filter((x) => ammessoDallaStruttura(x.market, sa.structure));
     const top = v[0];
     fasce[chiaveFascia(f)] = top
@@ -129,7 +139,7 @@ export function verdettoRicalcolato(odds: Odds, risultato: string, stato: Pick<S
 }
 
 /** Dopo il verdetto: il risultato entra nello storico cronologico. */
-function applicaRisultato(stato: Stato, odds: Odds, home: number, away: number, risultato: string): void {
+export function applicaRisultato(stato: StoricoCronologico, odds: Odds, home: number, away: number, risultato: string): void {
   const scenario = classifyScenario(odds);
   if (scenario && scenario !== "sconosciuto") {
     const s = stato.scen[scenario] = stato.scen[scenario] || {};
@@ -141,7 +151,7 @@ function applicaRisultato(stato: Stato, odds: Odds, home: number, away: number, 
       if (e) c.w++;
     }
   }
-  const nota = getScenarioNote(odds as any);
+  const nota = getScenarioNote(odds as any, classifyFamily(odds));
   if (nota) {
     const k = chiaveScenario(nota);
     const s = stato.man[k] = stato.man[k] || {};

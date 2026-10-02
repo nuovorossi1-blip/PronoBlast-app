@@ -154,6 +154,69 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-02 — Round 2: ticket 1, 2, 3, 4 (spento), 6 (misura) e 7; 5 e 2-bis decisi
+
+Branch `claude/ticket-round-2`, un commit per ticket. Nessuna scrittura sul
+database, nessuna soglia toccata, whitelist invariata.
+
+- **`ticket/ticket.md` ripulito**: il commit `abec353` aveva intercalato riga
+  per riga il round 1 dentro il round 2. Ripristinato il round 2 tenendo le
+  parti nuove (tabella di stato, TICKET 6 e 7).
+- **TICKET 1 — scheda essenziale** (`match/[id].tsx`, solo presentazione): il
+  blocco EURISTICA RAPIDA diventa una riga "Terzo parere (solo quote)"; la
+  concordanza scende da titolo a nota; ranking a 3 righe + "mostra tutti",
+  "Rotto da" solo sul pick; una sola famiglia (motore); STORICO QUOTE SIMILI
+  senza titolo se vuoto; "Poisson" e "in archivio (n)" con legenda. La scheda
+  non chiama piu' `/match-candidates` (l'endpoint resta).
+- **TICKET 2 — GAP TECNICO**: tolto `GG + Over 2,5` (il peggiore in tutti i
+  gruppi). Con favorita sotto 1,40: `MG 2-4 totali` se il profilo e' DIFENSIVA,
+  altrimenti `DC 1X/X2 + O2.5`. `getScenarioNote` riceve la struttura del motore
+  e tutti i chiamanti la passano (scheda, /verdetto, ricalcolo, prompt AI,
+  /manuale-stats). **Effetto collaterale da sapere**: il prompt AI usava la %
+  di `GG + Over 2,5` del manuale nella clausola di coerenza del GAP; ora quel
+  mercato non e' piu' nel manuale e la clausola dice "non misurato" e si regge
+  sul solo profilo. `aistudio-prompt.ts` ha una SUA copia del manuale (gia'
+  diversa prima di oggi): non toccata.
+- **TICKET 3 — `/backtest-fusione`** (nuova, sola lettura, registrata nei tre
+  posti): rigioca la fusione di oggi su tutto l'archivio, a blocchi, senza
+  sbirciare il futuro, con varianti `base` / `no-concordanza` /
+  `archivio-calcolo`. Riusa `verdettoRicalcolato` e `applicaRisultato` di
+  `ricalcolo.ts`. Nota: l'ordine del verdetto segue il ranking del motore, quindi
+  il bonus di concordanza conta solo negli spareggi; e' atteso che
+  `no-concordanza` cambi poco.
+- **TICKET 4 — archivio nel calcolo**: implementato dietro l'opzione
+  `archivioNelCalcolo` (n >= 100, k = n/(n+80)), **spento** nell'app. Si misura
+  con `/backtest-fusione?variante=archivio-calcolo` contro `variante=base`; si
+  accende solo se il delta e' positivo e decide Rossi.
+- **TICKET 7 — prezzo delle combo**: il percorso NON e' morto. Le combo della
+  whitelist che stanno nella top-6 del motore arrivano alla fusione senza quota
+  e venivano prezzate per PRIMA con la moltiplicazione (`getMarketOdd`): es.
+  `DC 1X + O2.5` a 1,32 invece di 1,41 (stima congiunta), quindi fuori dalla
+  fascia 1,40. Misura su 1.500 partite sintetiche x 4 fasce: combo della
+  whitelist in top-6 nel 3,8% delle partite; dopo il riordino (prima
+  `market_odds`, poi la moltiplicazione) cambiano **21 verdetti su 6.000**, tutti
+  verso `DC 1X + O2.5` (12 prima senza giocata, 9 prima `MG 3-6 totali`). Da
+  rimisurare sull'archivio vero con `/backtest-fusione` dopo il deploy.
+- **TICKET 5** (`1 AH -0,75`) e **2-bis** (`X oppure GG` nel ramo normale):
+  decisione di Rossi del 02/10 = lasciare tutto com'e'. Nessun codice.
+- **TICKET 6 — misura delle stime** (primo tempo, solo lettura): il metodo
+  del documento `ISTRUZIONI_LLM_QUOTE_CALCIO.md` (fornito da Rossi il 02/10) e'
+  portato in `lib/bivariata.ts` e **riproduce il benchmark della sezione 11**:
+  a = 0,86381150 · b = 1,21015706 · c = 0,17486597 (atteso ...98), RMSE
+  0,48771615 pp, tabella dei 12 mercati identica a due decimali, P(0-0),
+  P(GG), P(2-2) identiche, specularita' rispettata. SciPy non c'e': al posto
+  di `least_squares` (trf) un Levenberg-Marquardt proiettato sui vincoli, stessi
+  punti di partenza, vincoli e pesi. Nuovo `GET /misura-stime` (a blocchi,
+  registrato nei tre posti): (a) fedelta' ai 7 prezzi del book, app contro
+  bivariata; (b) i 12 mercati non prezzati, frequenza reale contro le due
+  stime, con n. **Non in `/lavori`**: un lavoro li' scrive il suo stato in
+  `settings`, e la regola 8 del round vieta scritture (scelta concordata con
+  Rossi). Il motore dell'app NON cambia: il secondo tempo (interruttore,
+  pagella affiancata) lo decide Rossi sui numeri.
+
+Verifiche: `tsc` frontend 0 errori, `tsc` catena funzioni 0 errori; eslint
+invariato rispetto a `main` (7 errori e 14 warning gia' presenti, nessuno nuovo).
+
 ### 2026-10-02 — `ticket/` riordinato: il round vecchio va in `storia/`, il nuovo e' `ticket.md`
 
 Solo documentazione: nessuna riga di codice, nessun deploy (`[skip ci]`).
