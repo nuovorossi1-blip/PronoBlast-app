@@ -26,7 +26,7 @@ senza leggere il CHANGELOG.
 
 | ticket | cosa | stato |
 |---|---|---|
-| **1** | Scheda essenziale (solo presentazione) | ⬜ da fare |
+| **1** | Scheda essenziale (solo presentazione) | ✅ 02/10/2026, branch `claude/ticket-round-2` |
 | **2** | Lista del manuale GAP TECNICO | ⬜ da fare |
 | **3** | Backtest della fusione (strumento di misura) | ⬜ da fare |
 | **4** | Archivio nel calcolo | ⛔ bloccato (serve il TICKET 3) |
