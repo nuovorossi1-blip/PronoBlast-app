@@ -154,7 +154,7 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
-### 2026-10-02 — Round 2: ticket 1, 2, 3, 4 (spento) e 7; 5 e 2-bis decisi; 6 in attesa
+### 2026-10-02 — Round 2: ticket 1, 2, 3, 4 (spento), 6 (misura) e 7; 5 e 2-bis decisi
 
 Branch `claude/ticket-round-2`, un commit per ticket. Nessuna scrittura sul
 database, nessuna soglia toccata, whitelist invariata.
@@ -199,9 +199,20 @@ database, nessuna soglia toccata, whitelist invariata.
   rimisurare sull'archivio vero con `/backtest-fusione` dopo il deploy.
 - **TICKET 5** (`1 AH -0,75`) e **2-bis** (`X oppure GG` nel ramo normale):
   decisione di Rossi del 02/10 = lasciare tutto com'e'. Nessun codice.
-- **TICKET 6** non eseguito: il documento `ISTRUZIONI_LLM_QUOTE_CALCIO.md` non e'
-  nel repository, e un tipo di `/lavori` scrive lo stato del lavoro in
-  `settings`, contro la regola 8 del round. In attesa di Rossi.
+- **TICKET 6 — misura delle stime** (primo tempo, solo lettura): il metodo
+  del documento `ISTRUZIONI_LLM_QUOTE_CALCIO.md` (fornito da Rossi il 02/10) e'
+  portato in `lib/bivariata.ts` e **riproduce il benchmark della sezione 11**:
+  a = 0,86381150 · b = 1,21015706 · c = 0,17486597 (atteso ...98), RMSE
+  0,48771615 pp, tabella dei 12 mercati identica a due decimali, P(0-0),
+  P(GG), P(2-2) identiche, specularita' rispettata. SciPy non c'e': al posto
+  di `least_squares` (trf) un Levenberg-Marquardt proiettato sui vincoli, stessi
+  punti di partenza, vincoli e pesi. Nuovo `GET /misura-stime` (a blocchi,
+  registrato nei tre posti): (a) fedelta' ai 7 prezzi del book, app contro
+  bivariata; (b) i 12 mercati non prezzati, frequenza reale contro le due
+  stime, con n. **Non in `/lavori`**: un lavoro li' scrive il suo stato in
+  `settings`, e la regola 8 del round vieta scritture (scelta concordata con
+  Rossi). Il motore dell'app NON cambia: il secondo tempo (interruttore,
+  pagella affiancata) lo decide Rossi sui numeri.
 
 Verifiche: `tsc` frontend 0 errori, `tsc` catena funzioni 0 errori; eslint
 invariato rispetto a `main` (7 errori e 14 warning gia' presenti, nessuno nuovo).

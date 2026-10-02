@@ -32,7 +32,7 @@ senza leggere il CHANGELOG.
 | **4** | Archivio nel calcolo | 🟡 02/10/2026: pronto ma **SPENTO** (opzione `archivioNelCalcolo`, misurabile con `/backtest-fusione?variante=archivio-calcolo`); si accende solo se batte `base` e decide il proprietario |
 | **5** | `1 AH -0,75`: decisione del proprietario | ✅ deciso 02/10/2026: **lasciare com'è** (nessun codice) |
 | **2-bis** | Equilibrio, ramo normale: decisione del proprietario | ✅ deciso 02/10/2026: **non toccare** (`X oppure GG` resta solo nel fallback) |
-| **6** | Stime delle quote: misura sui dati, poi eventuale upgrade | ⛔ in attesa: manca `ISTRUZIONI_LLM_QUOTE_CALCIO.md` nel repo, e `/lavori` scrive in `settings` (regola 8) |
+| **6** | Stime delle quote: misura sui dati, poi eventuale upgrade | ✅ 02/10/2026 primo tempo: `/misura-stime` (sola lettura, benchmark del documento riprodotto); il secondo tempo lo decide il proprietario |
 | **7** | Verifica: prezzo delle combo lato client | ✅ 02/10/2026: percorso vivo, precedenza riordinata (vedi CHANGELOG) |
 
 ---

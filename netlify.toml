@@ -213,6 +213,11 @@
   status = 200
 
 [[redirects]]
+  from = "/misura-stime"
+  to = "/.netlify/functions/misura-stime"
+  status = 200
+
+[[redirects]]
   from = "/verdetto"
   to = "/.netlify/functions/verdetto"
   status = 200
