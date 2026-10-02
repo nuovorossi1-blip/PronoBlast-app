@@ -151,7 +151,24 @@ codice + `.md` insieme -> costruisce.
 
 > Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
-> in `ticket/ticket.md`.
+> in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
+> stanno in `ticket/storia/` (indice in `ticket/README.md`).
+
+### 2026-10-02 — `ticket/` riordinato: il round vecchio va in `storia/`, il nuovo e' `ticket.md`
+
+Solo documentazione: nessuna riga di codice, nessun deploy (`[skip ci]`).
+
+- **Cosa.** `ticket/ticket.md` (round 1) → **`ticket/storia/round-1.md`**;
+  `ticket/ticket-2.md` (round 2) → **`ticket/ticket.md`**; nuovo indice
+  **`ticket/README.md`** con la regola della cartella.
+- **Perche'.** Il round 1 e' tutto nel codice: lasciarlo col nome `ticket.md`
+  faceva sembrare attive istruzioni gia' eseguite. Da ora **`ticket/ticket.md` e'
+  sempre il round attivo** (i round chiusi vanno in `storia/`), quindi la frase da
+  dare a Claude Code non cambia piu': *«Leggi `ticket/ticket.md` ed esegui i
+  ticket in ordine»*. Sostituisce la regola "cartella temporanea da eliminare" del
+  round 1: la cartella resta come memoria delle decisioni.
+- **Referenze aggiornate:** il puntatore del Log qui sopra. Nessun'altra parte del
+  repo citava i file dei ticket (verificato con grep).
 
 ### 2026-10-02 — Manuale GAP TECNICO: `MG casa/ospite 2-4` al posto di `1 AH -0,75`
 
