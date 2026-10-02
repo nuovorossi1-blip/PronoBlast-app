@@ -1274,28 +1274,33 @@ export function buildFinalVerdict(
     : null;
 
   for (const b of buckets.values()) {
-    if (odds && (b.odd === undefined || b.odd === null)) {
-      const computed = getMarketOdd(b.market, odds);
-      if (computed) b.odd = computed;
-    }
-    // Se il bookmaker non dà un prezzo (tutti i multigol, diverse combo), usiamo
-    // la quota stimata dal motore strutturale. Prima questi mercati restavano
-    // senza quota e sfuggivano a ogni filtro: erano la maggioranza dei pick.
+    // PRIMA la mappa del motore, POI la moltiplicazione (round 2, TICKET 7).
+    // `getMarketOdd` prezza le combo MOLTIPLICANDO le due quote, giusto solo
+    // per eventi indipendenti: "DC 1X" e "O2.5" non lo sono. Prima la
+    // moltiplicazione veniva per prima, e una combo della top-6 del motore
+    // (che qui arriva senza quota) prendeva il prodotto anche quando
+    // `market_odds` aveva la stima congiunta: DC 1X + O2.5 a 1,32 invece di
+    // 1,41, e quindi fuori dalla fascia 1,40 senza che nessuno lo vedesse.
+    // `market_odds` copre l'intero catalogo, con la quota reale quando il
+    // bookmaker la da' (stesso numero di getMarketOdd per i mercati singoli).
     if (b.odd === undefined || b.odd === null) {
-      // Prima si cercava solo dentro `ranking`, che e' il TOP 20: i mercati
-      // scartati dal motore restavano senza prezzo e sfuggivano al filtro.
-      // `market_odds` copre invece l'intero catalogo.
       const fromMap = structural?.market_odds?.[norm(b.market)]
         || structural?.market_odds?.[b.market];
       if (fromMap?.odd) {
         b.odd = fromMap.odd;
         b.oddEstimated = !!fromMap.estimated;
-      } else {
-        const fromEngine = structural?.ranking?.find((r) => norm(r.market) === norm(b.market));
-        if (fromEngine?.odd) {
-          b.odd = fromEngine.odd;
-          b.oddEstimated = !!fromEngine.odd_estimated;
-        }
+      }
+    }
+    if (odds && (b.odd === undefined || b.odd === null)) {
+      const computed = getMarketOdd(b.market, odds);
+      if (computed) b.odd = computed;
+    }
+    // Ultimo ripiego: la quota della voce del ranking (TOP 20).
+    if (b.odd === undefined || b.odd === null) {
+      const fromEngine = structural?.ranking?.find((r) => norm(r.market) === norm(b.market));
+      if (fromEngine?.odd) {
+        b.odd = fromEngine.odd;
+        b.oddEstimated = !!fromEngine.odd_estimated;
       }
     }
     // La concordanza fra sistemi INDIPENDENTI è il segnale più forte che
