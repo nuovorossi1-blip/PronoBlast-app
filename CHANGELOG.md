@@ -50,7 +50,10 @@ Supabase.
   esistono solo dentro Supabase).
 
 **Decisioni di Rossi da non riaprire senza chiederglielo.**
-- AH -0,75: resta com'e' (vale come 1X per la quota; X2 se e' 2AH).
+- AH -0,75: nel manuale GAP TECNICO non c'e' piu' — dal 02/10/2026 il suo posto
+  e' di **MG casa/ospite 2-4** (non era mai giocabile: la quota era presa dalla
+  doppia chance della favorita, quindi sotto 1,40 per costruzione). La regola di
+  quota dell'AH (vale come 1X; X2 se e' 2AH) resta scritta in `quotaManuale`.
 - Regola strutturale MG casa/ospite: resta com'e'.
 - Ticket 6-bis: under a tetto aperto solo col profilo DIFENSIVA (niente
   criterio λ ≤ 3,5).
@@ -148,7 +151,30 @@ codice + `.md` insieme -> costruisce.
 
 > Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
-> in `ticket/ticket.md`.
+> in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
+> stanno in `ticket/storia/` (indice in `ticket/README.md`).
+
+### 2026-10-02 — `ticket/` riordinato: il round vecchio va in `storia/`, il nuovo e' `ticket.md`
+
+Solo documentazione: nessuna riga di codice, nessun deploy (`[skip ci]`).
+
+- **Cosa.** `ticket/ticket.md` (round 1) → **`ticket/storia/round-1.md`**;
+  `ticket/ticket-2.md` (round 2) → **`ticket/ticket.md`**; nuovo indice
+  **`ticket/README.md`** con la regola della cartella.
+- **Perche'.** Il round 1 e' tutto nel codice: lasciarlo col nome `ticket.md`
+  faceva sembrare attive istruzioni gia' eseguite. Da ora **`ticket/ticket.md` e'
+  sempre il round attivo** (i round chiusi vanno in `storia/`), quindi la frase da
+  dare a Claude Code non cambia piu': *«Leggi `ticket/ticket.md` ed esegui i
+  ticket in ordine»*. Sostituisce la regola "cartella temporanea da eliminare" del
+  round 1: la cartella resta come memoria delle decisioni.
+- **Referenze aggiornate:** il puntatore del Log qui sopra. Nessun'altra parte del
+  repo citava i file dei ticket (verificato con grep).
+- **Cosa NON entra in questo merge (voluto dal proprietario):** la conversione
+  `1 AH -0,75` -> `MG casa/ospite 2-4` (commit `9df2161`, rimasto sul branch di
+  sessione; il suo revert e' in coda a questo stesso branch). Su `main` la lista
+  dello scenario GAP TECNICO e' ancora `[favorita fisso, favorita AH -0,75,
+  GG + Over 2,5]`: il TICKET 5 del round 2 e' la decisione del proprietario sulla
+  sorte dell'AH, e fino a quella nessun codice del manuale cambia.
 
 ### 2026-10-01 (8) — Pronostico AI troncato e manuale riconosciuto senza misura (PR #14)
 
