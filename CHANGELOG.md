@@ -154,6 +154,97 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-03 — Verifiche dopo Ucraina-Irlanda del Nord 0-3: nessuna regola da cambiare
+
+Solo documentazione: nessuna riga di codice, nessun deploy (`[skip ci]`).
+
+**Per chi riprende il lavoro (LLM o persona): leggere questa voce PRIMA di
+proporre una regola nata da una partita sola.** Le domande qui sotto sono gia'
+state misurate; non rifarle senza un numero nuovo che le smentisca.
+
+**Come si e' misurato** (vale per tutte le verifiche di questa voce): export
+in sola lettura di `/export-db` (8.563 partite concluse, 218 pronostici AI
+generati PRIMA del calcio d'inizio); partite rigiocate in ordine di data con
+lo storico delle sole partite precedenti (niente futuro); motore, fusione,
+filtri ed esiti con le funzioni VERE dell'app (`verdettoRicalcolato`,
+`buildFinalVerdict`, `violatesStructure`, `esitoMercato`), non copie. Gli
+script erano temporanei e non sono nel repository: si rifanno con la stessa
+catena di `netlify/functions/backtest-fusione.ts`.
+
+**Il caso.** Ucraina-Irlanda del Nord del 02/10, finita 0-3. Quote 1 = 2,00,
+2 = 4,25, U2,5 = 1,36. Il consiglio dell'AI era `DC 1X + U3.5 @1,43` (65%),
+scartato dal controllo di struttura; alla fascia 1,50 nessuna giocata. Il
+proprietario chiedeva: errore di calcolo o di statistica? E perche' una
+direzione (1X) in una partita "equilibrata"?
+
+1. **Errore di statistica, non di calcolo.** Con i lambda del motore
+   (1,22 / 0,77) lo 0-3 esatto aveva ~1% di probabilita', la vittoria ospite
+   ~21%, l'ospite con 3+ gol ~4%. Book, motore e web vedevano la stessa partita
+   chiusa.
+
+2. **"Equilibrio" non vuol dire 50/50.** Lo scenario e' EQUILIBRIO quando
+   nessuna quota 1 o 2 e' SOTTO 2,00 (regola del 15/09): l'Ucraina a 2,00 esatti
+   non contava come favorita, ma le quote la davano ~47% contro ~22%. La
+   direzione 1X (~77%) contro X2 (~53%) viene dalle quote: il sistema non
+   sceglie "una direzione", sceglie il mercato piu' probabile in fascia, e le
+   doppie chance coprono due esiti su tre.
+
+3. **In Equilibrio la direzione NON e' fortuna** (3.782 partite). La squadra
+   leggermente favorita vince esattamente quanto dice il book:
+
+   | quote 1 e 2 | partite | favorita leggera | X | altra |
+   |---|---|---|---|---|
+   | quasi uguali (rapporto < 1,25) | 1.656 | 39,1% (book 38,1%) | 28,1% | 32,9% |
+   | rapporto 1,25-1,6 | 1.694 | 43,6% (book 42,3%) | 26,7% | 29,7% |
+   | rapporto 1,6-2,2 | 432 | 44,2% (book 45,0%) | 28,9% | 26,9% |
+
+   Le quote leggono la direzione bene; il sistema non ne sa PIU' del book.
+
+4. **Regola "in Equilibrio niente mercati con direzione": BOCCIATA.** Verdetto
+   di oggi in Equilibrio, pick con direzione (1X, X2, 1, 2 e loro combo) contro
+   senza: fascia 1,40 **65,8%** su 1.057 contro 62,0% su 1.394; 1,50 59,2% /
+   60,3%; 1,60 55,7% / 59,8%; 1,75 47,2% / 53,0%. Simulando il divieto: fascia
+   1,40 da **63,6% a 62,2%** e 656 giocate in meno; 1,50 +1,2 punti ma 694
+   giocate in meno; 1,60 pari; 1,75 +0,9. Alla fascia che conta (1,40)
+   peggiora. Miglior mercato in Equilibrio con quota >= 1,40: **`X oppure GG`
+   62,9%** su 2.943 (quota media 1,60), poi MG 2-4 totali 60,4%, 1X 60,4%,
+   X2 59,7%. Attenzione a non confondere: `DC 1X + U3.5` in Equilibrio rende il
+   47% IN MEDIA (pagato di solito ~2,00), ma in questa partita era a 1,43
+   (~65%): la media dello scenario non dice nulla sulla singola partita.
+
+5. **"Far decidere solo l'AI": nessuna prova che serva.** L'AI e' gia' la
+   regista del verdetto dal 01/10 (classifica per fascia, controllata dal
+   codice). Pagella di `/manuale-stats` sulle STESSE 160 partite: AI 59,4%,
+   Verdetto 60,6%, Motore 60,6%, PRE 61,9%. Differenze dentro il rumore
+   (~4 punti a n = 160). Servono molte piu' partite con pronostico AI.
+
+6. **Regola "Under oltre il tetto chiuso = gia' garantito"** (`violatesStructure`,
+   `if (u > ceiling) return true`), quella che ha scartato il consiglio dell'AI
+   in Ucraina: teoricamente imprecisa (U3,5 a 1,43 non e' garantito), in pratica
+   **irrilevante**. Verdetti con e senza la regola: cambia il pick in **2 su
+   23.911** giocate. Pronostici AI scartati da lei nell'archivio: **zero**
+   (Ucraina e' il primo caso). Non si tocca: non cambierebbe nulla.
+
+7. **Regola del proprietario "tetto aperto, niente MG 2-4" (29/09): GIUSTA,
+   ma per un motivo diverso da quello creduto.** E' la regola che ha scartato
+   piu' pronostici AI (31, indovinati al 71% contro 61% del verdetto: n troppo
+   piccolo). Sull'archivio intero MG 2-4 totali rende UGUALE con tetto aperto o
+   chiuso (fascia 1,40: 60,7% su 896 contro 60,4% su 2.553; 1,50: 60,6% /
+   60,9%; 1,60: 51,5% / 52,2%), tranne nel GAP TECNICO (aperto 58,4% su 1.544,
+   chiuso 63,8% su 655). Pero' sulle stesse 532 partite a tetto aperto e fascia
+   1,40 il pick che il sistema gioca AL POSTO di MG 2-4 rende **67,7%** contro
+   60,5% (a 1,50 e 1,60 pari). La regola resta: guadagna 7 punti alla 1,40
+   perche' li' c'e' di meglio, non perche' MG 2-4 vada peggio.
+
+**Conclusione del 03/10: nessuna regola da cambiare per il momento.** Le
+regole migliori si trovano su centinaia di partite, non su una: una partita
+persa (anche 0-3) non e' un argomento di calibrazione, a meno che una misura
+sull'archivio non dica la stessa cosa.
+
+Aperta, da decidere solo con una misura: gli xG dal web della scheda (qui
+2,51 gol contro 1,99 delle quote) oggi sono solo informativi; se aiutino a
+indovinare si vede su centinaia di partite con pronostico AI, non su questa.
+
 ### 2026-10-03 — Round 2, le misure sull'archivio vero: TICKET 4 resta spento
 
 Lanciate in produzione dopo il merge di #16, sola lettura, su **8.563 partite
