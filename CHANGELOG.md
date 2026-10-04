@@ -149,10 +149,28 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
-> Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
+> Dal 2026-10-04 il repo si chiama `nuovorossi1-blip/PronoBlast-app` (prima
+> `emergent-app`). Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
+
+### 2026-10-04 — Repo rinominato da `emergent-app` a `PronoBlast-app`
+
+- Su GitHub il repo `nuovorossi1-blip/emergent-app` ora si chiama
+  `nuovorossi1-blip/PronoBlast-app`. GitHub reindirizza il vecchio indirizzo
+  (web, API, download delle release), quindi le APK gia' installate continuano
+  a trovare gli aggiornamenti.
+- Aggiornati i riferimenti al nome del repo in
+  `frontend/src/utils/androidApp.ts` (controllo aggiornamenti),
+  `.github/workflows/build-apk.yml` e `docs/android-apk.md` (commit `2e929f6`).
+  Il push ha fatto partire il build: release `apk-v1.0.4`, identica alla 1.0.3
+  salvo il nuovo nome del repo.
+- **Trappola**: non creare MAI un nuovo repo chiamato `emergent-app` su questo
+  account, altrimenti il reindirizzamento si rompe e le APK vecchie smettono di
+  vedere gli aggiornamenti.
+- Invariati: progetto Supabase `emergent-app-db` (`zjucgmngettxfwgxazxl`),
+  progetti Vercel/Netlify, nomi interni nei `package.json`.
 
 ### 2026-10-03 — Verifiche dopo Ucraina-Irlanda del Nord 0-3: nessuna regola da cambiare
 
