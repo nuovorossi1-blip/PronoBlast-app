@@ -12,7 +12,7 @@
  */
 import { Platform } from "react-native";
 
-export const REPO = "nuovorossi1-blip/emergent-app";
+export const REPO = "nuovorossi1-blip/PronoBlast-app";
 export const RELEASE_LATEST_APK = `https://github.com/${REPO}/releases/latest/download/PronoBlast.apk`;
 export const RELEASE_LATEST_PAGE = `https://github.com/${REPO}/releases/latest`;
 const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;

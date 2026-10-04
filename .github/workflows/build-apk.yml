@@ -14,9 +14,9 @@
 # - GymBuilder committa l'APK dentro public/ e lo ridistribuisce con Vercel: serve
 #   un VERCEL_TOKEN e ogni build aggiunge ~5 MB alla storia del repo.
 # - Qui l'APK va in una GitHub Release (tag apk-vX.Y.Z). Link fisso all'ultima
-#   versione: https://github.com/nuovorossi1-blip/emergent-app/releases/latest/download/PronoBlast.apk
+#   versione: https://github.com/nuovorossi1-blip/PronoBlast-app/releases/latest/download/PronoBlast.apk
 #   Nessun segreto da configurare: basta il GITHUB_TOKEN automatico.
-# - L'app installata legge https://api.github.com/repos/nuovorossi1-blip/emergent-app/releases/latest
+# - L'app installata legge https://api.github.com/repos/nuovorossi1-blip/PronoBlast-app/releases/latest
 #   (frontend/src/utils/androidApp.ts): se il tag e' piu' alto della versione
 #   installata, propone l'aggiornamento.
 #
@@ -101,8 +101,8 @@ jobs:
           {
             "version": "${{ steps.version.outputs.name }}",
             "versionCode": ${{ steps.version.outputs.code }},
-            "apkUrl": "https://github.com/nuovorossi1-blip/emergent-app/releases/latest/download/PronoBlast.apk",
-            "releaseUrl": "https://github.com/nuovorossi1-blip/emergent-app/releases/latest",
+            "apkUrl": "https://github.com/nuovorossi1-blip/PronoBlast-app/releases/latest/download/PronoBlast.apk",
+            "releaseUrl": "https://github.com/nuovorossi1-blip/PronoBlast-app/releases/latest",
             "notes": "Aggiornamento del guscio Android di PronoBlast.",
             "mandatory": false
           }

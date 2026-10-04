@@ -17,7 +17,7 @@ pubblicato su GitHub Release invece che dentro `public/`.
   (firma FISSA, committata) e lo pubblica come Release `apk-v1.0.<N>` con due
   file: `PronoBlast.apk` e `version.json`.
 - Link fisso all'ultima versione:
-  `https://github.com/nuovorossi1-blip/emergent-app/releases/latest/download/PronoBlast.apk`
+  `https://github.com/nuovorossi1-blip/PronoBlast-app/releases/latest/download/PronoBlast.apk`
 - Nel frontend, `frontend/src/utils/androidApp.ts` e
   `frontend/src/components/NativeUpdater.tsx`: dentro l'APK, all'avvio, si
   confronta la versione installata (plugin nativo `ApkUpdater`, in
