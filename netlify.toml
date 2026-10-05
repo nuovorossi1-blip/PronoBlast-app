@@ -233,6 +233,11 @@
   status = 200
 
 [[redirects]]
+  from = "/quote-pc"
+  to = "/.netlify/functions/quote-pc"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

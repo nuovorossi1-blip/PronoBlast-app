@@ -53,6 +53,7 @@ import matches_days from "../netlify/functions/matches-days";
 import matches_list from "../netlify/functions/matches-list";
 import ml_stats from "../netlify/functions/ml-stats";
 import odd_settings from "../netlify/functions/odd-settings";
+import quote_pc from "../netlify/functions/quote-pc";
 import predict from "../netlify/functions/predict";
 import results_apply from "../netlify/functions/results-apply";
 import results_bulk from "../netlify/functions/results-bulk";
@@ -100,6 +101,7 @@ const ROUTES: Record<string, Handler> = {
   "matches-list": matches_list,
   "ml-stats": ml_stats,
   "odd-settings": odd_settings,
+  "quote-pc": quote_pc,
   "predict": predict,
   "results-apply": results_apply,
   "results-bulk": results_bulk,

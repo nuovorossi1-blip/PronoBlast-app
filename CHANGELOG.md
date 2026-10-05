@@ -155,6 +155,45 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-05 — Tasto "Aggiorna Quote" (PC di casa) e orari iLovePDF persi
+
+**1. Orari dei file iLovePDF: si perdeva l'85% delle partite.** iLovePDF scrive
+l'ora come NUMERO in formato HH.MM: 18.00 -> `18`, 18.30 -> `18.3`, 00.15 ->
+`0.15`. `parseTime` riconosceva solo `18.15`/`18.45`: le ore intere e quelle
+che finiscono per zero venivano saltate (senza finire fra gli scarti: per il
+parser non erano righe), e `0.15` era letto come frazione di giorno = **03:36**.
+Misurato sul file iLovePDF del 03/10: **160 partite su 1025** prima,
+**1016 su 1025** dopo (le 9 restanti hanno davvero quote mancanti), orari dopo
+mezzanotte giusti. Regola nuova: un numero con al massimo 2 decimali e' HH.MM,
+solo gli altri sono frazioni di giorno (ora vera di Excel). Unico caso ambiguo:
+un'ora vera di Excel alle 06:00 o 12:00 (0.25 / 0.5) — i file Sisal non ne
+contengono. Modifica in **tutte e due** le copie: `lib/excelParser.ts` e
+`upload-excel.mjs` (patch a mano, come il 19/09).
+
+**2. Tasto "Aggiorna Quote" in Strumenti** (i tre tasti manuali restano com'erano).
+Fa da solo: scarica il PDF Sisal, lo converte in Excel, lo carica.
+- Sisal blocca i download dai server (403 da riga di comando, connessione chiusa
+  da Edge senza finestra): il lavoro lo fa il **PC di casa** con Edge vero, la
+  finestra aperta ma fuori dallo schermo. Programma in `pc-quote-sisal/`
+  (README li'), avviato a ogni accesso a Windows da un'operazione pianificata.
+- Il PC non si puo' chiamare (sta dietro il router): e' lui che chiama
+  `/quote-pc` ogni 15 s (battito) e prende la richiesta del tasto. Stato in
+  `settings.pc_quote_battito` e `settings.pc_quote_richiesta`, nessuna tabella
+  nuova. Nessun battito da 60 s = l'app dice **"Server spento"**.
+- **Niente OCR e niente iLovePDF**: il PDF Sisal ha testo vero
+  (PDFCreator/Ghostscript). `pc-quote-sisal/converti.py` assegna ogni carattere
+  alla colonna in base alla posizione sotto l'intestazione; due quote attaccate
+  (`12,0022,00`) si separano da sole. Se l'intestazione cambia (ordine
+  confermato da Rossi: `1 X 2 | H 1 X 2 | 1X X2 12 | U1,5 O1,5 U2,5 O2,5 U3,5 O3,5 | GG NG | SI NO SI NO`)
+  si ferma e non carica niente. SI/NO (segna goal) non vanno nell'Excel.
+  L'ora e' scritta come TESTO ("18.30"), mai come numero.
+- Verifiche sul PDF del 05/10: 809 righe partita nel PDF, 809 convertite,
+  **802 accettate** dal parser vero (le 7 scartate hanno quote davvero assenti
+  nel PDF); su tutte le 809 la somma 1/quota di ogni gruppo (1X2, handicap, U/O,
+  GG/NG) sta nel margine del book, quindi nessuna quota in colonna sbagliata.
+- PDF ed Excel restano sul PC in `Documenti\Quote Sisal\Quote PDF Sisal` e
+  `...\Quote Excel convertite`, con data e ora nel nome, piu' `registro.txt`.
+
 ### 2026-10-04 — Repo rinominato da `emergent-app` a `PronoBlast-app`
 
 - Su GitHub il repo `nuovorossi1-blip/emergent-app` ora si chiama

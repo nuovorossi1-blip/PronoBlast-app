@@ -189,6 +189,10 @@
       "destination": "/api/odd-settings"
     },
     {
+      "source": "/quote-pc",
+      "destination": "/api/quote-pc"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

@@ -72,6 +72,18 @@ function parseFirstDay(rows: any[][]): Date | null {
 
 function parseTime(val: any): string | null {
   if (val === null || val === undefined || val === "") return null;
+  // PATCH 05/10/2026 — iLovePDF scrive l'ora come NUMERO in formato HH.MM:
+  // 18.00 -> 18, 18.30 -> 18.3, 00.15 -> 0.15. Prima "18" e "18.3" venivano
+  // scartate (nel file del 03/10 entravano 160 partite su 1025) e 0.15 era
+  // letto come frazione di giorno (03:36). Un numero con al massimo 2 decimali
+  // e' quindi HH.MM; solo gli altri sono frazioni di giorno (ora vera di Excel).
+  // Stessa modifica in upload-excel.mjs: le due copie vanno tenute allineate.
+  if (typeof val === "number" && isFinite(val) && val >= 0 && val < 24
+      && Math.abs(val * 100 - Math.round(val * 100)) < 1e-6) {
+    const h = Math.floor(val);
+    const mi = Math.round((val - h) * 100);
+    if (mi < 60) return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+  }
   const s = String(val).trim();
   const f = parseFloat(s);
   if (!isNaN(f) && f >= 0 && f < 1 && /^[\d.]+$/.test(s)) {

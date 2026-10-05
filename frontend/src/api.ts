@@ -390,6 +390,35 @@ export type Lavoro = {
   fermo?: boolean;
 };
 
+/** Aggiorna quote dal PC di casa (/quote-pc): una richiesta alla volta. */
+export type QuotePcRichiesta = {
+  id: string;
+  stato: "in_attesa" | "in_corso" | "fatto" | "errore";
+  creata: string;
+  aggiornato: string;
+  /** Cosa sta facendo il PC adesso, in parole ("Scarico il PDF da Sisal"...). */
+  fase: string;
+  esito: {
+    partite_pdf: number;
+    pdf: string;
+    excel: string;
+    inserted: number;
+    updated: number;
+    unchanged?: number;
+    skipped: number;
+    total_parsed: number;
+    rows_seen?: number;
+  } | null;
+  errore: string | null;
+};
+
+export type QuotePcStato = {
+  /** false = nessun battito dal PC nell'ultimo minuto: "server spento". */
+  acceso: boolean;
+  ultimo_battito: string | null;
+  richiesta: QuotePcRichiesta | null;
+};
+
 export const api = {
   matches: (day?: string, q?: string) => {
     const p = new URLSearchParams();
@@ -557,6 +586,19 @@ export const api = {
     return res.json() as Promise<{ inserted: number; updated: number; unchanged?: number; skipped: number; total_parsed: number; rows_seen?: number }>;
   },
   uploadSkipped: () => netlifyReq<UploadSkippedReport>(`/upload-skipped`),
+  quotePcStato: () => netlifyReq<{ ok: boolean } & QuotePcStato>("/quote-pc"),
+  /** Non usa netlifyReq: il 409 "server spento" porta un messaggio da mostrare
+   *  cosi' com'e', non un errore tecnico. */
+  quotePcAvvia: async (): Promise<{ ok: true; richiesta: QuotePcRichiesta } | { ok: false; spento: boolean; error: string }> => {
+    const res = await fetch("/quote-pc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azione: "avvia" }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j?.richiesta) return { ok: true, richiesta: j.richiesta };
+    return { ok: false, spento: !!j?.spento, error: j?.error || `Errore ${res.status}` };
+  },
 };
 
 export type SkippedRow = {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform,
 } from "react-native";
@@ -10,7 +10,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 
-import { api } from "@/src/api";
+import { api, type QuotePcStato } from "@/src/api";
 import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useLavoro, LavoroBox } from "@/src/components/LavoroBox";
@@ -29,6 +29,12 @@ export default function Strumenti() {
   // Dentro l'APK non ha senso (l'aggiornamento lo propone NativeUpdater),
   // su desktop il link alla pagina delle release basta e avanza.
   const showApkInstall = Platform.OS === "web" && !isAndroidShell();
+  // "Aggiorna Quote": stato del PC di casa (acceso/spento) e fase in corso.
+  const [pc, setPc] = useState<QuotePcStato | null>(null);
+  const [quoteFase, setQuoteFase] = useState("");
+  useEffect(() => {
+    api.quotePcStato().then(setPc).catch(() => setPc(null));
+  }, []);
 
   const uploadExcel = async () => {
     const res = await DocumentPicker.getDocumentAsync({
@@ -176,6 +182,79 @@ export default function Strumenti() {
     }
   };
 
+  /**
+   * Tasto "Aggiorna Quote" (05/10/2026): fa sul PC di casa quello che Rossi
+   * faceva a mano con i tre tasti qui sotto — scarica il PDF Sisal, lo converte
+   * in Excel e lo carica. Il PC prende la richiesta al suo battito successivo
+   * (ogni 15 s); se e' spento il server lo dice subito. Vedi quote-pc.ts.
+   */
+  const aggiornaQuote = async () => {
+    setBusy("quote");
+    setQuoteFase("Contatto il PC di casa…");
+    try {
+      const avvio = await api.quotePcAvvia();
+      if (!avvio.ok) {
+        notify(avvio.spento ? "Server spento" : "Aggiorna quote", avvio.error);
+        api.quotePcStato().then(setPc).catch(() => {});
+        return;
+      }
+      const id = avvio.richiesta.id;
+      const inizio = Date.now();
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const s = await api.quotePcStato().catch(() => null);
+        if (!s) continue;
+        setPc(s);
+        const r = s.richiesta;
+        if (!r || r.id !== id) throw new Error("La richiesta e' stata sostituita da un'altra.");
+        setQuoteFase(r.fase || "");
+        if (r.stato === "in_attesa" && Date.now() - inizio > 60_000) {
+          notify("Server spento", "Il PC di casa non ha preso la richiesta entro un minuto: probabilmente si e' appena spento o ha perso la connessione.");
+          return;
+        }
+        if (r.stato === "errore") {
+          notify("Aggiorna quote: errore", r.errore || "Errore sconosciuto sul PC.");
+          return;
+        }
+        if (r.stato === "fatto" && r.esito) {
+          const e = r.esito;
+          matchesCache.invalidate();
+          daysCache.invalidate();
+          const lines = [
+            `Partite nel PDF: ${e.partite_pdf}`,
+            `Righe lette: ${e.rows_seen ?? "?"}`,
+            `Nuove: ${e.inserted}`,
+            `Aggiornate: ${e.updated}`,
+            `Già presenti: ${e.unchanged ?? 0}`,
+            `Valide totali: ${e.total_parsed}`,
+            `Righe scartate: ${e.skipped}`,
+          ];
+          if (e.skipped > 0) {
+            confirmAction({
+              title: "Quote aggiornate",
+              message: `${lines.join("\n")}\n\nVuoi vedere i dettagli degli scarti?`,
+              confirmText: "Vedi scarti",
+              cancelText: "Chiudi",
+              onConfirm: () => router.push("/scartati"),
+            });
+          } else {
+            notify("Quote aggiornate", lines.join("\n"));
+          }
+          return;
+        }
+        if (Date.now() - inizio > 8 * 60_000) {
+          notify("Aggiorna quote", "Il PC ci sta mettendo troppo. Riprova tra qualche minuto.");
+          return;
+        }
+      }
+    } catch (e: any) {
+      notify("Aggiorna quote: errore", e?.message || "Errore");
+    } finally {
+      setBusy(null);
+      setQuoteFase("");
+    }
+  };
+
   const downloadQuotePdf = () => {
     openExternalUrl("https://landing.sisal.it/volantini/Scommesse_Sport/Quote/calcio%20base%20per%20data.pdf");
   };
@@ -220,6 +299,15 @@ export default function Strumenti() {
       <ScrollView contentContainerStyle={styles.list} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16}>
         {srv.inCorso ? <LavoroBox lavoro={srv.lavoro} onFerma={srv.ferma} /> : null}
         <Text style={styles.section}>IMPORT DATI</Text>
+        <Tool
+          testID="tool-aggiorna-quote"
+          icon="refresh-circle-outline"
+          title="Aggiorna Quote"
+          desc={pc && !pc.acceso
+            ? "Server spento: il PC di casa non risponde. Serve acceso per scaricare, convertire e caricare le quote Sisal."
+            : "Il PC di casa scarica il PDF Sisal, lo converte in Excel e lo carica, tutto da solo."}
+          onPress={aggiornaQuote}
+        />
         <Tool
           testID="tool-download-pdf"
           icon="cloud-download-outline"
@@ -370,7 +458,7 @@ export default function Strumenti() {
       {busy && (
         <View style={styles.busy}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={styles.busyTxt}>Elaborazione…</Text>
+          <Text style={styles.busyTxt}>{busy === "quote" && quoteFase ? quoteFase : "Elaborazione…"}</Text>
         </View>
       )}
 
