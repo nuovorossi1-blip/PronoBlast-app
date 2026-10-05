@@ -11,24 +11,23 @@ import type { QuotePcRichiesta, QuotePcStato } from "../../frontend/src/api";
  * converte in .xlsx SENZA OCR (il PDF contiene testo vero) e lo manda a
  * /upload-excel come farebbe Rossi a mano.
  *
- * COME SI PARLANO APP E PC. Il PC sta dietro il router di casa: non lo si puo'
- * chiamare. E' lui che chiama noi, ogni 15 secondi ("battito"):
- *  - `settings.pc_quote_battito`   -> l'ultimo battito. Vecchio = PC spento.
+ * COME SI PARLANO APP E PC (06/10/2026). Niente piu' battito: ogni 15 s
+ * esauriva la CPU gratuita di Vercel. Ora e' il server a chiamare il PC, e
+ * SOLO quando si preme il tasto: l'agente aspetta su PC_AGENTE_URL (in locale
+ * http://127.0.0.1:47815; da Vercel l'indirizzo Tailscale Funnel del PC), con
+ * il segreto condiviso PC_AGENTE_SEGRETO. Se la chiamata fallisce, PC spento.
  *  - `settings.pc_quote_richiesta` -> la richiesta del tasto e il suo stato.
- * Il tasto crea la richiesta (solo se il PC e' acceso); al battito dopo il PC
- * la prende, scrive le fasi mentre lavora e alla fine l'esito.
+ * Il PC la prende, scrive le fasi mentre lavora e alla fine l'esito.
  *
- *   GET  /quote-pc                         -> { acceso, ultimo_battito, richiesta }
- *   POST /quote-pc { azione: "avvia" }     -> crea la richiesta (409 se PC spento)
- *   POST /quote-pc { azione: "battito" }   -> (PC) battito; risponde con la richiesta in attesa
+ *   GET  /quote-pc                         -> { acceso, ultimo_battito: null, richiesta }
+ *   POST /quote-pc { azione: "avvia" }     -> crea la richiesta e sveglia il PC (409 se spento)
  *   POST /quote-pc { azione: "prendi", id }-> (PC) in_attesa -> in_corso, una volta sola
  *   POST /quote-pc { azione: "stato", id, stato, fase, esito, errore } -> (PC) avanzamento
  */
 
-const BATTITO = "pc_quote_battito";
 const RICHIESTA = "pc_quote_richiesta";
-/** Il PC batte ogni 15 s: senza battiti da 60 s lo consideriamo spento. */
-const SPENTO_DOPO_MS = 60_000;
+const AGENTE = (process.env.PC_AGENTE_URL || "").replace(/\/$/, "");
+const SEGRETO = process.env.PC_AGENTE_SEGRETO || "";
 /** Una richiesta senza aggiornamenti da 10 minuti e' abbandonata (PC spento a
  *  meta' lavoro): se ne puo' avviare un'altra. Il lavoro normale dura 1-2 min. */
 const ABBANDONATA_DOPO_MS = 10 * 60_000;
@@ -47,15 +46,29 @@ function attiva(r: QuotePcRichiesta | null): boolean {
     && Date.now() - Date.parse(r.aggiornato) < ABBANDONATA_DOPO_MS;
 }
 
+/** Chiama l'agente sul PC. Errore (o PC non configurato) = PC spento. */
+async function agente(percorso: string, corpo?: unknown): Promise<Response | null> {
+  if (!AGENTE || !SEGRETO) return null;
+  try {
+    return await fetch(`${AGENTE}${percorso}`, {
+      method: corpo ? "POST" : "GET",
+      headers: { "Content-Type": "application/json", "X-Segreto": SEGRETO },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function stato(): Promise<QuotePcStato> {
-  const [b, r] = await Promise.all([
-    leggi<{ ultimo: string }>(BATTITO),
+  const [ping, r] = await Promise.all([
+    agente("/ping"),
     leggi<QuotePcRichiesta>(RICHIESTA),
   ]);
-  const ultimo = b?.ultimo || null;
   return {
-    acceso: !!ultimo && Date.now() - Date.parse(ultimo) < SPENTO_DOPO_MS,
-    ultimo_battito: ultimo,
+    acceso: !!ping?.ok,
+    ultimo_battito: null,
     richiesta: r && !attiva(r) && (r.stato === "in_attesa" || r.stato === "in_corso")
       ? { ...r, stato: "errore", errore: "Il PC ha smesso di rispondere a meta' lavoro." }
       : r,
@@ -70,30 +83,33 @@ export default async (req: Request): Promise<Response> => {
     const body = await req.json().catch(() => ({}));
     const ora = new Date().toISOString();
 
+    // "prendi" e "stato" arrivano dal PC: solo con il segreto giusto.
+    if (body?.azione !== "avvia" && (!SEGRETO || req.headers.get("x-segreto") !== SEGRETO)) {
+      return jsonResponse({ error: "Non autorizzato" }, 403);
+    }
+
     switch (body?.azione) {
       case "avvia": {
-        const s = await stato();
-        if (!s.acceso) {
-          return jsonResponse({
-            error: "Server spento: il PC di casa non risponde. Accendilo (o controlla che sia connesso) e riprova.",
-            spento: true, ...s,
-          }, 409);
-        }
-        if (attiva(s.richiesta)) {
-          return jsonResponse({ error: "C'e' gia' un aggiornamento quote in corso.", ...s }, 409);
+        const attuale = await leggi<QuotePcRichiesta>(RICHIESTA);
+        if (attiva(attuale)) {
+          return jsonResponse({ error: "C'e' gia' un aggiornamento quote in corso.", acceso: true, ultimo_battito: null, richiesta: attuale }, 409);
         }
         const richiesta: QuotePcRichiesta = {
           id: crypto.randomUUID(), stato: "in_attesa", creata: ora, aggiornato: ora,
-          fase: "In attesa del PC…", esito: null, errore: null,
+          fase: "Sveglio il PC di casa…", esito: null, errore: null,
         };
         await scrivi(RICHIESTA, richiesta);
+        const ritorno = process.env.PC_AGENTE_RITORNO || new URL(req.url).origin;
+        const r = await agente("/avvia", { richiesta, ritorno });
+        if (!r?.ok) {
+          const errore = r?.status === 409
+            ? "Il PC sta gia' aggiornando le quote."
+            : "Server spento: il PC di casa non risponde. Accendilo (o controlla che sia connesso) e riprova.";
+          const fallita = { ...richiesta, stato: "errore" as const, fase: "Errore", errore, aggiornato: new Date().toISOString() };
+          await scrivi(RICHIESTA, fallita);
+          return jsonResponse({ error: errore, spento: r?.status !== 409, acceso: !!r, ultimo_battito: null, richiesta: fallita }, 409);
+        }
         return jsonResponse({ ok: true, richiesta });
-      }
-
-      case "battito": {
-        await scrivi(BATTITO, { ultimo: ora, versione: String(body.versione || "") });
-        const r = await leggi<QuotePcRichiesta>(RICHIESTA);
-        return jsonResponse({ ok: true, richiesta: r && r.stato === "in_attesa" && attiva(r) ? r : null });
       }
 
       case "prendi": {

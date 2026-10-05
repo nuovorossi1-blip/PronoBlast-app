@@ -1,0 +1,12 @@
+{
+  "name": "pronoblast-server-locale",
+  "private": true,
+  "description": "PronoBlast sul PC di casa al posto di Vercel (vedi server.ts).",
+  "type": "module",
+  "scripts": {
+    "start": "tsx --env-file=.env server.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.19.0"
+  }
+}

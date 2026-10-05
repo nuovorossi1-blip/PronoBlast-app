@@ -8,14 +8,20 @@ download che non venga da un browser vero (risponde 403 ai server).
 ## Come funziona
 
 ```
-app (tasto) ──POST /quote-pc avvia──▶ Vercel ──settings.pc_quote_richiesta──▶ Supabase
-                                                          ▲
-PC di casa: agente.py ──ogni 15 s POST /quote-pc battito──┘
-            └─ richiesta trovata → Edge scarica il PDF → converti.py → POST /upload-excel
+app (tasto) ──POST /quote-pc avvia──▶ server PronoBlast ──POST /avvia (X-Segreto)──▶ agente.py sul PC
+                                            ▲                                          │
+                                            └── POST /quote-pc prendi/stato, /upload-excel ┘
+                                       Edge scarica il PDF → converti.py → Excel
 ```
 
-- Il PC chiama il server, mai il contrario: nessuna porta aperta sul router.
-- Nessun battito da 60 secondi = **"Server spento"** nell'app.
+- Niente battito (06/10/2026): l'agente aspetta in silenzio su `127.0.0.1:47815`
+  e lavora SOLO quando si preme il tasto. Il battito ogni 15 s esauriva la CPU
+  gratuita di Vercel.
+- Il server lo raggiunge su `PC_AGENTE_URL` con il segreto `PC_AGENTE_SEGRETO`
+  (= `segreto.txt` accanto ad `agente.py`, non va su git). Server locale:
+  `http://127.0.0.1:47815`. Da Vercel serve un indirizzo pubblico del PC
+  (Tailscale Funnel, es. `tailscale funnel --bg --https=10000 http://127.0.0.1:47815`).
+- PC che non risponde = **"Server spento"** nell'app, subito al clic.
 - Edge si apre con la finestra **fuori dallo schermo**: senza finestra
   (headless) la protezione di Sisal chiude la connessione.
 - La conversione **non usa OCR**: il PDF contiene testo vero, e ogni quota viene

@@ -1,12 +1,15 @@
 """Agente "Aggiorna Quote" del PC di casa (05/10/2026).
 
-Gira in sottofondo da quando si accede a Windows (vedi installa.ps1). Ogni 15
-secondi manda un "battito" a PronoBlast (/quote-pc): finche' i battiti arrivano,
-nell'app il tasto "Aggiorna Quote" funziona; se il PC e' spento, l'app dice
-"Server spento".
+Gira in sottofondo da quando si accede a Windows (vedi installa.ps1) e ASPETTA
+in silenzio su http://127.0.0.1:47815, senza chiamare nessuno. Niente piu'
+battito (06/10/2026: il battito ogni 15 s esauriva la CPU gratuita di Vercel):
+e' il server di PronoBlast a chiamare qui, e SOLO quando si preme il tasto.
+  GET  /ping   -> {ok, versione}       (l'app chiede "il PC e' acceso?")
+  POST /avvia  {richiesta, ritorno}    (il tasto "Aggiorna Quote")
+Entrambe vogliono l'intestazione X-Segreto = contenuto di segreto.txt.
+Se il PC e' spento la chiamata fallisce e l'app dice "Server spento".
 
-Quando nell'app si preme il tasto, al battito successivo il server risponde con
-la richiesta e qui si fa, da soli, quello che prima si faceva a mano:
+Quando arriva /avvia si fa, da soli, quello che prima si faceva a mano:
   1. Edge scarica il PDF da Sisal (con la finestra aperta ma FUORI dallo schermo:
      senza finestra la protezione anti-bot di Sisal chiude la connessione);
   2. converti.py lo trasforma in .xlsx, senza OCR (il PDF ha testo vero);
@@ -17,16 +20,18 @@ Uso:  pythonw agente.py            (sottofondo, quello che lancia l'installazion
       python  agente.py --una-volta  (scarica + converte + carica subito, senza app)
       python  agente.py --prova      (scarica + converte, NON carica)
 """
-import base64, ctypes, ctypes.wintypes, datetime, json, logging, pathlib, socket, sys, time, traceback, uuid
+import base64, ctypes, ctypes.wintypes, datetime, hmac, json, logging, pathlib, sys, threading, traceback, uuid
 import urllib.request, urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import converti
 
-VERSIONE = "2026-10-05"
-SITO = "https://pronoblast.vercel.app"
+VERSIONE = "2026-10-06b"
+SITO = "https://pronoblast.vercel.app"   # di riserva: di solito l'indirizzo arriva con /avvia
 URL_PDF = "https://landing.sisal.it/volantini/Scommesse_Sport/Quote/calcio%20base%20per%20data.pdf"
-OGNI_SECONDI = 15
-PORTA_UNICA = 47815   # impedisce di avere due agenti accesi insieme
+PORTA = 47815   # una sola: impedisce anche di avere due agenti accesi insieme
+SEGRETO = (pathlib.Path(__file__).with_name("segreto.txt").read_text(encoding="utf-8").strip()
+           if pathlib.Path(__file__).with_name("segreto.txt").exists() else "")
 
 
 def documenti() -> pathlib.Path:
@@ -53,7 +58,7 @@ log = logging.getLogger("quote")
 def chiama(azione: str, **dati) -> dict:
     corpo = json.dumps({"azione": azione, **dati}).encode()
     req = urllib.request.Request(f"{SITO}/quote-pc", data=corpo, method="POST",
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", "X-Segreto": SEGRETO})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
 
@@ -154,29 +159,69 @@ def gestisci(richiesta: dict):
             pass
 
 
-def ciclo():
-    unico = socket.socket()
+OCCUPATO = threading.Lock()
+
+
+class Ascolto(BaseHTTPRequestHandler):
+    def rispondi(self, codice: int, dati: dict):
+        corpo = json.dumps(dati).encode()
+        self.send_response(codice)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def autorizzato(self) -> bool:
+        ok = bool(SEGRETO) and hmac.compare_digest(self.headers.get("X-Segreto", ""), SEGRETO)
+        if not ok:
+            self.rispondi(403, {"ok": False, "error": "segreto sbagliato"})
+        return ok
+
+    def do_GET(self):
+        if self.path != "/ping":
+            return self.rispondi(404, {"ok": False})
+        if self.autorizzato():
+            self.rispondi(200, {"ok": True, "versione": VERSIONE, "occupato": OCCUPATO.locked()})
+
+    def do_POST(self):
+        if self.path != "/avvia":
+            return self.rispondi(404, {"ok": False})
+        if not self.autorizzato():
+            return
+        try:
+            dati = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            richiesta = dati["richiesta"]
+        except Exception:
+            return self.rispondi(400, {"ok": False, "error": "richiesta non valida"})
+        if not OCCUPATO.acquire(blocking=False):
+            return self.rispondi(409, {"ok": False, "error": "sto gia' aggiornando le quote"})
+        global SITO
+        if dati.get("ritorno"):
+            SITO = str(dati["ritorno"]).rstrip("/")
+
+        def lavora():
+            try:
+                gestisci(richiesta)
+            finally:
+                OCCUPATO.release()
+        threading.Thread(target=lavora, daemon=True).start()
+        self.rispondi(200, {"ok": True})
+
+    def log_message(self, formato, *args):
+        log.info("richiesta %s", formato % args)
+
+
+def ascolta():
+    if not SEGRETO:
+        log.error("Manca segreto.txt accanto ad agente.py: esco.")
+        return
     try:
-        unico.bind(("127.0.0.1", PORTA_UNICA))
+        server = ThreadingHTTPServer(("127.0.0.1", PORTA), Ascolto)
     except OSError:
         log.info("Un altro agente e' gia' acceso: esco.")
         return
-    log.info("Agente avviato (versione %s). Cartella: %s", VERSIONE, BASE)
-    errori = 0
-    while True:
-        try:
-            r = chiama("battito", versione=VERSIONE)
-            if errori:
-                log.info("Di nuovo in contatto con PronoBlast.")
-            errori = 0
-            if r.get("richiesta"):
-                gestisci(r["richiesta"])
-                continue   # battito subito dopo il lavoro
-        except Exception as e:
-            errori += 1
-            if errori in (1, 20) or errori % 240 == 0:   # non riempire il registro se manca la rete
-                log.warning("Battito non riuscito (%d di fila): %s", errori, e)
-        time.sleep(OGNI_SECONDI)
+    log.info("Agente avviato (versione %s), in ascolto su %d. Cartella: %s", VERSIONE, PORTA, BASE)
+    server.serve_forever()
 
 
 if __name__ == "__main__":
@@ -184,4 +229,4 @@ if __name__ == "__main__":
         stampa = lambda t: print(t, flush=True)
         print(json.dumps(esegui(stampa, carica="--una-volta" in sys.argv), indent=2, ensure_ascii=False))
     else:
-        ciclo()
+        ascolta()

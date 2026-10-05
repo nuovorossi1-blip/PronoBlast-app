@@ -185,8 +185,8 @@ export default function Strumenti() {
   /**
    * Tasto "Aggiorna Quote" (05/10/2026): fa sul PC di casa quello che Rossi
    * faceva a mano con i tre tasti qui sotto — scarica il PDF Sisal, lo converte
-   * in Excel e lo carica. Il PC prende la richiesta al suo battito successivo
-   * (ogni 15 s); se e' spento il server lo dice subito. Vedi quote-pc.ts.
+   * in Excel e lo carica. Il server sveglia il PC solo adesso (niente battito,
+   * 06/10/2026); se e' spento lo dice subito. Vedi quote-pc.ts.
    */
   const aggiornaQuote = async () => {
     setBusy("quote");

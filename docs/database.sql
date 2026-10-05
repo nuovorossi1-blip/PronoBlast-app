@@ -116,7 +116,9 @@ where n.nspname = 'public'
 -- netlify/functions/lavori.ts. Questo orologio chiama /lavori?passo=1 ogni
 -- minuto: se c'e' un lavoro in corso fermo, riparte dal punto salvato. Senza
 -- orologio il lavoro avanza solo mentre l'app e' aperta in Strumenti/Traccia.
--- Se non c'e' niente da fare, il server risponde subito "niente".
+-- 06/10/2026: chiama Vercel SOLO se c'e' un lavoro in corso e il lucchetto e'
+-- libero (nessun passo sta gia' lavorando). Prima chiamava ogni minuto sempre:
+-- 1440 chiamate al giorno a vuoto, e la CPU gratuita di Vercel era finita.
 -- Rilanciarlo e' innocuo: cron.schedule con lo stesso nome sostituisce il vecchio.
 create extension if not exists pg_net;
 create extension if not exists pg_cron;
@@ -128,6 +130,14 @@ select cron.schedule(
        headers := '{"Content-Type": "application/json"}'::jsonb,
        body := '{}'::jsonb,
        timeout_milliseconds := 290000
+     )
+     where exists (
+       select 1 from public.settings
+       where key = 'lavoro_corrente'
+         and value->>'stato' = 'in_corso'
+         and (value->>'lucchetto' is null
+              or value->>'lucchetto_fino' is null
+              or (value->>'lucchetto_fino')::timestamptz < now())
      ) $$
 );
 -- Controllo: l'orologio c'e' e gira?
