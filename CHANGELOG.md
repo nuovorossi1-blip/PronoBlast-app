@@ -169,6 +169,12 @@ codice + `.md` insieme -> costruisce.
   catalogo da 1,40), coerente con la direzione della lettura (senza
   direzione niente segni/DC; con direzione 1 niente mercati sul 2); sotto il
   58% l'avviso "poco affidabile". Commit 021d1f6.
+- Poi, su richiesta di Rossi (Lussemburgo-Bulgaria): scheda gol a una colonna
+  per squadra, tolti risultati esatti ed esito 1X2 (gia' nel cluster);
+  scenario del manuale grande e subito sopra "Punta su questo". Corretto un
+  errore: il filtro "niente segni senza direzione" scartava "X oppure GG"
+  (comincia con X). Per i mercati del manuale conta la % dell'archivio
+  (62% su 2.446) e non la stima Poisson, anche per scegliere fra le fasce.
 
 ### 2026-10-07 — Scheda gol, "Punta su questo" dai numeri (scelta B), dossier a partita
 

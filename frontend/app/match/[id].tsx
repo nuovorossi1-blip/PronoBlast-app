@@ -556,36 +556,29 @@ export default function MatchDetail() {
           return (
             <View style={styles.golBox}>
               <Text style={styles.golTitolo}>COSA ASPETTARSI DAI GOL</Text>
-              <View style={styles.golRiga}>
-                <Text style={styles.golEt} />
-                <Text style={styles.golTesta} numberOfLines={1}>{match.squadra1}</Text>
-                <Text style={styles.golTesta} numberOfLines={1}>{match.squadra2}</Text>
-              </View>
-              {riga("Gol che fa", n1(L.casa.attesi), n1(L.ospite.attesi), "a")}
-              {riga("Gol che prende", n1(L.ospite.attesi), n1(L.casa.attesi), "p")}
-              {forma ? (
-                <>
-                  {riga("Ultime 5: fa / prende", fp(forma.casa.totale), fp(forma.ospite.totale), "t")}
-                  {riga(`Ultime 5 in casa / fuori`, fp(forma.casa.sede), fp(forma.ospite.sede), "c")}
-                  <Text style={styles.golSez}>COME STA ANDANDO (ultime 5, la più recente a destra)</Text>
-                  {andamento(forma.casa, match.squadra1)}
-                  {andamento(forma.ospite, match.squadra2)}
-                </>
-              ) : null}
-              <Text style={styles.golSez}>LA PARTITA</Text>
-              <Text style={styles.golTesto}>
-                Da {L.golDa} a {L.golA} gol ({pc(L.pFascia)} dei casi) · {n1(L.totale)} gol attesi
-              </Text>
-              <Text style={styles.golSez}>RISULTATI PIÙ PROBABILI</Text>
-              <View style={styles.golRisultati}>
-                {L.risultati.map((r) => (
-                  <View key={`${r.casa}-${r.ospite}`} style={styles.golRis}>
-                    <Text style={styles.golRisPunt}>{r.casa}-{r.ospite}</Text>
-                    <Text style={styles.golRisPct}>{pc(r.p)}</Text>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {[
+                  { nome: match.squadra1, fa: L.casa.attesi, prende: L.ospite.attesi, f: forma?.casa, sede: "in casa" },
+                  { nome: match.squadra2, fa: L.ospite.attesi, prende: L.casa.attesi, f: forma?.ospite, sede: "fuori" },
+                ].map((q) => (
+                  <View key={q.nome} style={styles.golSquadra}>
+                    <Text style={styles.golTesta} numberOfLines={1}>{q.nome}</Text>
+                    <Text style={styles.golNum}>Fa <Text style={styles.golNumB}>{n1(q.fa)}</Text> gol</Text>
+                    <Text style={styles.golNum}>Prende <Text style={styles.golNumB}>{n1(q.prende)}</Text> gol</Text>
+                    {q.f ? (
+                      <>
+                        <Text style={styles.golPic}>Ultime 5: fa {n1(q.f.totale.fatti)} · prende {n1(q.f.totale.subiti)}</Text>
+                        <Text style={styles.golPic}>Ultime {q.f.sede.n} {q.sede}: fa {n1(q.f.sede.fatti)} · prende {n1(q.f.sede.subiti)}</Text>
+                        <Text style={styles.golPic}>
+                          {q.f.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join(" · ")}
+                        </Text>
+                      </>
+                    ) : null}
                   </View>
                 ))}
               </View>
-              <Text style={styles.golSez}>LA LETTURA</Text>
+              <Text style={styles.golSez}>LA PARTITA</Text>
+              <Text style={styles.golTesto}>Da {L.golDa} a {L.golA} gol ({pc(L.pFascia)} dei casi) · {n1(L.totale)} gol attesi</Text>
               <Text style={styles.golTesto}>
                 Chi ne fa di più: <Text style={{ fontWeight: "900" }}>
                   {Math.abs(L.casa.attesi - L.ospite.attesi) < 0.25
@@ -594,16 +587,49 @@ export default function MatchDetail() {
                 </Text>
               </Text>
               <Text style={styles.golTesto}>
-                Esito: 1 {pc(L.p1)} · X {pc(L.px)} · 2 {pc(L.p2)}
-              </Text>
-              <Text style={styles.golTesto}>
                 Direzione: <Text style={{ fontWeight: "900" }}>
                   {L.direzione
                     ? `${L.direzione} (${L.direzione === "1" ? match.squadra1 : match.squadra2})`
-                    : "nessuna: la favorita non è abbastanza forte, si gioca sui gol"}
+                    : "nessuna, la favorita non è abbastanza forte"}
                 </Text>
               </Text>
-              <Text style={styles.golNota}>{"Cosa giocare: il riquadro PUNTA SU QUESTO qui sotto."}</Text>
+            </View>
+          );
+        })()}
+
+        {/* ============ NOTA SCENARIO 1X2 (richiesta da Rossi il 09/09) ============
+            Calcolo separato e di sola lettura sulle quote gia' a sistema:
+            non alimenta ne' modifica il verdetto finale, il motore, l'IA o
+            lo storico. Solo promemoria dello scenario e dei mercati "da
+            manuale" indicati per quello scenario. */}
+        {(() => {
+          const note = getScenarioNote(match.odds, structural?.structure);
+          if (!note) return null;
+          return (
+            <View style={styles.scenarioNoteBox}>
+              <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
+              <Text style={styles.scenarioNoteSub}>
+                Mercati da considerare:{manualeStats ? "" : " (misura dell'archivio in caricamento…)"}
+              </Text>
+              <TouchableOpacity testID="legenda-fonti" onPress={apriLegendaFonti} activeOpacity={0.7}>
+                <Text style={styles.legendaFonti}>ⓘ «Poisson» o «in archivio»: cosa vuol dire</Text>
+              </TouchableOpacity>
+              {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
+                  uscito nello storico con QUESTO scenario; a risultato inserito,
+                  VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}
+              {note.markets.map((m, i) => {
+                const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
+                const n = st ? st.vinte + st.perse : 0;
+                const misura = st && n > 0 && st.pct !== null
+                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% in archivio (${st.vinte}/${n})`
+                  : "";
+                const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
+                return (
+                  <Text key={i} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto]}>
+                    • {m}{misura}{vinto ? " ✓" : ""}
+                  </Text>
+                );
+              })}
             </View>
           );
         })()}
@@ -625,7 +651,7 @@ export default function MatchDetail() {
           // della partita, indipendentemente dalla soglia". Si prova la Quota
           // minima scelta; se non c'e' niente, le altre fasce, e si prende la
           // piu' probabile.
-          type PickMotore = { market: string; odd: number | null; stimata: boolean; prob: number | null; soglia: number };
+          type PickMotore = { market: string; odd: number | null; stimata: boolean; prob: number | null; soglia: number; archivio?: number | null };
           let mot: PickMotore | null = null;
           if (!decideAI && structural) {
             const famM = structural.pre_ranking?.length
@@ -640,7 +666,8 @@ export default function MatchDetail() {
             const m0 = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
             const versoCasa = (m: string) => /^(1|1X)(\s|$|\+)/.test(m0(m)) || /^1 (DNB|AH)/.test(m0(m));
             const versoOspite = (m: string) => /^(2|X2)(\s|$|\+)/.test(m0(m)) || /^2 (DNB|AH)/.test(m0(m));
-            const conSegno = (m: string) => versoCasa(m) || versoOspite(m) || /^(X|12)(\s|$|\+)/.test(m0(m));
+            // "X oppure GG" NON e' un segno: e' il mercato della partita senza direzione.
+            const conSegno = (m: string) => versoCasa(m) || versoOspite(m) || /^(X|12)(\s*\+|$)/.test(m0(m));
             const coerente = (m: string) => dirL === null ? !conSegno(m) : dirL === "1" ? !versoOspite(m) : !versoCasa(m);
             const motoreA = (soglia: number): PickMotore | null => {
               const manS = candidatiManuale(match.odds, manualeStats?.scenari, soglia, structural.market_odds, false, structural.structure);
@@ -648,12 +675,19 @@ export default function MatchDetail() {
                 .filter((x) => ammessoDallaStruttura(x.market, structural.structure) && coerente(x.market))[0];
               if (!v) return null;
               const vp = valutaPuntaSu(v.market, ctxC);
-              return { market: v.market, odd: vp?.odd ?? v.odd ?? null, stimata: vp?.stimata ?? !!v.oddEstimated, prob: vp?.prob ?? v.coverage ?? null, soglia };
+              // Mercato del manuale: conta la misura VERA dell'archivio
+              // (es. X oppure GG 62% su 2.446 partite), non la stima Poisson.
+              const man = manS.find((c) => normalizeMarket(c.market) === normalizeMarket(v.market));
+              return {
+                market: v.market, odd: man?.odd ?? vp?.odd ?? v.odd ?? null, stimata: man ? man.stimata : (vp?.stimata ?? !!v.oddEstimated),
+                prob: vp?.prob ?? v.coverage ?? null, soglia, archivio: man ? man.pct : null,
+              };
             };
             mot = motoreA(minOdd);
             if (!mot) {
               const altre = FASCE_AI.filter((f) => Math.abs(f - minOdd) > 0.001).map(motoreA).filter((x): x is PickMotore => !!x);
-              mot = altre.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))[0] ?? null;
+              const forza = (x: PickMotore) => (x.archivio != null ? x.archivio / 100 : x.prob ?? 0);
+              mot = altre.sort((a, b) => forza(b) - forza(a))[0] ?? null;
             }
             // Ultima riserva: il mercato piu' probabile del catalogo del motore
             // con quota da 1,40 in su, coerente con la lettura e con la struttura.
@@ -667,7 +701,11 @@ export default function MatchDetail() {
             }
           }
           const fuoriSoglia = !!mot && Math.abs(mot.soglia - minOdd) > 0.001;
-          const debole = !!mot && mot.prob !== null && mot.prob < PROB_AFFIDABILE;
+          const probMot = mot ? (mot.archivio != null ? mot.archivio / 100 : mot.prob) : null;
+          const debole = probMot !== null && probMot < PROB_AFFIDABILE;
+          const misuraMot = mot
+            ? (mot.archivio != null ? ` · ${mot.archivio.toFixed(1).replace(".", ",")}% in archivio` : mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : "")
+            : "";
           const notaFuori = [
             fuoriSoglia && mot ? `Da ${minOdd.toFixed(2)} i numeri non trovano niente di coerente: questa è la giocata migliore della partita (fascia ${mot.soglia.toFixed(2)}).` : "",
             debole ? `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: poco affidabile, valuta se lasciare la partita.` : "",
@@ -682,7 +720,7 @@ export default function MatchDetail() {
                 {mot ? (
                   <Text style={styles.puntaMeta}>
                     {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
-                    {mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : ""}
+                    {misuraMot}
                   </Text>
                 ) : null}
                 {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
@@ -718,7 +756,7 @@ export default function MatchDetail() {
                       <Text style={styles.puntaVal}>{mot.market}</Text>
                       <Text style={styles.puntaMeta}>
                         {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
-                        {mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : ""}
+                        {misuraMot}
                       </Text>
                     </>
                   ) : (
@@ -809,43 +847,6 @@ export default function MatchDetail() {
                   Sta nella fascia {etichettaFascia(c.fascia)}: per giocarlo scegli quella fascia qui sotto.
                 </Text>
               ) : null}
-            </View>
-          );
-        })()}
-
-        {/* ============ NOTA SCENARIO 1X2 (richiesta da Rossi il 09/09) ============
-            Calcolo separato e di sola lettura sulle quote gia' a sistema:
-            non alimenta ne' modifica il verdetto finale, il motore, l'IA o
-            lo storico. Solo promemoria dello scenario e dei mercati "da
-            manuale" indicati per quello scenario. */}
-        {(() => {
-          const note = getScenarioNote(match.odds, structural?.structure);
-          if (!note) return null;
-          return (
-            <View style={styles.scenarioNoteBox}>
-              <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
-              <Text style={styles.scenarioNoteSub}>
-                Mercati da considerare:{manualeStats ? "" : " (misura dell'archivio in caricamento…)"}
-              </Text>
-              <TouchableOpacity testID="legenda-fonti" onPress={apriLegendaFonti} activeOpacity={0.7}>
-                <Text style={styles.legendaFonti}>ⓘ «Poisson» o «in archivio»: cosa vuol dire</Text>
-              </TouchableOpacity>
-              {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
-                  uscito nello storico con QUESTO scenario; a risultato inserito,
-                  VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}
-              {note.markets.map((m, i) => {
-                const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
-                const n = st ? st.vinte + st.perse : 0;
-                const misura = st && n > 0 && st.pct !== null
-                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% in archivio (${st.vinte}/${n})`
-                  : "";
-                const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
-                return (
-                  <Text key={i} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto]}>
-                    • {m}{misura}{vinto ? " ✓" : ""}
-                  </Text>
-                );
-              })}
             </View>
           );
         })()}
@@ -2079,6 +2080,10 @@ const styles = StyleSheet.create({
   golSez: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1, marginTop: 8 },
   golTesto: { color: colors.text, fontSize: 12, lineHeight: 18 },
   golAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  golSquadra: { flex: 1, gap: 2, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 },
+  golNum: { color: colors.textMuted, fontSize: 13 },
+  golNumB: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  golPic: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   golRisultati: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
   golRis: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 8, alignItems: "center", minWidth: 62 },
   golRisPunt: { color: colors.text, fontSize: 15, fontWeight: "900" },
@@ -2309,16 +2314,16 @@ const styles = StyleSheet.create({
   // ===== NOTA SCENARIO 1X2 (promemoria, sola lettura) =====
   scenarioNoteBox: {
     backgroundColor: colors.surface, borderRadius: 16, padding: 14,
-    borderWidth: 1, borderColor: colors.textMuted, gap: 4,
+    borderWidth: 2, borderColor: colors.primary, gap: 4,
   },
-  scenarioNoteTitle: { color: colors.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
-  scenarioNoteSub: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
+  scenarioNoteTitle: { color: colors.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.8 },
+  scenarioNoteSub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   legendaFonti: { color: colors.primary, fontSize: 10, fontWeight: "700", marginTop: 2 },
   terzoParere: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 10, marginTop: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 10 },
   terzoParereLbl: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
   terzoParereMercato: { color: colors.text, fontSize: 12, fontWeight: "900" },
   terzoParereQuota: { color: colors.primary, fontSize: 12, fontWeight: "800" },
-  scenarioNoteMarket: { color: colors.textDim, fontSize: 11, lineHeight: 15 },
+  scenarioNoteMarket: { color: colors.text, fontSize: 15, fontWeight: "800", lineHeight: 22 },
   scenarioNoteMarketVinto: { color: colors.success, fontWeight: "800" },
 
   // ===== VERDETTO FINALE =====
