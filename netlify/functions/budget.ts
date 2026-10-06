@@ -1,5 +1,6 @@
 import { pgGet, pgPost, jsonResponse } from "./lib/supabaseRest";
 import { LLM_OPTIONS, DEFAULT_LLM } from "./lib/llmProviders";
+import { creditiTavily, tettoTavily } from "./lib/webSearch";
 
 const PROVIDER_TOPUP_URL: Record<string, string> = {
   deepseek: "https://platform.deepseek.com/usage",
@@ -29,10 +30,12 @@ export default async (req: Request): Promise<Response> => {
 
     if (req.method !== "GET") return jsonResponse({ error: "Metodo non supportato" }, 405);
 
-    const [spentRows, countRows, modelRows] = await Promise.all([
+    const [spentRows, countRows, modelRows, tavily, tetto] = await Promise.all([
       pgGet(`settings?key=eq.ai_spent&select=value`),
       pgGet(`settings?key=eq.ai_count&select=value`),
       pgGet(`settings?key=eq.llm_model&select=value`),
+      creditiTavily((process.env.TAVILY_API_KEY || "").trim()),
+      tettoTavily(),
     ]);
     const spent = spentRows.length ? Number(spentRows[0].value) || 0 : 0;
     const count = countRows.length ? Number(countRows[0].value) || 0 : 0;
@@ -45,6 +48,8 @@ export default async (req: Request): Promise<Response> => {
       current_model: selected.label,
       cost_per_prediction_usd: selected.cost_per_pred,
       topup_url: PROVIDER_TOPUP_URL[selected.provider] || "",
+      // Crediti della ricerca web, letti da Tavily (null se non risponde).
+      tavily: tavily ? { ...tavily, tetto } : null,
     });
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 500);

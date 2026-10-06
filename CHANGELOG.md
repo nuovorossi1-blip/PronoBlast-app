@@ -155,6 +155,23 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 — Ricerca web: dossier salvato per partita e tetto ai crediti Tavily
+
+Primo passo del piano "ricerca web senza finire Tavily" (piano completo: dossier
+per tutte le partite del giorno da FotMob/SofaScore/ClubElo + SearXNG, Tavily solo
+di riserva). Misurato prima: 342 crediti su 1000 usati a inizio mese.
+- **Dossier salvato** (`dossier_web`, SQL in `docs/database.sql` sez. 6): il
+  contesto web di una partita si riusa per 6 ore. "Rigenera" e il cambio di
+  modello non rifanno piu' le 3 ricerche (prima 6 crediti ogni volta). Ricerca
+  nuova a forza: `ai-predict?...&rifaiWeb=true`. Si salva anche "nessun dato
+  attendibile" (leghe minori), non gli errori del momento. Senza la tabella
+  tutto funziona come prima.
+- **Crediti Tavily veri**: `GET https://api.tavily.com/usage` (non consuma
+  crediti), mostrati in "LLM & Budget". Oltre `settings.tavily_tetto`
+  (predefinito 900) il pronostico si fa senza web invece di finire i crediti.
+- File: `lib/webSearch.ts` (`contestoPartitaSalvato`, `creditiTavily`),
+  `ai-predict.ts`, `budget.ts`, `frontend/app/llm-settings.tsx`.
+
 ### 2026-10-05 — Tasto "Aggiorna Quote" (PC di casa) e orari iLovePDF persi
 
 **1. Orari dei file iLovePDF: si perdeva l'85% delle partite.** iLovePDF scrive

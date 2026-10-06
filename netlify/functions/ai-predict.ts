@@ -9,7 +9,7 @@ import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale
 import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
-import { contestoPartita, blocoTesto } from "./lib/webSearch";
+import { contestoPartitaSalvato, blocoTesto } from "./lib/webSearch";
 import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs,
   candidatiManuale, quotaManuale, nomeCatalogoManuale, type CandidatoManuale } from "../../frontend/src/api";
 
@@ -157,19 +157,27 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // modello SA, non come risponde.
   let fontiWeb: { titolo: string; url: string }[] = [];
   let webDisponibile = false;
+  let webDaArchivio = false;
+  let webMotivo: string | undefined;
   // PARTITA GIA' INIZIATA (01/10/2026): la ricerca web potrebbe trovare il
   // risultato. Si cerca solo fino al giorno prima, si avvisa il modello e il
   // pronostico viene marcato post_partita: non conta per verdetto e pagella.
   const inizio = inizioPartitaMs(match.day, match.time);
   const postPartita = !!match.result || (inizio !== null && Date.now() >= inizio);
   try {
-    const ctx = await contestoPartita(
+    // Il dossier salvato si riusa (anche con "Rigenera"): una ricerca nuova
+    // solo se e' vecchio o con `rifaiWeb=true`.
+    const ctx = await contestoPartitaSalvato(
+      matchId,
       match.squadra1, match.squadra2, match.manifestazione || "",
       (process.env.TAVILY_API_KEY || "").trim(),
       inizio,
+      { nuovo: url.searchParams.get("rifaiWeb") === "true" },
     );
     fontiWeb = ctx.fonti;
     webDisponibile = ctx.disponibile;
+    webDaArchivio = !!ctx.da_archivio;
+    webMotivo = ctx.motivo;
     prompt = prompt + blocoTesto(ctx);
   } catch (e) {
     // La ricerca web non deve MAI impedire un pronostico: senza, si lavora
@@ -295,6 +303,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
     fonti_web: fonti,
     post_partita: postPartita,
     xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb,
+    web_da_archivio: webDaArchivio, web_motivo: webMotivo,
   });
 }
 

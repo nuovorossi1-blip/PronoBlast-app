@@ -144,3 +144,34 @@ select cron.schedule(
 --   select jobname, schedule, active from cron.job;
 --   select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;
 -- Per spegnerlo: select cron.unschedule('pronoblast-lavori');
+
+
+-- -----------------------------------------------------------------------------
+-- 6. DOSSIER WEB PER PARTITA (2026-10-06, ramo ricerca-web)
+-- -----------------------------------------------------------------------------
+-- Il contesto trovato da Tavily per una partita si salva qui e si riusa per
+-- DOSSIER_VALIDO_ORE (6) ore: "Rigenera" e il cambio di modello non rifanno
+-- le ricerche (prima: 6 crediti a ogni rigenera). Vedi lib/webSearch.ts.
+-- Il tipo di match_id copia quello di matches.id (uuid o text).
+-- RLS spenta come le altre tabelle: il server usa la chiave anon.
+do $$
+declare tipo text;
+begin
+  select data_type into tipo from information_schema.columns
+   where table_schema = 'public' and table_name = 'matches' and column_name = 'id';
+  execute format(
+    'create table if not exists public.dossier_web (
+       match_id   %s primary key references public.matches(id) on delete cascade,
+       contesto   jsonb not null,
+       crediti    integer not null default 0,
+       created_at timestamptz not null default now()
+     )', tipo);
+end $$;
+alter table public.dossier_web disable row level security;
+-- Le tabelle nuove non ricevono piu' i permessi in automatico: senza questa
+-- riga la API risponde "permission denied for table dossier_web" (42501).
+grant select, insert, update, delete on public.dossier_web to anon, authenticated, service_role;
+-- Tetto dei crediti Tavily (facoltativo, predefinito 900 su 1000):
+--   insert into settings (key, value) values ('tavily_tetto', '900')
+--   on conflict (key) do update set value = excluded.value;
+-- Controllo: select count(*), sum(crediti) from dossier_web;

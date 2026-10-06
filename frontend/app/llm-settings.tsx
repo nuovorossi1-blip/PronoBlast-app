@@ -68,6 +68,21 @@ export default function LlmSettings() {
             )}
           </View>
         )}
+        {/* Crediti della ricerca web (Tavily): dato vero letto da Tavily, non una stima */}
+        {budget?.tavily && (
+          <View style={styles.budgetCard}>
+            <Text style={styles.budgetLbl}>RICERCA WEB (TAVILY) · CREDITI DEL MESE</Text>
+            <Text style={[styles.budgetVal, budget.tavily.usati >= budget.tavily.tetto && { color: colors.danger }]}>
+              {budget.tavily.usati}<Text style={styles.budgetDetail}> / {budget.tavily.limite ?? "?"}</Text>
+            </Text>
+            <Text style={styles.budgetDetail}>Piano {budget.tavily.piano || "?"} · ricerca ferma a {budget.tavily.tetto} crediti</Text>
+            <Text style={styles.budgetHint}>
+              {budget.tavily.usati >= budget.tavily.tetto
+                ? "Tetto raggiunto: i pronostici si fanno senza dati dal web fino al mese prossimo"
+                : `~${Math.floor((budget.tavily.tetto - budget.tavily.usati) / 6)} pronostici nuovi con il web · "Rigenera" riusa il dossier salvato`}
+            </Text>
+          </View>
+        )}
         <Text style={styles.section}>SCEGLI MODELLO LLM</Text>
         {options.map((o) => {
           const active = o.id === selectedId;
