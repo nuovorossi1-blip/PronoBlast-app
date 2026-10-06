@@ -537,6 +537,8 @@ export default function MatchDetail() {
           const s = structural.structure;
           const L = letturaGol(s.lambda_home, s.lambda_away, forma);
           const pc = (x: number) => `${Math.round(x * 100)}%`;
+          const media2 = (a: number | null, b: number | null) =>
+            a == null ? b : b == null ? a : (a + b) / 2;
           const n1 = (x: number | null | undefined) => (x == null ? "–" : x.toFixed(1).replace(".", ","));
           const fp = (w?: { n: number; fatti: number | null; subiti: number | null }) =>
             w && w.n ? `${n1(w.fatti)} / ${n1(w.subiti)}${w.n < 5 ? ` (${w.n})` : ""}` : "–";
@@ -563,17 +565,23 @@ export default function MatchDetail() {
                 ].map((q) => (
                   <View key={q.nome} style={styles.golSquadra}>
                     <Text style={styles.golTesta} numberOfLines={1}>{q.nome}</Text>
-                    <Text style={styles.golNum}>Fa <Text style={styles.golNumB}>{n1(q.fa)}</Text> gol</Text>
-                    <Text style={styles.golNum}>Prende <Text style={styles.golNumB}>{n1(q.prende)}</Text> gol</Text>
+                    {/* Solo l'andamento VERO (07/10/2026, Rossi): i gol attesi
+                        dalle quote erano speculari ("fa 3,0 / prende 0,5" e
+                        l'inverso all'altra) e confondevano. */}
                     {q.f ? (
                       <>
-                        <Text style={styles.golPic}>Ultime 5: fa {n1(q.f.totale.fatti)} · prende {n1(q.f.totale.subiti)}</Text>
-                        <Text style={styles.golPic}>Ultime {q.f.sede.n} {q.sede}: fa {n1(q.f.sede.fatti)} · prende {n1(q.f.sede.subiti)}</Text>
+                        {/* Rossi (07/10/2026): "fa" e "prende" = MEDIA fra le ultime
+                            5 in totale e le ultime 5 in casa (o fuori, per l'ospite). */}
+                        <Text style={styles.golNum}>Fa <Text style={styles.golNumB}>{n1(media2(q.f.totale.fatti, q.f.sede.n ? q.f.sede.fatti : null))}</Text> gol</Text>
+                        <Text style={styles.golNum}>Prende <Text style={styles.golNumB}>{n1(media2(q.f.totale.subiti, q.f.sede.n ? q.f.sede.subiti : null))}</Text> gol</Text>
+                        <Text style={styles.golPic}>{`media di: ultime ${q.f.totale.n} (fa ${n1(q.f.totale.fatti)} · prende ${n1(q.f.totale.subiti)}) e ultime ${q.f.sede.n} ${q.sede} (fa ${n1(q.f.sede.fatti)} · prende ${n1(q.f.sede.subiti)})`}</Text>
                         <Text style={styles.golPic}>
                           {q.f.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join(" · ")}
                         </Text>
                       </>
-                    ) : null}
+                    ) : (
+                      <Text style={styles.golPic}>Ultime partite non trovate su FotMob.</Text>
+                    )}
                   </View>
                 ))}
               </View>
@@ -583,7 +591,7 @@ export default function MatchDetail() {
                 Chi ne fa di più: <Text style={{ fontWeight: "900" }}>
                   {Math.abs(L.casa.attesi - L.ospite.attesi) < 0.25
                     ? "nessuna delle due, forze simili"
-                    : `${L.casa.attesi > L.ospite.attesi ? match.squadra1 : match.squadra2} (${n1(Math.max(L.casa.attesi, L.ospite.attesi))} contro ${n1(Math.min(L.casa.attesi, L.ospite.attesi))})`}
+                    : (L.casa.attesi > L.ospite.attesi ? match.squadra1 : match.squadra2)}
                 </Text>
               </Text>
               <Text style={styles.golTesto}>

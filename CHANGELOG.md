@@ -180,6 +180,11 @@ codice + `.md` insieme -> costruisce.
   10 minuti, la si ricalcola in sottofondo. Anche /manuale-stats la usa (prima
   ricalcolava a ogni apertura della scheda). Dopo un riavvio: 2,4 s invece di
   157 s.
+- Scheda gol (Rossi, Svizzera-Macedonia): tolti i gol attesi dalle quote
+  ("fa 3,0 / prende 0,5" e l'inverso all'altra: speculari, confondevano).
+  Ora "Fa" e "Prende" di ogni squadra = media fra ultime 5 totali e ultime 5
+  in casa (o fuori per l'ospite), dati veri FotMob; sotto i due numeri e i
+  risultati.
 
 ### 2026-10-07 — Scheda gol, "Punta su questo" dai numeri (scelta B), dossier a partita
 
