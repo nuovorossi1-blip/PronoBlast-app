@@ -502,6 +502,7 @@ export const api = {
       "/results-import", { method: "POST", body: JSON.stringify({ items, overwrite }) },
     ),
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
+  formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),
   setResult: (id: string, result: string) =>
@@ -2492,8 +2493,26 @@ export type ConsiglioAI = {
   mercato: string;
   perche: string;
   web: string;
+  /** Dal 07/10/2026: la notizia concreta che giustifica il cambio, e se c'e' davvero nei dati. */
+  notizia?: string;
+  notizia_verificata?: boolean;
   alternative: { mercato: string; perche_no: string }[];
 };
+
+/**
+ * SCELTA B (07/10/2026, con Rossi): l'AI decide il verdetto e il "Punta su
+ * questo" SOLO se il suo consiglio cita una notizia concreta trovata davvero
+ * nei dati della partita (assenza, formazione, motivazioni). Senza, decide il
+ * motore (fusione di motore Poisson e PRE, senza l'AI). Motivo, misurato sullo
+ * storico: stesse partite indovinate, ma il consiglio dell'AI gioca quote piu'
+ * basse (1,44, resa -10%) e sbaglia piu' spesso la direzione (51% contro 66%).
+ * Il ricalcolo senza AI alle fasce 1,60 e 1,75 va in pari o in attivo.
+ * Pronostici dopo il calcio d'inizio: mai.
+ */
+export function aiDecide(prediction: { fasce?: any; post_partita?: boolean | null; created_at?: string } | null | undefined, match?: { day?: string | null; time?: string | null } | null): boolean {
+  if (!prediction || pronosticoPostPartita(prediction, match)) return false;
+  return prediction.fasce?.consiglio?.notizia_verificata === true;
+}
 
 export function consiglioDi(prediction: { fasce?: any } | null | undefined): ConsiglioAI | null {
   const c = prediction?.fasce?.consiglio;
@@ -2597,8 +2616,9 @@ export function verdettoDaAI(
   match?: { day?: string | null; time?: string | null } | null,
   manuale?: CandidatoManuale[],
 ): { picks: VerdictPick[]; fascia: FasciaValidata } | null {
-  // Un pronostico generato dopo il calcio d'inizio non decide mai il verdetto.
-  if (pronosticoPostPartita(prediction, match)) return null;
+  // Un pronostico generato dopo il calcio d'inizio non decide mai il verdetto,
+  // e dal 07/10/2026 nemmeno uno senza una notizia verificata (scelta B).
+  if (!aiDecide(prediction, match)) return null;
   const fasce = validaFasce(prediction?.fasce, { odds, structural, manuale });
   const fascia = fasce?.find((f) => Math.abs(f.soglia - minOdd) < 0.001);
   // Senza fasce (o senza questa fascia) decide la fusione. Con la fascia ma
@@ -2804,5 +2824,153 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
       `MG ${fav} 1-3`,
       `${favorita} DNB`,
     ],
+  };
+}
+
+// ============================================================================
+// COSA ASPETTARSI DAI GOL (07/10/2026, richiesta di Rossi)
+// "Quando apro una partita voglio capire quanti gol aspettarmi dalla casa e
+// dall'ospite, se segnano, se prendono gol, se la partita e' sbilanciata o se
+// si mettono paura e finisce 0-0." Due letture affiancate:
+//  - QUOTE: gol attesi del motore Poisson (lambda dalle quote). Sono la lettura
+//    piu' precisa: sullo storico (450 partite, 06/10) sbagliano di 1,31 gol a
+//    partita contro 1,36 della forma, e sull'O/U 2.5 indovinano 58% contro 55%.
+//  - FORMA: ultime 5 partite vere da FotMob (forma-gol.ts), solo 90 minuti.
+// Quando non sono d'accordo la scheda lo dice: e' un campanello, non decide
+// (in disaccordo avevano ragione le quote 60 volte su 104).
+// ============================================================================
+
+export type PartitaForma = { data: string; avversario: string; in_casa: boolean; fatti: number; subiti: number; torneo: string };
+export type FinestraForma = { n: number; fatti: number | null; subiti: number | null; partite: PartitaForma[] };
+export type FormaSquadra = { nome: string; totale: FinestraForma; sede: FinestraForma };
+export type FormaGol = { fotmob_id: string; casa: FormaSquadra; ospite: FormaSquadra };
+
+export type LetturaSquadra = {
+  attesi: number;            // gol attesi dalle quote
+  segna: number;             // probabilita' di segnare almeno un gol
+  prende: number;            // probabilita' di subirne almeno uno
+  attesiForma: number | null;
+  segnatoIn: number | null;  // in quante delle ultime partite ha segnato
+  subitoIn: number | null;   // in quante ne ha preso almeno uno
+  n: number;
+};
+export type LetturaGol = {
+  casa: LetturaSquadra;
+  ospite: LetturaSquadra;
+  totale: number;
+  totaleForma: number | null;
+  p00: number; gg: number; under25: number; bloccata: number; // bloccata = 0 o 1 gol totali
+  /** Risultati esatti piu' probabili (dalle quote), dal piu' probabile. */
+  risultati: { casa: number; ospite: number; p: number }[];
+  /** Esito 1 X 2 dalle quote (Poisson). */
+  p1: number; px: number; p2: number;
+  /** "1" / "2" se la favorita vince almeno nel 55% dei casi, altrimenti null. */
+  direzione: "1" | "2" | null;
+  /** Fascia di gol totali piu' stretta che copre almeno il 75% dei casi. */
+  golDa: number; golA: number; pFascia: number;
+  tipo: "SBILANCIATA" | "EQUILIBRATA E CHIUSA" | "EQUILIBRATA E APERTA" | "EQUILIBRATA";
+  tipoSpiegazione: string;
+  avvisi: string[];
+};
+
+const poisson = (l: number, k: number) => {
+  let f = 1;
+  for (let i = 2; i <= k; i++) f *= i;
+  return (Math.exp(-l) * Math.pow(l, k)) / f;
+};
+const mediaDi = (...xs: (number | null | undefined)[]) => {
+  const v = xs.filter((x): x is number => typeof x === "number" && isFinite(x));
+  return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+};
+const g1 = (x: number) => x.toFixed(1).replace(".", ",");
+
+/** La scheda gol: lambda dalle quote (motore) + forma da FotMob (facoltativa). */
+export function letturaGol(lambdaCasa: number, lambdaOspite: number, forma?: FormaGol | null): LetturaGol {
+  const lc = Math.max(0.05, lambdaCasa), lo = Math.max(0.05, lambdaOspite);
+  let p00 = 0, under25 = 0, bloccata = 0;
+  const griglia: { casa: number; ospite: number; p: number }[] = [];
+  let p1 = 0, px = 0, p2 = 0;
+  const perTotale = new Array(21).fill(0);
+  for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
+    const p = poisson(lc, i) * poisson(lo, j);
+    griglia.push({ casa: i, ospite: j, p });
+    if (i > j) p1 += p; else if (i === j) px += p; else p2 += p;
+    perTotale[i + j] += p;
+    if (i + j === 0) p00 += p;
+    if (i + j <= 1) bloccata += p;
+    if (i + j <= 2) under25 += p;
+  }
+  const segnaC = 1 - Math.exp(-lc), segnaO = 1 - Math.exp(-lo);
+
+  // Gol attesi dalla forma: stessa formula misurata sullo storico, attacco di
+  // uno incrociato con la difesa dell'altro, ultime 5 totali e casa/fuori a
+  // pari peso (casa/fuori solo con almeno 2 partite).
+  const sede = (w: FinestraForma, k: "fatti" | "subiti") => (w.n >= 2 ? w[k] : null);
+  let fc: number | null = null, fo: number | null = null;
+  const c = forma?.casa, o = forma?.ospite;
+  if (c && o && c.totale.n >= 3 && o.totale.n >= 3) {
+    fc = mediaDi(mediaDi(c.totale.fatti, sede(c.sede, "fatti")), mediaDi(o.totale.subiti, sede(o.sede, "subiti")));
+    fo = mediaDi(mediaDi(o.totale.fatti, sede(o.sede, "fatti")), mediaDi(c.totale.subiti, sede(c.sede, "subiti")));
+  }
+  const conta = (s: FormaSquadra | undefined, k: "fatti" | "subiti") =>
+    s && s.totale.n ? s.totale.partite.filter((p) => p[k] > 0).length : null;
+
+  const totale = lc + lo;
+  const totaleForma = fc !== null && fo !== null ? fc + fo : null;
+  const forte = lc >= lo ? "la casa" : "l'ospite";
+  const rapporto = Math.max(lc, lo) / Math.min(lc, lo);
+  let tipo: LetturaGol["tipo"], tipoSpiegazione: string;
+  if (rapporto >= 1.8) {
+    tipo = "SBILANCIATA";
+    tipoSpiegazione = `Secondo le quote ${forte} segna circa ${g1(rapporto)} volte più dell'altra.`;
+  } else if (totale < 2.3) {
+    tipo = "EQUILIBRATA E CHIUSA";
+    tipoSpiegazione = "Forze simili e pochi gol attesi: partita tattica, il pareggio e i risultati stretti sono in gioco.";
+  } else if (totale > 2.9) {
+    tipo = "EQUILIBRATA E APERTA";
+    tipoSpiegazione = "Forze simili e tanti gol attesi: due squadre che segnano e concedono.";
+  } else {
+    tipo = "EQUILIBRATA";
+    tipoSpiegazione = "Forze simili, gol nella media.";
+  }
+
+  const avvisi: string[] = [];
+  if (totaleForma !== null) {
+    const diff = totaleForma - totale;
+    const difesaChiusa = [c?.sede, o?.sede, c?.totale, o?.totale].some((w) => w && w.n >= 2 && (w.subiti ?? 9) <= 0.6);
+    if (diff <= -0.7) {
+      avvisi.push(
+        `Le quote si aspettano ${g1(totale)} gol, la forma solo ${g1(totaleForma)}` +
+        // Misurato su 36 partite cosi' (07/10): Under 2.5 47% contro 42% delle
+        // quote, ma 0-1 gol NON piu' spesso (14%). Quindi "meno gol", non
+        // "partita bloccata": il segnale e' debole, si dice com'e'.
+        (difesaChiusa ? ": una delle due difese non prende quasi mai gol, attenzione agli Over (segnale debole)." : ": attenzione agli Over (segnale debole)."),
+      );
+    } else if (diff >= 0.7) {
+      // Su 36 partite cosi' (07/10): Over 2.5 nel 69% contro il 57% delle quote.
+      avvisi.push(`Le quote si aspettano ${g1(totale)} gol, la forma ${g1(totaleForma)}: la partita può essere più aperta del previsto.`);
+    }
+  }
+  for (const [s, nome] of [[c, c?.nome], [o, o?.nome]] as const) {
+    if (!s || s.totale.n < 4) continue;
+    const segnato = s.totale.partite.filter((p) => p.fatti > 0).length;
+    if (segnato <= 1) avvisi.push(`${nome} ha segnato solo in ${segnato} delle ultime ${s.totale.n}.`);
+  }
+
+  const risultati = griglia.sort((x, y) => y.p - x.p).slice(0, 8);
+  let golDa = 0, golA = 20, pFascia = 1;
+  for (let da = 0; da <= 10; da++) for (let a = da; a <= 12; a++) {
+    let q = 0;
+    for (let k = da; k <= a; k++) q += perTotale[k];
+    if (q >= 0.75 && (a - da < golA - golDa || (a - da === golA - golDa && q > pFascia))) { golDa = da; golA = a; pFascia = q; }
+  }
+  // Soglia 55%: e' circa una quota 1,75 sulla favorita. Sotto, la favorita
+  // "debole" che poi perde (Siviglia, Alaves, Criciuma: l'1X che finisce X2).
+  const direzione = p1 >= 0.55 ? "1" : p2 >= 0.55 ? "2" : null;
+  return {
+    risultati, golDa, golA, pFascia, p1, px, p2, direzione,
+    casa: { attesi: lc, segna: segnaC, prende: segnaO, attesiForma: fc, segnatoIn: conta(c, "fatti"), subitoIn: conta(c, "subiti"), n: c?.totale.n ?? 0 },
+    ospite: { attesi: lo, segna: segnaO, prende: segnaC, attesiForma: fo, segnatoIn: conta(o, "fatti"), subitoIn: conta(o, "subiti"), n: o?.totale.n ?? 0 },
+    totale, totaleForma, p00, gg: segnaC * segnaO, under25, bloccata, tipo, tipoSpiegazione, avvisi,
   };
 }

@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -116,6 +116,17 @@ export default function MatchDetail() {
   const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
   const [showClusterAll, setShowClusterAll] = useState(false);
   const [history, setHistory] = useState<MatchHistory | null>(null);
+  // Forma gol delle due squadre da FotMob (07/10/2026): a parte, non blocca la scheda.
+  const [forma, setForma] = useState<FormaGol | null>(null);
+  // Parere dell'AI chiuso in una riga quando non decide (07/10/2026, Rossi).
+  const [parereAperto, setParereAperto] = useState(false);
+  useEffect(() => {
+    if (!id) return;
+    let vivo = true;
+    setForma(null);
+    api.formaGol(id).then((r) => { if (vivo) setForma(r?.forma ?? null); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [id]);
   // FASE 2 — soglia di quota minima scelta dall'utente. Alzandola si compra
   // quota pagandola in precisione: misurato su 583 partite storiche,
   // 1,40 -> 62,3% | 1,50 -> 61,6% | 1,60 -> 54,0% | 1,75 -> 49,7%.
@@ -240,6 +251,8 @@ export default function MatchDetail() {
   // risultato) si mostra, ma non entra mai nel verdetto.
   const aiPostPartita = pronosticoPostPartita(prediction, match);
   const predVerdetto = aiPostPartita ? null : prediction;
+  // SCELTA B (07/10/2026): l'AI vota nel verdetto solo con una notizia verificata.
+  const predDecide = predVerdetto && aiDecide(predVerdetto, match) ? predVerdetto : null;
   // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
   // archivio, quota >= soglia). Per le fasce AI si parte da 1.40.
   const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds, false, structural?.structure);
@@ -254,14 +267,14 @@ export default function MatchDetail() {
       const fam = structural?.pre_ranking?.length
         ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
         : quickPredictionFamily(match.odds);
-      const llmMarkets = predVerdetto?.playable_markets?.map((p) => p.market)
-        || (predVerdetto?.main_prediction ? [predVerdetto.main_prediction] : []);
+      const llmMarkets = predDecide?.playable_markets?.map((p) => p.market)
+        || (predDecide?.main_prediction ? [predDecide.main_prediction] : []);
       // Filtro strutturale in ingresso (Ticket 6): stesso calcolo del riquadro.
       const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
       const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
       // Con le fasce AI il verdetto e' la classifica dell'AI (stessa funzione del server).
       const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match, manualeFasce);
-      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
+      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predDecide?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
       const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
       const top = verdict[0];
       if (!top || savedVerdictRef.current === top.market) return;
@@ -514,6 +527,251 @@ export default function MatchDetail() {
           )}
         </View>
 
+        {/* ============ COSA ASPETTARSI DAI GOL (07/10/2026, Rossi) ============
+            Solo cio' che serve a Rossi: gol che fa e che prende ognuna (dalle
+            quote, motore Poisson), ultime 5 vere (FotMob: fatti/subiti, casa o
+            fuori, risultati), fascia di gol della partita e risultati esatti
+            piu' probabili. Il resto (tipo di partita, avvisi) lo usa l'AI,
+            non la scheda. Vedi letturaGol in api.ts. */}
+        {structural?.structure && (() => {
+          const s = structural.structure;
+          const L = letturaGol(s.lambda_home, s.lambda_away, forma);
+          const pc = (x: number) => `${Math.round(x * 100)}%`;
+          const n1 = (x: number | null | undefined) => (x == null ? "–" : x.toFixed(1).replace(".", ","));
+          const fp = (w?: { n: number; fatti: number | null; subiti: number | null }) =>
+            w && w.n ? `${n1(w.fatti)} / ${n1(w.subiti)}${w.n < 5 ? ` (${w.n})` : ""}` : "–";
+          const andamento = (sq: FormaGol["casa"], nome: string) => (
+            <Text style={styles.golTesto} key={sq.nome}>
+              <Text style={{ fontWeight: "900" }}>{nome}: </Text>
+              {sq.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join("  ·  ")}
+            </Text>
+          );
+          const riga = (et: string, a: string, b: string, k: string) => (
+            <View key={k} style={styles.golRiga}>
+              <Text style={styles.golEt}>{et}</Text>
+              <Text style={styles.golVal}>{a}</Text>
+              <Text style={styles.golVal}>{b}</Text>
+            </View>
+          );
+          return (
+            <View style={styles.golBox}>
+              <Text style={styles.golTitolo}>COSA ASPETTARSI DAI GOL</Text>
+              <View style={styles.golRiga}>
+                <Text style={styles.golEt} />
+                <Text style={styles.golTesta} numberOfLines={1}>{match.squadra1}</Text>
+                <Text style={styles.golTesta} numberOfLines={1}>{match.squadra2}</Text>
+              </View>
+              {riga("Gol che fa", n1(L.casa.attesi), n1(L.ospite.attesi), "a")}
+              {riga("Gol che prende", n1(L.ospite.attesi), n1(L.casa.attesi), "p")}
+              {forma ? (
+                <>
+                  {riga("Ultime 5: fa / prende", fp(forma.casa.totale), fp(forma.ospite.totale), "t")}
+                  {riga(`Ultime 5 in casa / fuori`, fp(forma.casa.sede), fp(forma.ospite.sede), "c")}
+                  <Text style={styles.golSez}>COME STA ANDANDO (ultime 5, la più recente a destra)</Text>
+                  {andamento(forma.casa, match.squadra1)}
+                  {andamento(forma.ospite, match.squadra2)}
+                </>
+              ) : null}
+              <Text style={styles.golSez}>LA PARTITA</Text>
+              <Text style={styles.golTesto}>
+                Da {L.golDa} a {L.golA} gol ({pc(L.pFascia)} dei casi) · {n1(L.totale)} gol attesi
+              </Text>
+              <Text style={styles.golSez}>RISULTATI PIÙ PROBABILI</Text>
+              <View style={styles.golRisultati}>
+                {L.risultati.map((r) => (
+                  <View key={`${r.casa}-${r.ospite}`} style={styles.golRis}>
+                    <Text style={styles.golRisPunt}>{r.casa}-{r.ospite}</Text>
+                    <Text style={styles.golRisPct}>{pc(r.p)}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.golSez}>LA LETTURA</Text>
+              <Text style={styles.golTesto}>
+                Chi ne fa di più: <Text style={{ fontWeight: "900" }}>
+                  {Math.abs(L.casa.attesi - L.ospite.attesi) < 0.25
+                    ? "nessuna delle due, forze simili"
+                    : `${L.casa.attesi > L.ospite.attesi ? match.squadra1 : match.squadra2} (${n1(Math.max(L.casa.attesi, L.ospite.attesi))} contro ${n1(Math.min(L.casa.attesi, L.ospite.attesi))})`}
+                </Text>
+              </Text>
+              <Text style={styles.golTesto}>
+                Esito: 1 {pc(L.p1)} · X {pc(L.px)} · 2 {pc(L.p2)}
+              </Text>
+              <Text style={styles.golTesto}>
+                Direzione: <Text style={{ fontWeight: "900" }}>
+                  {L.direzione
+                    ? `${L.direzione} (${L.direzione === "1" ? match.squadra1 : match.squadra2})`
+                    : "nessuna: la favorita non è abbastanza forte, si gioca sui gol"}
+                </Text>
+              </Text>
+              <Text style={styles.golNota}>{"Cosa giocare: il riquadro PUNTA SU QUESTO qui sotto."}</Text>
+            </View>
+          );
+        })()}
+
+        {/* ============ IL CONSIGLIO DELL'AI (01/10/2026, Rossi) ============
+            Fra scenario e verdetto: il mercato su cui l'AI punterebbe di piu'
+            per QUESTA partita, a qualunque quota e fascia ("il consiglio di un
+            amico"). Solo dopo "Genera pronostico AI" e solo se generato PRIMA
+            del calcio d'inizio. Non cambia il verdetto della fascia scelta. */}
+        {(() => {
+          const ctxC = { odds: match.odds as any, structural, manuale: manualeFasce };
+          // SCELTA B (07/10/2026): senza una notizia verificata "Punta su
+          // questo" e' il pick del MOTORE (fusione motore + PRE senza AI, alla
+          // Quota minima scelta); il consiglio dell'AI resta sotto come parere.
+          // C'e' anche SENZA pronostico AI: e' la conclusione della scheda gol.
+          const decideAI = aiDecide(predVerdetto, match);
+          let mot: { market: string; odd: number | null; stimata: boolean; prob: number | null } | null = null;
+          if (!decideAI && structural) {
+            const famM = structural.pre_ranking?.length
+              ? structural.pre_ranking.map((x) => ({ market: x.market, odd: x.odd, family: "" }))
+              : quickPredictionFamily(match.odds);
+            const ingM = fusioneInIngresso(structural, famM, []);
+            const v = buildFinalVerdict(ingM.structural, rankPicks(ingM.pre, [], marketStats), undefined, match.odds, history, { minOdd, manuale: manualeQui })
+              .filter((x) => ammessoDallaStruttura(x.market, structural.structure))[0];
+            if (v) {
+              const vp = valutaPuntaSu(v.market, ctxC);
+              mot = { market: v.market, odd: vp?.odd ?? v.odd ?? null, stimata: vp?.stimata ?? !!v.oddEstimated, prob: vp?.prob ?? v.coverage ?? null };
+            }
+          }
+          const c = predVerdetto?.main_prediction && predVerdetto.fasce ? valutaPuntaSu(predVerdetto.main_prediction, ctxC) : null;
+          if (!c || !predVerdetto) {
+            if (!structural) return null;
+            return (
+              <View style={styles.puntaBox}>
+                <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                <Text style={styles.puntaVal}>{mot ? mot.market : `Nessuna giocata da ${minOdd.toFixed(2)}`}</Text>
+                {mot ? (
+                  <Text style={styles.puntaMeta}>
+                    {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
+                    {mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : ""}
+                  </Text>
+                ) : null}
+                <Text style={styles.puntaNota}>
+                  {mot
+                    ? "Motore e quote, alla Quota minima scelta. Genera il pronostico AI per sapere se c'è una notizia (assenze, formazioni) che lo cambia."
+                    : "A questa quota i numeri non trovano niente di coerente: prova una fascia più bassa nel verdetto qui sotto."}
+                </Text>
+              </View>
+            );
+          }
+          // Il consiglio motivato (pronostici dal 01/10): perche', cosa sa il
+          // web, perche' no alle alternative. I pronostici vecchi hanno solo
+          // la parte PERCHE' dell'analisi.
+          const cons = consiglioDi(predVerdetto);
+          const perche = cons?.perche || dividiAnalisi(predVerdetto.analysis).perche;
+          // Anche gli altri mercati che l'AI ha proposto per QUESTA partita.
+          const proposteAI = [
+            ...(predVerdetto.playable_markets || []).map((p) => p.market),
+            ...FASCE_AI.flatMap((f) => (predVerdetto.fasce as any)?.[chiaveFascia(f)]?.classifica || []),
+          ];
+          const alternative = alternativeDelConsiglio(mot ? mot.market : c.market, ctxC, mot ? [c.market, ...proposteAI] : proposteAI);
+          const cautela = !decideAI ? null : consiglioDaCautela(c.prob, cons ? cons.web : null, alternative);
+          const percheNo = (m: string) =>
+            cons?.alternative.find((a) => normalizeMarket(a.mercato) === normalizeMarket(m))?.perche_no || "";
+          return (
+            <View style={styles.puntaBox}>
+              {!decideAI ? (
+                <>
+                  <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                  {mot ? (
+                    <>
+                      <Text style={styles.puntaVal}>{mot.market}</Text>
+                      <Text style={styles.puntaMeta}>
+                        {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
+                        {mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : ""}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.puntaVal}>{`Nessuna giocata da ${minOdd.toFixed(2)}`}</Text>
+                  )}
+                  <Text style={styles.puntaPerche}>
+                    {mot
+                      ? "Motore e quote, alla Quota minima scelta. L'AI non ha trovato notizie che le quote non sappiano già (assenze, formazioni, motivazioni), quindi decidono i numeri."
+                      : "A questa quota i numeri non trovano niente di coerente: prova una fascia più bassa nel verdetto qui sotto. L'AI non ha notizie nuove, quindi non decide lei."}
+                  </Text>
+                  <TouchableOpacity onPress={() => setParereAperto((x) => !x)} activeOpacity={0.7}>
+                    <Text style={styles.puntaParere}>
+                      {"Parere AI: "}<Text style={{ fontWeight: "900" }}>{c.market}</Text>
+                      {c.odd !== null ? ` ${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : ""}
+                      {parereAperto ? "  ▾ chiudi" : "  ▸ tocca per i dettagli"}
+                    </Text>
+                  </TouchableOpacity>
+                  {parereAperto && cons?.notizia ? (
+                    <Text style={styles.puntaPerche}>{`Notizia citata ma non trovata nei dati: "${cons.notizia}"`}</Text>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · SCELTO DALL'AI PER UNA NOTIZIA"}</Text>
+                  <Text style={styles.puntaVal}>{c.market}</Text>
+                  <Text style={styles.puntaMeta}>
+                    {c.odd !== null ? `${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : "quota n/d"}
+                    {c.prob !== null ? ` · ${pctProb(c.prob)} Poisson` : ""}
+                    {c.fascia !== null ? ` · fascia ${etichettaFascia(c.fascia)}` : ""}
+                  </Text>
+                  {cons?.notizia ? (
+                    <>
+                      <Text style={styles.puntaSez}>LA NOTIZIA (verificata nei dati)</Text>
+                      <Text style={styles.puntaPerche}>{cons.notizia}</Text>
+                    </>
+                  ) : null}
+                </>
+              )}
+              {(decideAI || parereAperto) && (
+                <>
+              {perche ? (
+                <>
+                  <Text style={styles.puntaSez}>{!decideAI ? `PERCHÉ L'AI PREFERIREBBE ${c.market}` : "PERCHÉ QUESTO"}</Text>
+                  <Text style={styles.puntaPerche}>{perche}</Text>
+                </>
+              ) : null}
+              <Text style={styles.puntaSez}>COSA SA IL WEB CHE IL SISTEMA NON SA</Text>
+              <Text style={styles.puntaPerche}>
+                {cons ? (cons.web || "L'AI non l'ha detto.") : "Pronostico generato prima del consiglio motivato: rigeneralo per vederlo."}
+              </Text>
+              {alternative.length ? (
+                <>
+                  <Text style={styles.puntaSez}>LE ALTERNATIVE (numeri del sistema)</Text>
+                  {alternative.map((a) => (
+                    <View key={a.market} style={styles.altRow}>
+                      <Text style={styles.altNome}>
+                        {a.market}
+                        <Text style={styles.altMeta}>
+                          {a.odd !== null ? `  ${a.stimata ? "≈" : "@"} ${a.odd.toFixed(2)}` : ""}
+                          {a.prob !== null ? ` · ${pctProb(a.prob)} Poisson` : ""}
+                          {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% in archivio` : ""}
+                          {a.rankMotore !== null ? ` · motore #${a.rankMotore}` : ""}
+                          {` · ${a.motivo}`}
+                        </Text>
+                      </Text>
+                      {percheNo(a.market) ? <Text style={styles.altPercheNo}>Perché no: {percheNo(a.market)}</Text> : null}
+                    </View>
+                  ))}
+                </>
+              ) : null}
+              {cautela ? (
+                <Text style={styles.puntaAvviso}>
+                  ⚠ Meno probabile di {cautela.market} ({cautela.prob !== null ? pctProb(cautela.prob) : "?"}) senza un motivo dal web: valuta con cautela.
+                </Text>
+              ) : null}
+              <Text style={styles.puntaNota}>
+                {!decideAI
+                  ? "Il \"perché\" e il web qui sopra sono il ragionamento dell'AI sul suo parere."
+                  : "L'AI ha cambiato la scelta dei numeri per la notizia qui sopra: anche il verdetto qui sotto segue la sua classifica."}
+              </Text>
+                </>
+              )}
+              {decideAI && c.problema ? (
+                <Text style={styles.puntaAvviso}>⚠ Il controllo lo scarta: {c.problema}. Non può diventare il verdetto.</Text>
+              ) : decideAI && c.fascia !== null && Math.abs(c.fascia - minOdd) > 0.001 ? (
+                <Text style={styles.puntaAvviso}>
+                  Sta nella fascia {etichettaFascia(c.fascia)}: per giocarlo scegli quella fascia qui sotto.
+                </Text>
+              ) : null}
+            </View>
+          );
+        })()}
+
         {/* ============ NOTA SCENARIO 1X2 (richiesta da Rossi il 09/09) ============
             Calcolo separato e di sola lettura sulle quote gia' a sistema:
             non alimenta ne' modifica il verdetto finale, il motore, l'IA o
@@ -551,88 +809,6 @@ export default function MatchDetail() {
           );
         })()}
 
-        {/* ============ IL CONSIGLIO DELL'AI (01/10/2026, Rossi) ============
-            Fra scenario e verdetto: il mercato su cui l'AI punterebbe di piu'
-            per QUESTA partita, a qualunque quota e fascia ("il consiglio di un
-            amico"). Solo dopo "Genera pronostico AI" e solo se generato PRIMA
-            del calcio d'inizio. Non cambia il verdetto della fascia scelta. */}
-        {(() => {
-          if (!predVerdetto?.main_prediction || !predVerdetto.fasce) return null;
-          const ctxC = { odds: match.odds as any, structural, manuale: manualeFasce };
-          const c = valutaPuntaSu(predVerdetto.main_prediction, ctxC);
-          if (!c) return null;
-          // Il consiglio motivato (pronostici dal 01/10): perche', cosa sa il
-          // web, perche' no alle alternative. I pronostici vecchi hanno solo
-          // la parte PERCHE' dell'analisi.
-          const cons = consiglioDi(predVerdetto);
-          const perche = cons?.perche || dividiAnalisi(predVerdetto.analysis).perche;
-          // Anche gli altri mercati che l'AI ha proposto per QUESTA partita.
-          const proposteAI = [
-            ...(predVerdetto.playable_markets || []).map((p) => p.market),
-            ...FASCE_AI.flatMap((f) => (predVerdetto.fasce as any)?.[chiaveFascia(f)]?.classifica || []),
-          ];
-          const alternative = alternativeDelConsiglio(c.market, ctxC, proposteAI);
-          const cautela = consiglioDaCautela(c.prob, cons ? cons.web : null, alternative);
-          const percheNo = (m: string) =>
-            cons?.alternative.find((a) => normalizeMarket(a.mercato) === normalizeMarket(m))?.perche_no || "";
-          return (
-            <View style={styles.puntaBox}>
-              <Text style={styles.puntaLbl}>{"IL CONSIGLIO DELL'AI · PUNTA SU QUESTO"}</Text>
-              <Text style={styles.puntaVal}>{c.market}</Text>
-              <Text style={styles.puntaMeta}>
-                {c.odd !== null ? `${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : "quota n/d"}
-                {c.prob !== null ? ` · ${pctProb(c.prob)} Poisson` : ""}
-                {c.fascia !== null ? ` · fascia ${etichettaFascia(c.fascia)}` : ""}
-              </Text>
-              {perche ? (
-                <>
-                  <Text style={styles.puntaSez}>PERCHÉ QUESTO</Text>
-                  <Text style={styles.puntaPerche}>{perche}</Text>
-                </>
-              ) : null}
-              <Text style={styles.puntaSez}>COSA SA IL WEB CHE IL SISTEMA NON SA</Text>
-              <Text style={styles.puntaPerche}>
-                {cons ? (cons.web || "L'AI non l'ha detto.") : "Pronostico generato prima del consiglio motivato: rigeneralo per vederlo."}
-              </Text>
-              {alternative.length ? (
-                <>
-                  <Text style={styles.puntaSez}>LE ALTERNATIVE (numeri del sistema)</Text>
-                  {alternative.map((a) => (
-                    <View key={a.market} style={styles.altRow}>
-                      <Text style={styles.altNome}>
-                        {a.market}
-                        <Text style={styles.altMeta}>
-                          {a.odd !== null ? `  ${a.stimata ? "≈" : "@"} ${a.odd.toFixed(2)}` : ""}
-                          {a.prob !== null ? ` · ${pctProb(a.prob)} Poisson` : ""}
-                          {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% in archivio` : ""}
-                          {a.rankMotore !== null ? ` · motore #${a.rankMotore}` : ""}
-                          {` · ${a.motivo}`}
-                        </Text>
-                      </Text>
-                      {percheNo(a.market) ? <Text style={styles.altPercheNo}>Perché no: {percheNo(a.market)}</Text> : null}
-                    </View>
-                  ))}
-                </>
-              ) : null}
-              {cautela ? (
-                <Text style={styles.puntaAvviso}>
-                  ⚠ Meno probabile di {cautela.market} ({cautela.prob !== null ? pctProb(cautela.prob) : "?"}) senza un motivo dal web: valuta con cautela.
-                </Text>
-              ) : null}
-              <Text style={styles.puntaNota}>
-                {"Indipendente dalla fascia che scegli: è il giudizio dell'AI su questa partita, con tutte le informazioni. Il verdetto qui sotto resta il pick della fascia scelta."}
-              </Text>
-              {c.problema ? (
-                <Text style={styles.puntaAvviso}>⚠ Il controllo lo scarta: {c.problema}. Non può diventare il verdetto.</Text>
-              ) : c.fascia !== null && Math.abs(c.fascia - minOdd) > 0.001 ? (
-                <Text style={styles.puntaAvviso}>
-                  Sta nella fascia {etichettaFascia(c.fascia)}: per giocarlo scegli quella fascia qui sotto.
-                </Text>
-              ) : null}
-            </View>
-          );
-        })()}
-
         {/* ============ VERDETTO FINALE (fusione 3 sistemi) ============ */}
         {(() => {
           if (!structural) return null;
@@ -641,7 +817,7 @@ export default function MatchDetail() {
           const fam = structural?.pre_ranking?.length
             ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
             : quickPredictionFamily(match.odds);
-          const llmMarkets = predVerdetto?.playable_markets?.map((p) => p.market) || (predVerdetto?.main_prediction ? [predVerdetto.main_prediction] : []);
+          const llmMarkets = predDecide?.playable_markets?.map((p) => p.market) || (predDecide?.main_prediction ? [predDecide.main_prediction] : []);
           // FILTRO STRUTTURALE IN INGRESSO (Ticket 6): motore e PRE senza i mercati
           // inammissibili PRIMA della fusione, cosi' ordine e "n/3" sono calcolati
           // solo su mercati giocabili. Il filtro piu' sotto resta come formalita'.
@@ -652,7 +828,7 @@ export default function MatchDetail() {
           // minima; motore e PRE restano come badge di accordo. Senza fasce
           // (pronostici vecchi o nessun pronostico) resta la fusione.
           const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match, manualeFasce);
-          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predVerdetto?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
+          const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predDecide?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
           // NIENTE GIOCATA non vuol dire schermata vuota. Prima qui si usciva
           // con `return null` e spariva tutto il riquadro — selettore della
           // quota compreso: l'utente restava senza il comando per abbassare la
@@ -1142,7 +1318,11 @@ export default function MatchDetail() {
                   NON entrano nel calcolo: prima si accumulano su partite che poi
                   hanno un risultato, poi si misura se predicono meglio, e solo
                   allora si cambia il motore. */}
-              {typeof prediction?.xg_casa === "number" && typeof prediction?.xg_ospite === "number" && (() => {
+              {/* Sopra 4 a partita non e' un xG di una partita: sono i TOTALI del
+                  girone ricopiati (Estonia-Islanda 06/10: 3.39 e 6.76 = "10 gol
+                  attesi"). Il dossier dal 07/10 li da' a partita. */}
+              {typeof prediction?.xg_casa === "number" && typeof prediction?.xg_ospite === "number"
+                && prediction.xg_casa <= 4 && prediction.xg_ospite <= 4 && (() => {
                 const attesiMotore = structural.structure.lambda_home + structural.structure.lambda_away;
                 const attesiWeb = prediction.xg_casa + prediction.xg_ospite;
                 const scarto = attesiWeb - attesiMotore;
@@ -1482,7 +1662,8 @@ export default function MatchDetail() {
                 const righeSistema: { etichetta: string; casa: string; ospite: string }[] = [
                   { etichetta: "Quota segno", casa: match.odds?.odd_1 ? Number(match.odds.odd_1).toFixed(2) : "n/d", ospite: match.odds?.odd_2 ? Number(match.odds.odd_2).toFixed(2) : "n/d" },
                   ...(s ? [{ etichetta: "Gol attesi (Poisson)", casa: s.lambda_home.toFixed(2), ospite: s.lambda_away.toFixed(2) }] : []),
-                  ...(typeof prediction.xg_casa === "number" || typeof prediction.xg_ospite === "number"
+                  ...((typeof prediction.xg_casa === "number" || typeof prediction.xg_ospite === "number")
+                    && (prediction.xg_casa ?? 0) <= 4 && (prediction.xg_ospite ?? 0) <= 4
                     ? [{ etichetta: "xG (web)", casa: typeof prediction.xg_casa === "number" ? prediction.xg_casa.toFixed(2) : "n/d", ospite: typeof prediction.xg_ospite === "number" ? prediction.xg_ospite.toFixed(2) : "n/d" }]
                     : []),
                 ];
@@ -1848,6 +2029,20 @@ const styles = StyleSheet.create({
   ricVuoto: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
   mainPredMeta: { color: "#FFF", fontSize: 11, fontWeight: "700", marginTop: 4, opacity: 0.9 },
   fasciaNota: { color: colors.textDim, fontSize: 11, marginTop: -4, marginBottom: 8 },
+  golBox: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: 10, padding: 12, gap: 3 },
+  golTitolo: { color: colors.primary, fontSize: 11, fontWeight: "900", letterSpacing: 1, marginBottom: 4 },
+  golRiga: { flexDirection: "row", alignItems: "center", gap: 6 },
+  golEt: { flex: 1.1, color: colors.textMuted, fontSize: 11, fontWeight: "700" },
+  golTesta: { flex: 1, color: colors.text, fontSize: 12, fontWeight: "900", textAlign: "center" },
+  golVal: { flex: 1, color: colors.text, fontSize: 12, fontWeight: "700", textAlign: "center" },
+  golSez: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1, marginTop: 8 },
+  golTesto: { color: colors.text, fontSize: 12, lineHeight: 18 },
+  golAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  golRisultati: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  golRis: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 8, alignItems: "center", minWidth: 62 },
+  golRisPunt: { color: colors.text, fontSize: 15, fontWeight: "900" },
+  golRisPct: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
+  golNota: { color: colors.textDim, fontSize: 10, lineHeight: 15, marginTop: 6 },
   puntaBox: { borderWidth: 1, borderColor: colors.primary, backgroundColor: "rgba(255,87,34,0.10)", borderRadius: 10, padding: 12, gap: 2 },
   puntaLbl: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   puntaVal: { color: colors.text, fontSize: 20, fontWeight: "900" },
@@ -1858,6 +2053,7 @@ const styles = StyleSheet.create({
   altNome: { color: colors.text, fontSize: 13, fontWeight: "800" },
   altMeta: { color: colors.textMuted, fontSize: 11, fontWeight: "600" },
   altPercheNo: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
+  puntaParere: { color: colors.textMuted, fontSize: 13, marginTop: 8 },
   puntaNota: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: 6 },
   puntaAvviso: { color: colors.warning, fontSize: 11, lineHeight: 16, marginTop: 4 },
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },

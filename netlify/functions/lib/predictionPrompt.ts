@@ -68,12 +68,17 @@ disponibili prima del calcio d'inizio.
 
 PUNTA SU QUESTO — campo "main_prediction":
 il mercato del CATALOGO su cui punteresti DI PIU' per questa partita, a
-QUALUNQUE quota: il tuo giudizio migliore con tutte le informazioni (quote,
-motore, scenario, dati web). Puoi ribaltare il motore e il PRE se i dati web lo
-giustificano (es. assenze pesanti della favorita: meglio DC 1X + O1.5 che 1
-secco), e devi dire perche' nella parte "PERCHE' QUESTA SCELTA" di "analysis".
-Non sceglierlo per la quota: sceglilo perche' e' il piu' probabile e il piu'
-solido per QUESTA partita.
+QUALUNQUE quota. Misurato sullo storico (07/10/2026): quote e motore leggono
+gol e direzione MEGLIO di te; tu batti i numeri solo quando sai una NOTIZIA
+che le quote non contengono ancora. Quindi:
+- senza una notizia concreta, scegli il mercato che i numeri (motore, quote,
+  forma gol) indicano come piu' probabile e solido;
+- solo con una notizia concreta dai DATI SULLA PARTITA (un'assenza pesante con
+  il nome del giocatore, una formazione ufficiale con riserve, una squadra gia'
+  qualificata o senza motivazioni) puoi ribaltare il motore, e la scrivi nel
+  campo "consiglio.notizia".
+Non sceglierlo per la quota e non inventare notizie: il codice controlla che
+la notizia sia davvero nei dati, e se non c'e' il tuo consiglio non vale.
 
 IL CONSIGLIO VA MOTIVATO — campo "consiglio" (caso Irlanda-Austria: l'AI ha
 consigliato GG al 47% come "veicolo" di X oppure GG, che era giocabile col suo
@@ -84,6 +89,11 @@ nome al 57%, senza un solo fatto dal web a sostegno):
          forma, moduli, motivazioni) e come sposta la scelta; se il web non
          aggiunge niente scrivi esattamente "niente di nuovo dal web: decidono i
          numeri";
+  "notizia": il fatto concreto che ti fa cambiare la scelta dei numeri,
+         COPIATO dai DATI SULLA PARTITA con i nomi (es. "Iceland: Albert
+         Gudmundsson (infortunio)"); stringa vuota "" se non c'e' una notizia
+         cosi'. Forma, classifica, xG e precedenti NON sono notizie: le quote
+         li conoscono gia';
   "alternative": per OGNUNO di questi mercati, perche' NON lo preferisci:
          il piu' probabile del CATALOGO, il primo del PRE, ogni mercato del
          manuale ammesso in questa partita e gli altri mercati che tu stesso
@@ -156,6 +166,7 @@ OUTPUT (SOLO JSON, niente markdown)
     "mercato": "MG 2-4 totali",
     "perche": "Range chiuso 2-4 e la probabilita' piu' alta del catalogo (64%).",
     "web": "Niente di nuovo dal web: decidono i numeri.",
+    "notizia": "",
     "alternative": [
       {"mercato": "DC 1X + O1.5", "perche_no": "Dipende dalla direzione casa, che il web non conferma (formazioni incerte)."},
       {"mercato": "GG + O2.5", "perche_no": "47%: troppo sotto per una partita a range chiuso."}
@@ -262,6 +273,10 @@ export type ConsiglioAI = {
   mercato: string;
   perche: string;
   web: string;
+  /** La notizia concreta che giustifica il cambio rispetto ai numeri (07/10/2026). */
+  notizia: string;
+  /** Messo dal codice: la notizia c'e' davvero nei dati della partita. */
+  notizia_verificata?: boolean;
   alternative: { mercato: string; perche_no: string }[];
 };
 
@@ -275,7 +290,7 @@ export function normalizzaConsiglio(v: any, mainPrediction?: string | null): Con
     .map((a: any) => ({ mercato: str(a?.mercato ?? a?.market, 60), perche_no: str(a?.perche_no ?? a?.perche, 300) }))
     .filter((a: { mercato: string }) => a.mercato)
     .slice(0, 5);
-  return { mercato, perche: str(v.perche, 500), web: str(v.web, 500), alternative };
+  return { mercato, perche: str(v.perche, 500), web: str(v.web, 500), notizia: str(v.notizia, 400), alternative };
 }
 
 export function normalizzaFasce(v: any): Record<string, { classifica: string[]; perche: string }> | null {
@@ -486,4 +501,43 @@ L'analysis puo' aprirsi citando lo scenario (es. "scenario ${args.scenario.toUpp
 indica ..."): i mercati del manuale con storico forte sono la prima lettura.
 ============================================================
 `;
+}
+
+/**
+ * LA NOTIZIA C'E' DAVVERO? (07/10/2026, scelta B con Rossi). Il consiglio
+ * dell'AI vale piu' dei numeri solo se cita un fatto presente nei dati della
+ * partita. Si confrontano le parole "pesanti" della notizia (5+ lettere, senza
+ * le parole comuni): almeno 2, e almeno il 60% deve comparire nel dossier.
+ * Forma, classifica e xG non sono notizie (le quote li conoscono).
+ */
+const PAROLE_COMUNI = new Set([
+  "della", "delle", "degli", "dello", "nella", "nelle", "sulla", "sulle", "dalla", "dalle", "questa", "questo",
+  "partita", "squadra", "contro", "anche", "senza", "ultime", "ultimi", "sempre", "perche", "quindi", "molto",
+  "rientro", "early", "late", "october", "november", "december", "september", "infortunio", "squalifica",
+]);
+const NON_NOTIZIE = /\b(forma|classifica|xg|xpoints|precedent|statistic|media gol|gol fatti|gol subiti)\b/i;
+// ð/þ/ø/æ/ß/ł non si scompongono con NFD: "Guðmundsson" deve valere "Gudmundsson".
+const senzaAccenti = (t: string) => t
+  .replace(/[ðÐ]/g, "d").replace(/[þÞ]/g, "th").replace(/[øØ]/g, "o").replace(/[æÆ]/g, "ae").replace(/ß/g, "ss").replace(/[łŁ]/g, "l")
+  .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const PAROLE_NOTIZIA = /manca|mancano|assen|infortun|squalific|formazion|riserv|turnover|qualificat|motivaz|\bout\b|indisponibil|fuori per|senza/;
+
+export function notiziaVerificata(notizia: string | null | undefined, datiPartita: string): boolean {
+  const n = senzaAccenti(String(notizia || "")).trim();
+  if (n.length < 12 || NON_NOTIZIE.test(n) && !PAROLE_NOTIZIA.test(n)) return false;
+  const testo = senzaAccenti(datiPartita);
+  // (a) copiata dai dati: almeno 2 parole pesanti e il 60% presenti.
+  const parole = Array.from(new Set(n.match(/[a-z]{5,}/g) || [])).filter((w) => !PAROLE_COMUNI.has(w));
+  const trovate = parole.filter((w) => testo.includes(w)).length;
+  if (parole.length >= 2 && trovate >= 2 && trovate / parole.length >= 0.6) return true;
+  // (b) detta a parole sue ("Manca Gudmundsson, il miglior attaccante"): basta
+  // una parola da notizia e un NOME (maiuscola, 4+ lettere) presente nei dati.
+  if (!PAROLE_NOTIZIA.test(n)) return false;
+  const nomi = (String(notizia).match(/(?<!\p{L})\p{Lu}[\p{L}'-]{3,}/gu) || []).map(senzaAccenti)
+    .filter((w) => !PAROLE_COMUNI.has(w) && !/^(manca|mancano|assente|assenti|infortunato|squalificato)$/.test(w));
+  // I nomi delle squadre compaiono ovunque nel dossier: un nome di giocatore
+  // compare una o due volte (nella riga degli assenti o delle formazioni).
+  const volte = (w: string) => testo.split(w).length - 1;
+  // "Iceland:" e' l'etichetta di una squadra, non un giocatore.
+  return nomi.some((w) => { const k = volte(w); return k >= 1 && k <= 2 && !testo.includes(`${w}:`); });
 }

@@ -155,6 +155,43 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 — Scheda gol, "Punta su questo" dai numeri (scelta B), dossier a partita
+
+Analisi con Rossi prima del codice (dettagli nella voce 06/10 (5) e sotto):
+- su 341 partite AI e pick dell'app indovinano uguale (61%), ma il consiglio
+  dell'AI gioca quote piu' basse (1,44, resa -10%) e sbaglia la direzione
+  (51% con segno/DC contro 66% sui soli gol);
+- il ricalcolo SENZA AI (8.420 partite) alle fasce 1,60/1,75 va in pari o
+  in attivo (+2%);
+- la forma delle ultime 5 (FotMob, 450 partite) NON batte le quote: errore
+  sui gol 1,36 contro 1,31, O/U 2.5 55% contro 58%. Le quote restano la base.
+
+Cosa cambia:
+- **Scheda "Cosa aspettarsi dai gol"** in cima alla partita (Rossi: "solo quello
+  che mi serve"): gol che fa / che prende ognuna (lambda dalle quote), ultime 5
+  fatti/presi totali e casa/fuori, come sta andando (V 1-0 ...), fascia di gol
+  della partita (75%+), risultati esatti piu' probabili, LA LETTURA (chi ne fa
+  di piu', esito 1X2, direzione solo se la favorita vince >= 55%, cioe' quota
+  ~1,75: sotto "si gioca sui gol"). `letturaGol()` in api.ts.
+- `forma-gol` (nuova rotta, `lib/formaGol.ts`): ultime partite delle due
+  squadre da FotMob (`api/data/teams`, stagione in corso, solo "FT": niente
+  supplementari e rigori). In memoria 6 ore. Rotta anche in vercel.json.
+- **Scelta B**: `aiDecide()` in api.ts. L'AI decide verdetto e "Punta su
+  questo" SOLO se `fasce.consiglio.notizia_verificata`: il prompt chiede un
+  campo `consiglio.notizia` (fatto concreto copiato dai dati: assenza,
+  formazione, motivazioni) e `notiziaVerificata()` (predictionPrompt.ts)
+  controlla che ci sia davvero nel dossier (parole copiate, oppure un nome di
+  giocatore presente 1-2 volte e non etichetta di squadra; ð/ø/æ normalizzati).
+  Senza: decide il motore (fusione motore + PRE senza AI) e anche
+  verdettoServer non fa votare l'AI. "Punta su questo" c'e' sempre, anche senza
+  pronostico AI; il parere dell'AI e' una riga apribile.
+- Dossier: xG A PARTITA (prima i totali del girone: Estonia "xG 3.39" = 3
+  gare). La scheda ignora xG AI sopra 4 (erano totali ricopiati: "10 gol
+  attesi dal campo"). La forma gol entra anche nel prompt.
+- Misurato e NON mostrato all'utente (lo usa solo l'AI): avviso quote/forma.
+  Forma > quote di 0,7: Over 2.5 69% contro 57% (36 partite); forma < quote:
+  segnale debole.
+
 ### 2026-10-06 (6) — LLM & Budget divisa per servizio
 
 Rossi: "dovresti differenziare quelli da OpenRouter da quelli che non sono di

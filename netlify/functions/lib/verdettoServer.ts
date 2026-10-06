@@ -3,7 +3,7 @@ import { structuralAnalysis, quoteCatalogo, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import { manualeStatsRecenti } from "./manuale";
 import {
-  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita,
+  buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita, aiDecide,
   candidatiManuale, FASCE_AI,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
@@ -112,7 +112,9 @@ export async function verdettoDiPartita(
     );
     // Un pronostico generato dopo il calcio d'inizio non entra nel verdetto
     // (potrebbe conoscere il risultato): si procede come senza AI.
-    if (preds.length && !pronosticoPostPartita(preds[0], match)) {
+    // SCELTA B (07/10/2026): senza una notizia verificata l'AI non vota
+    // nemmeno nella fusione: decide il motore, come nel ricalcolo senza AI.
+    if (preds.length && aiDecide(preds[0], match)) {
       fasceAI = preds[0].fasce || null;
       aiMarkets = preds[0].playable_markets || [];
       if (preds[0].main_prediction && !(aiMarkets || []).some((x: any) => x.market === preds[0].main_prediction)) {

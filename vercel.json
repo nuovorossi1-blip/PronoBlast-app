@@ -149,6 +149,10 @@
       "destination": "/api/dossier-giornata"
     },
     {
+      "source": "/forma-gol",
+      "destination": "/api/forma-gol"
+    },
+    {
       "source": "/lavori",
       "destination": "/api/lavori"
     },

@@ -131,7 +131,13 @@ function testoSquadra(r: RigaSquadra | null, inCasa: boolean): string | null {
   if (!r || r.pos == null) return null;
   let s = `${r.nome}: ${r.pos}° con ${r.pt} pt in ${r.giocate} gare (gol ${r.gol})`;
   if (r.pos_casa_o_fuori != null) s += `; ${inCasa ? "in casa" : "in trasferta"} ${r.pos_casa_o_fuori}° (gol ${r.gol_casa_o_fuori})`;
-  if (r.xg != null) s += `; xG ${r.xg} fatti / ${r.xg_subiti} subiti, xPoints ${r.xpt}`;
+  // A PARTITA (07/10/2026): "xG 9.65 fatti" erano i TOTALI del girone (3
+  // gare) e l'AI li leggeva come numeri di una partita.
+  if (r.xg != null) {
+    const g = r.giocate && r.giocate > 0 ? r.giocate : null;
+    const ap = (x: number | null) => (g && x != null ? (x / g).toFixed(2) : "n/d");
+    s += `; xG a partita ${ap(r.xg)} fatti / ${ap(r.xg_subiti)} subiti (totali in ${g ?? "?"} gare: ${r.xg} / ${r.xg_subiti})`;
+  }
   return s;
 }
 

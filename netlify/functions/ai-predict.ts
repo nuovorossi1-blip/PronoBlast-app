@@ -5,7 +5,8 @@ import {
 } from "./lib/clusterEngine";
 import { classifyScenario } from "./lib/scenario";
 import { readMinOdd } from "./odd-settings";
-import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, normalizzaConsiglio, type VoceManuale } from "./lib/predictionPrompt";
+import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, normalizzaConsiglio, notiziaVerificata, type VoceManuale } from "./lib/predictionPrompt";
+import { formaGol, testoFormaGol } from "./lib/formaGol";
 import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, isProviderUsable, type LlmOption } from "./lib/llmProviders";
@@ -170,6 +171,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
   let webDisponibile = false;
   let webDaArchivio = false;
   let webMotivo: string | undefined;
+  // Il testo dei dati della partita: serve anche a controllare che la
+  // "notizia" del consiglio ci sia davvero (scelta B, 07/10/2026).
+  let datiPartita = "";
   // PARTITA GIA' INIZIATA (01/10/2026): la ricerca web potrebbe trovare il
   // risultato. Si cerca solo fino al giorno prima, si avvisa il modello e il
   // pronostico viene marcato post_partita: non conta per verdetto e pagella.
@@ -190,11 +194,27 @@ REGOLE OBBLIGATORIE basate sul PIN:
     webDisponibile = ctx.disponibile;
     webDaArchivio = !!ctx.da_archivio;
     webMotivo = ctx.motivo;
-    prompt = prompt + blocoTesto(ctx);
+    datiPartita = blocoTesto(ctx);
+    prompt = prompt + datiPartita;
   } catch (e) {
     // La ricerca web non deve MAI impedire un pronostico: senza, si lavora
     // come prima.
     console.error("[ai-predict] ricerca web", e);
+  }
+  // FORMA GOL (07/10/2026): ultime 5 totali e casa/fuori, numeri A PARTITA.
+  try {
+    let fotmobId: string | null = null;
+    try {
+      const d = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=numeri`);
+      fotmobId = d[0]?.numeri?.fotmob_id || null;
+    } catch { /* si cerca nell'elenco del giorno */ }
+    const blocco = testoFormaGol(await formaGol(
+      { giorno: match.day, casa: match.squadra1, ospite: match.squadra2, inizioMs: inizio }, fotmobId,
+    ));
+    prompt += blocco;
+    datiPartita += blocco;
+  } catch (e) {
+    console.error("[ai-predict] forma gol", e);
   }
   if (postPartita) {
     prompt += `\n⚠ Questa partita e' GIA' INIZIATA o finita. Ragiona come se fossi prima del calcio d'inizio: ignora qualsiasi informazione su risultato, marcatori o andamento di QUESTA partita, anche se compare nei dati web.\n`;
@@ -284,6 +304,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // chiavi 1.40/1.50/1.60/1.75, quindi non lo vede.
   const consiglio = normalizzaConsiglio((prediction as any).consiglio, prediction.main_prediction);
   if (consiglio && prediction.main_prediction) consiglio.mercato = prediction.main_prediction;
+  // SCELTA B (07/10/2026): il consiglio dell'AI decide solo con una notizia
+  // vera; senza, decide il motore (verdettoDaAI / aiDecide in api.ts).
+  if (consiglio) consiglio.notizia_verificata = notiziaVerificata(consiglio.notizia, datiPartita);
   // Anche il modello che l'ha fatto (06/10/2026): prima non si salvava e non
   // si poteva dire quale modello sbaglia di piu'. Sta in `fasce` come il
   // consiglio; validaFasce legge solo le chiavi delle soglie.
