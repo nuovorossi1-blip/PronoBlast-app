@@ -49,6 +49,28 @@ export default function LlmSettings() {
     try { await api.setOpenRouterEconomico(v); } catch (e: any) { notify("Errore", e?.message); load(); }
   };
 
+  const opzioniDi = (provider: string[]) => options.filter((o) => provider.includes(o.provider));
+  const opzione = (o: any) => {
+    const active = o.id === selectedId;
+    const attivo = o.configured !== false;
+    return (
+      <TouchableOpacity key={o.id} testID={`llm-${o.id}`}
+        onPress={() => attivo ? select(o.id) : notify("Modello non attivo", `${o.label}: manca la chiave API sul server.`)}
+        style={[styles.opt, active && styles.optActive, !attivo && { opacity: 0.45 }]}>
+        <View style={[styles.radio, active && styles.radioOn]}>{active && <Ionicons name="checkmark" size={14} color="#FFF" />}</View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.optLabel}>{o.label}</Text>
+          <Text style={styles.optDesc}>{o.desc}</Text>
+          <View style={styles.optMeta}>
+            <Text style={styles.tag}>{o.speed}</Text>
+            <Text style={styles.tag}>{o.quality}</Text>
+            <Text style={styles.tagCost}>{o.cost_per_pred > 0 ? `$${o.cost_per_pred.toFixed(4)}/pred · ~€${(o.cost_per_pred * 40 * 30 * 0.93).toFixed(2)}/mese` : "Gratis"}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const filtrati = (catalogo || []).filter((m) => {
     if (filtro === "gratis" && !m.gratis) return false;
     if (filtro === "strumenti" && !m.strumenti) return false;
@@ -81,10 +103,11 @@ export default function LlmSettings() {
         {/* Budget card */}
         {budget && (
           <View style={styles.budgetCard}>
-            <Text style={styles.budgetLbl}>SPESA STIMATA (LOCALE)</Text>
+            <Text style={styles.budgetLbl}>SPESA AI STIMATA DA PRONOBLAST</Text>
             <Text style={styles.budgetVal}>${budget.estimated_spent_usd.toFixed(4)}</Text>
-            <Text style={styles.budgetDetail}>{budget.predictions_made} pronostici · Modello: {budget.current_model}</Text>
-            <Text style={styles.budgetDetail}>~ ${budget.cost_per_prediction_usd.toFixed(4)} per pronostico</Text>
+            <Text style={styles.budgetDetail}>{budget.predictions_made} pronostici AI dall'ultimo azzeramento</Text>
+            <Text style={styles.budgetDetail}>Modello in uso: {budget.current_model} · ~${budget.cost_per_prediction_usd.toFixed(4)} a pronostico</Text>
+            <Text style={styles.budgetHint}>È una stima fatta dall'app (costo medio × pronostici), non il conto vero dei fornitori: quello è sui loro siti. Il tasto ↻ in alto la azzera.</Text>
             {budget.cost_per_prediction_usd > 0 ? (
               <>
                 <TouchableOpacity onPress={() => openExternalUrl(budget.topup_url)} style={styles.topupBtn}>
@@ -114,6 +137,16 @@ export default function LlmSettings() {
           </View>
         )}
         <Text style={styles.section}>SCEGLI MODELLO LLM</Text>
+
+        {/* Modelli divisi per servizio (06/10/2026): prima erano tutti in fila e
+            non si capiva quali passavano da OpenRouter e quali no. */}
+        <Text style={styles.gruppo}>DEEPSEEK · DIRETTO</Text>
+        <Text style={styles.gruppoNota}>Chiave DeepSeek: si paga sul sito di DeepSeek.</Text>
+        {opzioniDi(["deepseek"]).map(opzione)}
+
+        <Text style={styles.gruppo}>OPENROUTER</Text>
+        <Text style={styles.gruppoNota}>Credito OpenRouter (sotto). I modelli "gratis" non lo consumano: usano le richieste gratuite del giorno.</Text>
+        {opzioniDi(["openrouter"]).map(opzione)}
         {selectedId?.startsWith("or:") && selected && (
           <View style={[styles.opt, styles.optActive]}>
             <View style={[styles.radio, styles.radioOn]}><Ionicons name="checkmark" size={14} color="#FFF" /></View>
@@ -126,28 +159,10 @@ export default function LlmSettings() {
             </View>
           </View>
         )}
-        {options.map((o) => {
-          const active = o.id === selectedId;
-          return (
-            <TouchableOpacity key={o.id} testID={`llm-${o.id}`} onPress={() => select(o.id)} style={[styles.opt, active && styles.optActive]}>
-              <View style={[styles.radio, active && styles.radioOn]}>{active && <Ionicons name="checkmark" size={14} color="#FFF" />}</View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.optLabel}>{o.label}</Text>
-                <Text style={styles.optDesc}>{o.desc}</Text>
-                <View style={styles.optMeta}>
-                  <Text style={styles.tag}>{o.speed}</Text>
-                  <Text style={styles.tag}>{o.quality}</Text>
-                  <Text style={styles.tagCost}>${o.cost_per_pred.toFixed(4)}/pred · ~€{(o.cost_per_pred * 40 * 30 * 0.93).toFixed(2)}/mese</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-
         {/* Tutti i modelli OpenRouter dal vivo */}
         {orInfo?.configurato && (
           <>
-            <Text style={styles.section}>TUTTI I MODELLI OPENROUTER (DAL VIVO)</Text>
+            <Text style={styles.gruppoNota}>Tutti i modelli OpenRouter, letti dal vivo:</Text>
             <View style={styles.budgetCard}>
               <Text style={styles.budgetLbl}>CREDITO OPENROUTER</Text>
               {orInfo.credito ? (
@@ -155,7 +170,7 @@ export default function LlmSettings() {
                   <Text style={styles.budgetVal}>${orInfo.credito.residuo.toFixed(2)}</Text>
                   <Text style={styles.budgetDetail}>residuo · caricati ${orInfo.credito.caricato.toFixed(2)} · usati ${orInfo.credito.usato.toFixed(2)}</Text>
                   {orInfo.credito.gratis_oggi && (
-                    <Text style={styles.budgetDetail}>Modelli gratis oggi: {orInfo.credito.gratis_oggi.used} / {orInfo.credito.gratis_oggi.limit}</Text>
+                    <Text style={styles.budgetDetail}>Richieste gratuite oggi: {orInfo.credito.gratis_oggi.used} usate su {orInfo.credito.gratis_oggi.limit}</Text>
                   )}
                 </>
               ) : <Text style={styles.budgetDetail}>Credito non disponibile</Text>}
@@ -211,6 +226,18 @@ export default function LlmSettings() {
             )}
           </>
         )}
+
+        <Text style={styles.gruppo}>GROQ · GRATIS</Text>
+        <Text style={styles.gruppoNota}>Gratis, ma il pronostico completo (~10.000 token) supera il limite del piano gratuito: di solito non risponde.</Text>
+        {opzioniDi(["groq"]).map(opzione)}
+
+        {opzioniDi(["gemini", "anthropic", "openai"]).length > 0 && (
+          <>
+            <Text style={styles.gruppo}>NON ATTIVI · MANCA LA CHIAVE</Text>
+            <Text style={styles.gruppoNota}>Per usarli serve la loro chiave API sul server. Claude, GPT e Gemini si possono usare anche da OpenRouter, nell'elenco sopra.</Text>
+            {opzioniDi(["gemini", "anthropic", "openai"]).map(opzione)}
+          </>
+        )}
         <View style={{ height: 100 }} />
       </ScrollView>
       <BottomNav />
@@ -241,5 +268,7 @@ const styles = StyleSheet.create({
   optMeta: { flexDirection: "row", gap: 6, marginTop: 6 },
   tag: { backgroundColor: colors.surfaceHi, color: colors.textMuted, fontSize: 9, fontWeight: "700", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   tagCost: { backgroundColor: "rgba(255,140,66,0.15)", color: colors.primary, fontSize: 9, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  gruppo: { color: colors.text, fontSize: 12, fontWeight: "900", letterSpacing: 1, marginTop: 14 },
+  gruppoNota: { color: colors.textMuted, fontSize: 11, marginTop: -4 },
   cerca: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, fontSize: 13 },
 });

@@ -155,6 +155,15 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 (6) — LLM & Budget divisa per servizio
+
+Rossi: "dovresti differenziare quelli da OpenRouter da quelli che non sono di
+OpenRouter" e non capiva la spesa in cima. `llm-settings.tsx`: gruppi
+DeepSeek diretto / OpenRouter (con credito, richieste gratis del giorno e
+catalogo) / Groq gratis / non attivi senza chiave (grigi). La card in cima si
+chiama "Spesa AI stimata da PronoBlast" e spiega che e' una stima dell'app,
+non il conto dei fornitori.
+
 ### 2026-10-06 (5) — Risposta vuota dell'AI non piu' salvata (Estonia-Islanda)
 
 Estonia-Islanda 0-0, schedina persa: il pronostico AI (Nemotron 3 Super,
