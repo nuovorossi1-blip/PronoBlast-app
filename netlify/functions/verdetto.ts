@@ -11,6 +11,14 @@ import { readMinOdd } from "./odd-settings";
  * `pick_finale` senza che Rossi debba aprire la scheda. Finora il verdetto
  * nasceva solo nel telefono, e la lista mostrava un pick diverso.
  */
+const SENZA_PICK_VALIDO_MS = 6 * 3600_000;
+const senzaPickRecenti = new Map<string, { quando: number; firma: string }>();
+/** Quote + soglia: se cambiano (aggiornamento quote, soglia diversa) si ricalcola. */
+function firma(m: any, minOdd: number): string {
+  return [minOdd, m.odd_1, m.odd_x, m.odd_2, m.odd_1x, m.odd_x2, m.odd_12, m.odd_o15, m.odd_u15,
+    m.odd_o25, m.odd_u25, m.odd_o35, m.odd_u35, m.odd_gg, m.odd_ng, m.updated_at].join("|");
+}
+
 export default async (req: Request): Promise<Response> => {
   try {
     const url = new URL(req.url);
@@ -33,7 +41,16 @@ export default async (req: Request): Promise<Response> => {
     const righe = await pgGetAll(
       `matches?day=eq.${day}&result=is.null&select=*`, "time.asc",
     );
-    const daFare = righe.filter((r: any) => !r.pick_finale);
+    // Le partite senza pick giocabile non salvano niente, quindi prima si
+    // ricalcolavano a OGNI apertura della lista (06/10: 40 partite, 13-37 s
+    // ogni volta, sempre "senza pick"). Ora si ricordano per 6 ore, finche'
+    // quote e soglia restano le stesse.
+    const ora = Date.now();
+    const daFare = righe.filter((r: any) => {
+      if (r.pick_finale) return false;
+      const v = senzaPickRecenti.get(r.id);
+      return !(v && v.firma === firma(r, minOdd) && ora - v.quando < SENZA_PICK_VALIDO_MS);
+    });
     let calcolati = 0, salvati = 0, senzaPick = 0;
     const errori: string[] = [];
     for (const m of daFare) {
@@ -41,7 +58,7 @@ export default async (req: Request): Promise<Response> => {
         const e = await verdettoDiPartita(m, minOdd, !dry);
         calcolati++;
         if (e.salvato) salvati++;
-        if (!e.pick) senzaPick++;
+        if (!e.pick) { senzaPick++; senzaPickRecenti.set(m.id, { quando: ora, firma: firma(m, minOdd) }); }
       } catch (err: any) {
         if (errori.length < 5) errori.push(`${m.id}: ${String(err?.message).slice(0, 80)}`);
       }

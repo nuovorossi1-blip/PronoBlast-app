@@ -31,8 +31,10 @@ jobs:
         run: |
           GIORNI="${{ github.event.inputs.giorni || '3' }}"
           echo "Aggiorno i risultati degli ultimi $GIORNI giorni…"
+          # 06/10/2026: Vercel e' in pausa (402) e l'app gira sul PC di casa.
+          # Al ritorno su Vercel rimettere https://pronoblast.vercel.app.
           CODICE=$(curl -s -o /tmp/risposta.json -w "%{http_code}" --max-time 300 \
-            "https://pronoblast.vercel.app/sync-results?days=$GIORNI")
+            "https://pc-claude.tailcad625.ts.net:8443/sync-results?days=$GIORNI")
           echo "HTTP $CODICE"
           cat /tmp/risposta.json
           echo

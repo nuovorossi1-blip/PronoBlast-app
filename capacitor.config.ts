@@ -8,7 +8,10 @@ const config: CapacitorConfig = {
   appName: 'PronoBlast',
   webDir: 'capacitor-web',
   server: {
-    url: 'https://pronoblast.vercel.app',
+    // 06/10/2026: Vercel e' in pausa (402) e l'app restava bloccata sul logo.
+    // Finche' l'app gira sul PC di casa il guscio carica da li'. Al ritorno su
+    // Vercel rimettere 'https://pronoblast.vercel.app' (promemoria del 5/11).
+    url: 'https://pc-claude.tailcad625.ts.net:8443',
     cleartext: false,
   },
   android: {

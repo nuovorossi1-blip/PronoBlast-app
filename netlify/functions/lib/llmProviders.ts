@@ -167,9 +167,8 @@ export async function callLlm(
   const timeoutMs = Math.max(10_000, platformCapMs - reserveMs);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}/chat/completions`, {
+  // `ragionamento`: solo OpenRouter (spento; nascosto se il modello lo impone).
+  const invia = (ragionamento: Record<string, boolean>, limiteToken = maxTokens) => fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     signal: controller.signal,
     headers: {
@@ -188,7 +187,7 @@ export async function callLlm(
         { role: "user", content: userPrompt + "\n\nIMPORTANTE: rispondi SOLO con il JSON, niente testo introduttivo, niente ragionamento, solo l'oggetto JSON." },
       ],
       temperature: 0.2,
-      max_tokens: maxTokens,
+      max_tokens: limiteToken,
       ...(disableThinking ? { thinking: { type: "disabled" } } : {}),
       // Fornitore piu' economico del momento, scelto da OpenRouter fra quelli
       // che l'account puo' usare (con la "conservazione zero dei dati" attiva
@@ -197,8 +196,24 @@ export async function callLlm(
       // finiva sulle riserve perche' i primi fornitori rifiutavano.
       ...(option.provider === "openrouter" && option.economico && !option.model.endsWith(":free")
         ? { provider: { sort: "price" } } : {}),
+      // Senza questo i modelli che "ragionano" (DeepSeek V4 Flash, GLM-5.3...)
+      // via OpenRouter scrivevano il ragionamento AL POSTO del JSON e il
+      // pronostico risultava illeggibile (prova del 06/10 su Chicago-Vancouver).
+      // Come `thinking: disabled` per DeepSeek diretto.
+      ...(option.provider === "openrouter" ? { reasoning: ragionamento } : {}),
     }),
   });
+
+  let res: Response;
+  try {
+    res = await invia({ enabled: false });
+    // Alcuni modelli (es. GLM-5.3 Flash) non permettono di spegnerlo: allora
+    // ragionano lo stesso, ma il ragionamento resta fuori dalla risposta.
+    if (option.provider === "openrouter" && res.status === 400 && /mandatory/i.test(await res.clone().text())) {
+      // Il ragionamento consuma token: con 4.500 non restava spazio per il
+      // JSON e la risposta arrivava vuota (GLM-5.3 Flash, 06/10).
+      res = await invia({ exclude: true }, 20_000);
+    }
   } catch (e: any) {
     if (e?.name === "AbortError") {
       throw new Error(
@@ -217,6 +232,17 @@ export async function callLlm(
     if (res.status === 429) {
       throw new Error(
         `${option.label}: tetto di richieste superato (20 al minuto, 50 al giorno sui modelli gratuiti). Riprova piu' tardi o scegli un altro modello. Dettaglio: ${errText}`
+      );
+    }
+    // Messaggi chiari per i casi visti nella prova del 06/10/2026.
+    if (/zdr|data policy|guardrail/i.test(errText)) {
+      throw new Error(
+        `${option.label} non e' usabile con la privacy del tuo account OpenRouter ("Zero Data Retention" attiva): nessun suo fornitore la garantisce (i modelli gratuiti :free non la garantiscono mai). Scegli un altro modello, oppure cambia l'impostazione su openrouter.ai/settings/privacy.`
+      );
+    }
+    if (res.status === 413 || /request too large|tokens per minute/i.test(errText)) {
+      throw new Error(
+        `${option.label}: il pronostico di PronoBlast (quote, storico e dati della partita, ~10.000 token) e' troppo lungo per il piano gratuito di ${option.provider} (limite ~8.000 token al minuto). Scegli un altro modello.`
       );
     }
     throw new Error(`Errore ${option.provider} (${res.status}): ${errText}`);

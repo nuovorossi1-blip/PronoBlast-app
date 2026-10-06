@@ -155,6 +155,42 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 (4) — Modelli alternativi che non rispondevano, errori nascosti, app Android, verdetti a vuoto
+
+Rossi: "scegliendo un LLM di OpenRouter o un altro, non DeepSeek, si blocca:
+esce sempre Rigenera pronostico". Prova sullo STESSO prompt vero
+(Chicago Fire - Vancouver, `ai-predict?prova=1&modello=<id>`: genera senza
+salvare e senza cambiare il modello impostato):
+- DeepSeek V4 Lite diretto: ok in 11 s.
+- **Nemotron Super/Ultra `:free`**: 404 subito. L'account OpenRouter ha la
+  "Zero Data Retention" attiva e l'unico fornitore gratuito (Nvidia) non la
+  garantisce. Ora il messaggio lo dice in chiaro.
+- **DeepSeek V4 Flash e GLM-5.3 Flash via OpenRouter**: scrivevano il loro
+  RAGIONAMENTO al posto del JSON -> illeggibile. Ora `reasoning: {enabled:
+  false}` (come `thinking: disabled` per DeepSeek diretto): DeepSeek V4 Flash
+  via OpenRouter ok in 38 s. Se il modello impone il ragionamento ("Reasoning
+  is mandatory", GLM) si ritenta con `reasoning: {exclude: true}` e 20.000
+  token, perche' con 4.500 il ragionamento li consumava tutti.
+- **GPT-OSS su Groq**: 413, il prompt (~10.000 token col dossier) supera il
+  limite del piano gratuito (8.000 token/minuto). Messaggio chiaro.
+- **Bug: risposta vuota salvata come pronostico** (`parseAiJson`: "INSTABILE",
+  "Risposta vuota", senza `illeggibile`): finiva in scheda e chiedeva Rigenera
+  all'infinito. Ora e' illeggibile e non si salva.
+- **Errori nascosti**: `predictionQueue` scriveva l'errore solo nel registro del
+  browser; ora la scheda mostra "Pronostico AI non generato" con il motivo.
+
+Altre correzioni:
+- **App Android bloccata sul logo**: il guscio Capacitor carica
+  pronoblast.vercel.app, che risponde 402 (in pausa). `capacitor.config.ts`
+  ora punta al PC (https://pc-claude.tailcad625.ts.net:8443) e GitHub
+  ricompila l'APK. Al ritorno su Vercel va rimesso com'era.
+- **"Aggiorna risultati" (GitHub, ogni mattina)** chiamava Vercel e falliva:
+  ora chiama il PC. Stessa nota per il ritorno su Vercel.
+- **Verdetti a vuoto**: le partite senza pick giocabile non salvano niente e
+  `/verdetto?day=` le ricalcolava a OGNI apertura della lista (06/10: 40
+  partite, 13-37 s ogni volta). Ora si ricordano per 6 ore finche' quote,
+  soglia e `updated_at` restano uguali (in memoria del server).
+
 ### 2026-10-06 (3) — Tutti i modelli OpenRouter dal vivo, fornitore piu' economico, limite di tempo
 
 - **Modelli OpenRouter dal vivo** (`lib/llmScelta.ts`): in "LLM & Budget" si

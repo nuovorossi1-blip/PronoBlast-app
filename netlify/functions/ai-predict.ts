@@ -10,7 +10,7 @@ import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartitaSalvato, blocoTesto } from "./lib/webSearch";
-import { modelloScelto } from "./lib/llmScelta";
+import { modelloScelto, opzioneDaId, economicoAttivo } from "./lib/llmScelta";
 import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs,
   candidatiManuale, quotaManuale, nomeCatalogoManuale, type CandidatoManuale } from "../../frontend/src/api";
 
@@ -33,7 +33,12 @@ async function handle(req: Request): Promise<Response> {
 
   const url = new URL(req.url);
   const matchId = url.searchParams.get("matchId");
-  const force = url.searchParams.get("force") === "true";
+  // SOLO PROVA (06/10/2026): `prova=1&modello=<id>` genera il pronostico con
+  // un modello a scelta e lo restituisce SENZA salvarlo e senza cambiare il
+  // modello impostato. Serve a confrontare i modelli sullo stesso prompt vero.
+  const prova = url.searchParams.get("prova") === "1";
+  const modelloProva = url.searchParams.get("modello");
+  const force = url.searchParams.get("force") === "true" || prova;
   if (!matchId) return jsonResponse({ error: "Parametro 'matchId' mancante" }, 400);
 
   const matches = await pgGet(`matches?id=eq.${encodeURIComponent(matchId)}&select=*`);
@@ -47,7 +52,12 @@ async function handle(req: Request): Promise<Response> {
     if (existing.length) return jsonResponse(existing[0]);
   }
 
-  const llmOption = await getSelectedLlm();
+  let llmOption = await getSelectedLlm();
+  if (prova && modelloProva) {
+    const o = await opzioneDaId(modelloProva);
+    if (!o) return jsonResponse({ error: `Modello sconosciuto: ${modelloProva}` }, 400);
+    llmOption = o.provider === "openrouter" ? { ...o, economico: await economicoAttivo() } : o;
+  }
 
   const feedback = await getAllFamiliesStats(match.manifestazione);
   let prompt = buildMatchPrompt({
@@ -191,11 +201,31 @@ REGOLE OBBLIGATORIE basate sul PIN:
   }
 
   let prediction;
+  let testoGrezzo = "";
+  const t0 = Date.now();
   try {
-    const text = await callLlm(llmOption, PREDICTION_SYSTEM, prompt);
-    prediction = parseAiJson(text);
+    testoGrezzo = await callLlm(llmOption, PREDICTION_SYSTEM, prompt);
+    prediction = parseAiJson(testoGrezzo);
   } catch (e: any) {
+    if (prova) return jsonResponse({ prova: true, modello: llmOption.label, ok: false, secondi: Math.round((Date.now() - t0) / 1000), errore: e.message, inizio_risposta: testoGrezzo.slice(0, 300) }, 200);
     return jsonResponse({ error: e.message }, 502);
+  }
+  if (prova) {
+    const p: any = prediction;
+    const fasceP = normalizzaFasce(p.fasce);
+    return jsonResponse({
+      prova: true, modello: llmOption.label, ok: !p.illeggibile && !!p.analysis && !!String(p.family || "").trim(),
+      secondi: Math.round((Date.now() - t0) / 1000),
+      lunghezza_prompt: prompt.length, lunghezza_risposta: testoGrezzo.length,
+      illeggibile: !!p.illeggibile,
+      // es. "LETTURA DELLA PARTITA: ... PERCHE' QUESTA SCELTA: ..." (Nemotron Super, 06/10)
+      schema_ricopiato: /:\s*\.\.\.(\s|$)/.test(String(p.analysis || "")),
+      famiglia: p.family ?? null, pronostico: p.main_prediction ?? null, fiducia: p.confidence ?? null,
+      mercati_giocabili: Array.isArray(p.playable_markets) ? p.playable_markets.length : 0,
+      fasce_compilate: fasceP ? Object.keys(fasceP).length : 0,
+      analisi: String(p.analysis || "").slice(0, 400),
+      inizio_risposta: testoGrezzo.slice(0, 200),
+    });
   }
   // Risposta illeggibile anche dopo la riparazione (01/10/2026, Israele-Kosovo):
   // NON si salva. Prima finiva in scheda come "INSTABILE" con il JSON grezzo

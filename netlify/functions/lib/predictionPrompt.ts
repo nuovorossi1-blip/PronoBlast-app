@@ -316,8 +316,11 @@ export function normalizzaStatistiche(v: any): StatisticheSquadre | null {
 
 /** Porting 1:1 di parse_ai_json — estrazione robusta di JSON dalla risposta del modello. */
 export function parseAiJson(text: string): AiPrediction {
-  if (!text) {
-    return { family: "INSTABILE", analysis: "Risposta vuota", playable_markets: [], main_prediction: null, confidence: "Bassa" };
+  if (!text?.trim()) {
+    // `illeggibile` (06/10/2026): prima una risposta vuota si SALVAVA come
+    // pronostico ("INSTABILE", "Risposta vuota") e la scheda proponeva
+    // Rigenera all'infinito. Ora ai-predict la scarta e dice perche'.
+    return { family: "INSTABILE", analysis: "Risposta vuota", playable_markets: [], main_prediction: null, confidence: "Bassa", illeggibile: true } as AiPrediction;
   }
   const candidates: string[] = [];
   const fence = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i.exec(text);

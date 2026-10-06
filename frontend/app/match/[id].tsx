@@ -336,6 +336,9 @@ export default function MatchDetail() {
         setPrediction(p);
         matchDetailCache.invalidate(id);
         load(true);
+      } else {
+        // Prima l'errore restava nascosto: si vedeva solo tornare "Rigenera".
+        notify("Pronostico AI non generato", predictionQueue.lastError(id) || "Errore sconosciuto: riprova.");
       }
     });
   };
