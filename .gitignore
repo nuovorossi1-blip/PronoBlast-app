@@ -94,3 +94,4 @@ credentials.json
 # Segreto condiviso tra server e agente quote (06/10/2026)
 pc-quote-sisal/segreto.txt
 server-locale/server.log
+server-locale/ATTIVO.txt
