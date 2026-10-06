@@ -145,6 +145,10 @@
       "destination": "/api/ricalcolo"
     },
     {
+      "source": "/dossier-giornata",
+      "destination": "/api/dossier-giornata"
+    },
+    {
       "source": "/lavori",
       "destination": "/api/lavori"
     },

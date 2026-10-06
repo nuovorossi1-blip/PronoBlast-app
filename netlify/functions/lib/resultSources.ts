@@ -34,6 +34,10 @@ export type PartitaFonte = {
   stato: string;
   /** Data e ora di inizio, in millisecondi. null quando la fonte non la da'. */
   ora: number | null;
+  /** Id della partita e del campionato nella fonte (per ora solo FotMob: serve
+   *  al dossier per chiedere i dettagli, vedi fotmobDossier.ts). */
+  id?: string;
+  legaId?: number;
 };
 
 async function getJson(url: string, headers: Record<string, string> = {}, timeoutMs = 15000): Promise<any> {
@@ -73,6 +77,8 @@ export async function fotmob(day: string): Promise<PartitaFonte[]> {
         finita: !!st?.finished && !st?.cancelled,
         supplementari: ["AET", "Pen", "AP"].includes(reason),
         stato: reason, ora: Number.isNaN(ora) ? null : ora,
+        id: m?.id != null ? String(m.id) : undefined,
+        legaId: Number(lg?.primaryId ?? lg?.id) || undefined,
       });
     }
   }

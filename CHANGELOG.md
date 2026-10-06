@@ -155,6 +155,39 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 (2) — Dossier da FotMob + SearXNG, dossier automatico, quote alle 12
+
+Passi 2-4 del piano "ricerca web senza finire Tavily". Il dossier di una
+partita ora si fa con fonti gratuite e Tavily resta solo di riserva.
+- **FotMob** (`lib/fotmobDossier.ts`): classifica (totale e casa/trasferta),
+  xG / xG subiti / xPoints del campionato, assenti con data di rientro,
+  formazioni (probabili/ufficiali quando escono), forma ultime 5, precedenti
+  ufficiali (calcolati sulle partite, amichevoli escluse), statistiche e meteo.
+  Abbinamento con la stessa regola di sync-results. `resultSources.fotmob()`
+  ora restituisce anche l'id partita e campionato.
+- **SearXNG** (`lib/searxng.ts`): motore di ricerca sul PC (Docker in WSL,
+  `/opt/searxng`, solo 127.0.0.1:8888; `SEARXNG_URL` per cambiarlo). Due
+  ricerche di notizie dell'ultima settimana, siti di pronostici scartati, le
+  prime due pagine lette per intero (solo le frasi che nominano le squadre).
+- **Ordine** (`contestoPartitaSalvato`): FotMob + SearXNG; Tavily solo se
+  entrambi non danno niente. A partita iniziata solo Tavily (sa fermarsi al
+  giorno prima). `dossier_web` ha `numeri` (per sempre) e `fonti_dati`.
+- **Dossier automatico** (`dossier-giornata.ts`): alle 6 per tutte le partite
+  del giorno non iniziate, alle 13 per quelle caricate dalle quote delle 12.
+  Una partita ogni ~2 s, passi da 4 minuti, mai Tavily. Testo compattato dopo
+  60 giorni, numeri tenuti.
+- **Aggiorna Quote alle 12**: orologio pg_cron che fa `POST /quote-pc
+  {azione:"avvia"}`, come il tasto. Il tasto manuale resta.
+- Orologi in `docs/database.sql` sez. 7 (ora italiana controllata nella WHERE).
+- **Provato il 06/10** dal PC di casa: 4 partite (Serie A, Serie B, Bundesliga
+  con "Werder Brema", quinta divisione inglese) tutte trovate su FotMob, 12 s in
+  tutto; giornata del 07/10 = 20 partite in 106 s, 17 con FotMob (mancano
+  Coppa dell'Ecuador e Paraguay 2: FotMob non li copre), 20 con notizie, 0
+  crediti Tavily. Pronostico AI con il dossier nuovo: l'analisi cita assenti e
+  forma da FotMob.
+- Non usati: **SofaScore** risponde 403 a qualunque programma (anche da casa),
+  **ClubElo** era giu' (502). La classifica xG di FotMob ne fa le veci.
+
 ### 2026-10-06 — Ricerca web: dossier salvato per partita e tetto ai crediti Tavily
 
 Primo passo del piano "ricerca web senza finire Tavily" (piano completo: dossier

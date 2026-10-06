@@ -65,6 +65,7 @@ import selection_update from "../netlify/functions/selection-update";
 import stats_reset from "../netlify/functions/stats-reset";
 import stats_scores from "../netlify/functions/stats-scores";
 import upload_skipped from "../netlify/functions/upload-skipped";
+import dossier_giornata from "../netlify/functions/dossier-giornata";
 
 type Handler = (req: Request) => Promise<Response>;
 
@@ -113,6 +114,7 @@ const ROUTES: Record<string, Handler> = {
   "stats-reset": stats_reset,
   "stats-scores": stats_scores,
   "upload-skipped": upload_skipped,
+  "dossier-giornata": dossier_giornata,
 };
 
 async function dispatch(req: Request): Promise<Response> {

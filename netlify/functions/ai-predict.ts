@@ -168,10 +168,11 @@ REGOLE OBBLIGATORIE basate sul PIN:
     // Il dossier salvato si riusa (anche con "Rigenera"): una ricerca nuova
     // solo se e' vecchio o con `rifaiWeb=true`.
     const ctx = await contestoPartitaSalvato(
-      matchId,
-      match.squadra1, match.squadra2, match.manifestazione || "",
+      {
+        id: matchId, giorno: match.day, casa: match.squadra1, ospite: match.squadra2,
+        campionato: match.manifestazione || "", inizioMs: inizio,
+      },
       (process.env.TAVILY_API_KEY || "").trim(),
-      inizio,
       { nuovo: url.searchParams.get("rifaiWeb") === "true" },
     );
     fontiWeb = ctx.fonti;

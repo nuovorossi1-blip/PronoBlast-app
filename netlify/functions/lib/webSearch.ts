@@ -18,6 +18,8 @@
  */
 
 import { pgGet, pgPost } from "./supabaseRest";
+import { datiFotmob, type NumeriFotmob } from "./fotmobDossier";
+import { notiziePartita } from "./searxng";
 
 const ENDPOINT = "https://api.tavily.com/search";
 
@@ -92,6 +94,8 @@ export type ContestoWeb = {
   da_archivio?: boolean;
   /** Quando e' stata fatta la ricerca (solo se da archivio). */
   cercato_il?: string;
+  /** Da dove vengono i dati: "FotMob", "SearXNG", "Tavily". */
+  fonti_dati?: string[];
 };
 
 /**
@@ -192,35 +196,55 @@ export async function tettoTavily(): Promise<number> {
 }
 
 /**
- * DOSSIER SALVATO PER PARTITA (06/10/2026). Prima ogni "Rigenera" rifaceva le
- * tre ricerche da capo (6 crediti) anche se il web non era cambiato. Ora il
- * contesto si salva in `dossier_web` e si riusa finche' ha meno di
- * DOSSIER_VALIDO_ORE. Si rifa' la ricerca solo se e' vecchio o se `nuovo`.
+ * DOSSIER SALVATO PER PARTITA (06/10/2026). Il contesto si salva in
+ * `dossier_web` e si riusa finche' ha meno di DOSSIER_VALIDO_ORE: "Rigenera"
+ * e il cambio di modello non rifanno le ricerche. `nuovo` forza il rifacimento.
  *
- * Si salva anche "nessun dato attendibile": per le leghe minori e' la risposta
- * giusta, e ricercarla a ogni rigenera costerebbe crediti per niente. NON si
- * salva quando Tavily non ha risposto, quando manca la chiave o quando si e'
- * al tetto: sono condizioni del momento, non della partita.
+ * DA DOVE VENGONO I DATI (passi 2-3 del piano, 06/10/2026), in quest'ordine:
+ *  1. FotMob (fotmobDossier.ts): classifica e xG, assenti, formazioni, forma,
+ *     precedenti, statistiche. Gratis, gia' in numeri;
+ *  2. SearXNG (searxng.ts): notizie dell'ultima settimana. Gratis;
+ *  3. Tavily SOLO DI RISERVA, se 1 e 2 non hanno dato niente (e sotto il tetto).
+ * A partita gia' iniziata FotMob e SearXNG non si usano (dentro ci sarebbe il
+ * risultato): resta Tavily, che sa cercare solo fino al giorno prima.
  *
- * Se la tabella non c'e' ancora (SQL non lanciato), tutto funziona come prima:
- * si cerca ogni volta.
+ * Si salva anche "nessun dato attendibile" (leghe minori): ricercarlo a ogni
+ * rigenera non serve. NON si salvano gli errori del momento (Tavily giu',
+ * chiave assente, tetto raggiunto). Senza la tabella si cerca ogni volta.
  */
 export const DOSSIER_VALIDO_ORE = 12;
 
+export type PartitaDossier = {
+  id: string; giorno: string; casa: string; ospite: string; campionato: string; inizioMs: number | null;
+};
+
+async function tavilyConTetto(p: PartitaDossier, key: string): Promise<ContestoWeb> {
+  if (!key) return { disponibile: false, blocchi: [], fonti: [], motivo: "chiave Tavily assente" };
+  const crediti = await creditiTavily(key);
+  const tetto = await tettoTavily();
+  if (crediti && crediti.usati >= tetto) {
+    return {
+      disponibile: false, blocchi: [], fonti: [],
+      motivo: `tetto crediti Tavily raggiunto (${crediti.usati}/${crediti.limite ?? "?"}, tetto ${tetto})`,
+    };
+  }
+  const ctx = await contestoPartita(p.casa, p.ospite, p.campionato, key, p.inizioMs);
+  if (creditiInMemoria && ctx.ricerche) creditiInMemoria.dato.usati += ctx.ricerche * 2;
+  return ctx;
+}
+
 export async function contestoPartitaSalvato(
-  matchId: string,
-  casa: string, ospite: string, campionato: string, key: string, inizioMs: number | null,
-  opzioni: { nuovo?: boolean } = {},
+  p: PartitaDossier, key: string, opzioni: { nuovo?: boolean; tavily?: boolean } = {},
 ): Promise<ContestoWeb> {
   if (!opzioni.nuovo) {
     try {
-      const rows = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=contesto,created_at&limit=1`);
+      const rows = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(p.id)}&select=contesto,created_at&limit=1`);
       const r = rows?.[0];
-      if (r?.contesto) {
+      if (r?.contesto && !r.contesto.compattato) {
         const eta = Date.now() - Date.parse(r.created_at);
         // Partita gia' iniziata: un dossier fatto PRIMA del calcio d'inizio e'
         // proprio quello giusto (niente risultato dentro), qualunque eta' abbia.
-        const primaDellInizio = inizioMs !== null && Date.now() >= inizioMs && Date.parse(r.created_at) < inizioMs;
+        const primaDellInizio = p.inizioMs !== null && Date.now() >= p.inizioMs && Date.parse(r.created_at) < p.inizioMs;
         if (eta < DOSSIER_VALIDO_ORE * 3600_000 || primaDellInizio) {
           return { ...(r.contesto as ContestoWeb), da_archivio: true, cercato_il: r.created_at, ricerche: 0 };
         }
@@ -230,32 +254,51 @@ export async function contestoPartitaSalvato(
     }
   }
 
-  if (!key) return { disponibile: false, blocchi: [], fonti: [], motivo: "chiave Tavily assente" };
+  const iniziata = p.inizioMs !== null && Date.now() >= p.inizioMs;
+  let ctx: ContestoWeb | null = null;
+  let numeri: NumeriFotmob | null = null;
 
-  const crediti = await creditiTavily(key);
-  const tetto = await tettoTavily();
-  if (crediti && crediti.usati >= tetto) {
-    return {
-      disponibile: false, blocchi: [], fonti: [],
-      motivo: `tetto crediti Tavily raggiunto (${crediti.usati}/${crediti.limite ?? "?"}, tetto ${tetto})`,
-    };
+  if (!iniziata) {
+    const [fm, news] = await Promise.all([
+      datiFotmob(p.giorno, p.casa, p.ospite, p.inizioMs),
+      notiziePartita(p.casa, p.ospite),
+    ]);
+    const blocchi = [...(fm?.blocchi || [])];
+    const fonti = [...(fm?.fonti || [])];
+    const fontiDati: string[] = [];
+    if (fm) { fontiDati.push("FotMob"); numeri = fm.numeri; }
+    if (news?.righe.length) {
+      blocchi.push({ etichetta: "Notizie dell'ultima settimana (web)", righe: news.righe });
+      fonti.push(...news.fonti);
+      fontiDati.push("SearXNG");
+    }
+    if (blocchi.length) ctx = { disponibile: true, blocchi, fonti: fonti.slice(0, 10), ricerche: 0, fonti_dati: fontiDati };
   }
-
-  const ctx = await contestoPartita(casa, ospite, campionato, key, inizioMs);
-  if (creditiInMemoria && ctx.ricerche) creditiInMemoria.dato.usati += ctx.ricerche * 2;
+  if (!ctx && opzioni.tavily === false) {
+    // Dossier automatico di tutte le partite: Tavily non si usa (100 partite di
+    // leghe minori senza dati = 600 crediti). Non si salva niente, cosi' quando
+    // Rossi apre la partita si riprova e, solo allora, si passa a Tavily.
+    return { disponibile: false, blocchi: [], fonti: [], motivo: "nessun dato da FotMob e SearXNG" };
+  }
+  if (!ctx) {
+    ctx = await tavilyConTetto(p, key);
+    if (ctx.disponibile) ctx.fonti_dati = ["Tavily"];
+  }
 
   const daSalvare = ctx.disponibile || ctx.motivo === "nessun dato attendibile trovato per questa partita";
   if (daSalvare) {
+    const { ricerche, da_archivio, cercato_il, ...contesto } = ctx;
+    const base = { match_id: p.id, contesto, crediti: (ricerche || 0) * 2, created_at: new Date().toISOString() };
     try {
-      const { ricerche, da_archivio, cercato_il, ...contesto } = ctx;
-      await pgPost("dossier_web", {
-        match_id: matchId,
-        contesto,
-        crediti: (ricerche || 0) * 2,
-        created_at: new Date().toISOString(),
-      }, "resolution=merge-duplicates,return=minimal");
-    } catch (e) {
-      console.error("[webSearch] salvataggio dossier", e);
+      await pgPost("dossier_web", { ...base, numeri, fonti_dati: (ctx.fonti_dati || []).join("+") || null },
+        "resolution=merge-duplicates,return=minimal");
+    } catch {
+      // colonne `numeri`/`fonti_dati` non ancora create: si salva la riga base
+      try {
+        await pgPost("dossier_web", base, "resolution=merge-duplicates,return=minimal");
+      } catch (e) {
+        console.error("[webSearch] salvataggio dossier", e);
+      }
     }
   }
   return ctx;
@@ -270,7 +313,7 @@ export function blocoTesto(ctx: ContestoWeb): string {
     .map((b) => `• ${b.etichetta}:\n${b.righe.map((r) => `  - ${r}`).join("\n")}`)
     .join("\n");
   return (
-    `\n🌐 DATI DAL WEB (ultimi 14 giorni, ricerca automatica${ctx.cercato_il ? ` del ${new Date(ctx.cercato_il).toLocaleString("it-IT", { timeZone: "Europe/Rome" })}` : ""})\n${corpo}\n` +
+    `\n🌐 DATI SULLA PARTITA (${ctx.fonti_dati?.length ? ctx.fonti_dati.join(" + ") : "ricerca web"}, raccolti automaticamente${ctx.cercato_il ? ` il ${new Date(ctx.cercato_il).toLocaleString("it-IT", { timeZone: "Europe/Rome" })}` : ""})\n${corpo}\n` +
     `Fonti: ${ctx.fonti.map((f) => f.url).join(" | ")}\n` +
     `Usali per confermare o smentire la lettura delle quote, e citali nel campo "analysis". ` +
     `Se un dato manca o e' contraddittorio, dillo invece di riempire il vuoto.\n`

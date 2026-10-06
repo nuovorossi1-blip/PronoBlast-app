@@ -175,3 +175,48 @@ grant select, insert, update, delete on public.dossier_web to anon, authenticate
 --   insert into settings (key, value) values ('tavily_tetto', '900')
 --   on conflict (key) do update set value = excluded.value;
 -- Controllo: select count(*), sum(crediti) from dossier_web;
+
+-- Colonne aggiunte dal dossier multi-fonte (2026-10-06, passi 2-3): i NUMERI
+-- chiave (classifica, xG, assenti, forma, precedenti) restano per sempre e
+-- servono allo storico; il testo del dossier si compatta dopo 60 giorni
+-- (dossier-giornata.ts). `fonti_dati`: "FotMob+SearXNG", "SearXNG", "Tavily".
+alter table public.dossier_web add column if not exists numeri jsonb;
+alter table public.dossier_web add column if not exists fonti_dati text;
+
+
+-- -----------------------------------------------------------------------------
+-- 7. OROLOGI: DOSSIER AUTOMATICO E QUOTE ALLE 12 (2026-10-06)
+-- -----------------------------------------------------------------------------
+-- pg_cron gira in UTC: l'ora italiana si controlla nella WHERE, cosi' vale sia
+-- con l'ora legale sia con l'ora solare. Ogni ora l'orologio "guarda", ma
+-- chiama il server SOLO all'ora giusta: nessuna chiamata a vuoto.
+--  - alle 6: dossier di tutte le partite del giorno (dossier-giornata.ts);
+--  - alle 12: "Aggiorna Quote", come premere il tasto (quote-pc.ts);
+--  - alle 13: dossier delle partite caricate dall'aggiornamento delle 12;
+--  - ogni minuto, SOLO mentre il dossier e' in corso e nessun passo lavora.
+-- L'indirizzo e' quello del server sul PC di casa: al ritorno su Vercel va
+-- cambiato in https://pronoblast.vercel.app (come 'pronoblast-lavori').
+-- Rilanciare e' innocuo: cron.schedule con lo stesso nome sostituisce.
+select cron.schedule('pronoblast-dossier-avvio', '0 * * * *', $$
+  select net.http_post(
+    url := 'https://pc-claude.tailcad625.ts.net:8443/dossier-giornata?avvia=1',
+    headers := '{"Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb,
+    timeout_milliseconds := 60000)
+  where extract(hour from now() at time zone 'Europe/Rome') in (6, 13) $$);
+select cron.schedule('pronoblast-dossier-passo', '* * * * *', $$
+  select net.http_post(
+    url := 'https://pc-claude.tailcad625.ts.net:8443/dossier-giornata?passo=1',
+    headers := '{"Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb,
+    timeout_milliseconds := 290000)
+  where exists (
+    select 1 from public.settings
+    where key = 'dossier_giornata' and value->>'stato' = 'in_corso'
+      and (value->>'lucchetto_fino' is null or (value->>'lucchetto_fino')::timestamptz < now())) $$);
+select cron.schedule('pronoblast-quote-12', '0 * * * *', $$
+  select net.http_post(
+    url := 'https://pc-claude.tailcad625.ts.net:8443/quote-pc',
+    headers := '{"Content-Type": "application/json"}'::jsonb, body := '{"azione": "avvia"}'::jsonb,
+    timeout_milliseconds := 30000)
+  where extract(hour from now() at time zone 'Europe/Rome') = 12 $$);
+-- Controllo: select jobname, schedule, active from cron.job;
+-- Stato del dossier: select value from settings where key = 'dossier_giornata';
