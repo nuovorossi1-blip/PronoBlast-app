@@ -155,6 +155,32 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 (5) — Risposta vuota dell'AI non piu' salvata (Estonia-Islanda)
+
+Estonia-Islanda 0-0, schedina persa: il pronostico AI (Nemotron 3 Super,
+gratis) era lo schema ricopiato ("LETTURA DELLA PARTITA: ... PERCHE' QUESTA
+SCELTA: ...", motivazioni "..."), ma era stato salvato e mostrato come
+"MG 2-4 totali, fiducia Alta". Il 2-4 era la fascia del PIN, non un
+ragionamento. Il dossier diceva il contrario (Estonia 1-0, 1-0, 1-1, 0-0,
+1-0; Islanda senza Gudmundsson).
+- `ai-predict.ts` `motivoRispostaVuota()`: illeggibile, incompleta, lettura a
+  puntini o sotto 60 lettere, meta' o piu' delle motivazioni a "...". Su 659
+  pronostici salvati scarta solo i 2 davvero vuoti (23/07 e questo).
+- Risposta vuota: si rifa' UNA volta con DeepSeek V4 Lite (o con lo stesso
+  modello se era gia' quello), solo se il primo tentativo e' durato meno di
+  6 minuti. Se fallisce ancora, NON si salva e la scheda dice perche'.
+- Il modello che ha fatto il pronostico si salva in `fasce.modello` (e
+  `fasce.rifatto` se rifatto): la scheda mostra "Fatto con ...". Prima non si
+  sapeva quale modello sbaglia di piu'.
+- La prova `?prova=1` riporta `risposta_vuota` al posto di `schema_ricopiato`.
+
+Analisi dello stesso giorno (non ancora nel codice): su 341 partite AI e pick
+dell'app indovinano uguale (61%), ma l'AI gioca quote piu' basse (1,44 contro
+1,60, resa -10% contro 0%) ed e' debole sulla direzione (51% contro 66% sui
+soli gol). Idea in valutazione con Rossi: direzione dall'app, gol dall'AI e da
+una "scheda gol" sulle ultime 5 (totali e casa/fuori), giocata costruita
+dall'app.
+
 ### 2026-10-06 (4) — Modelli alternativi che non rispondevano, errori nascosti, app Android, verdetti a vuoto
 
 Rossi: "scegliendo un LLM di OpenRouter o un altro, non DeepSeek, si blocca:

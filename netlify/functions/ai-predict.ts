@@ -8,7 +8,7 @@ import { readMinOdd } from "./odd-settings";
 import { buildMatchPrompt, PREDICTION_SYSTEM, parseAiJson, bloccoScenarioManuale, normalizzaStatistiche, normalizzaFasce, normalizzaConsiglio, type VoceManuale } from "./lib/predictionPrompt";
 import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
-import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
+import { LLM_OPTIONS, DEFAULT_LLM, callLlm, isProviderUsable, type LlmOption } from "./lib/llmProviders";
 import { contestoPartitaSalvato, blocoTesto } from "./lib/webSearch";
 import { modelloScelto, opzioneDaId, economicoAttivo } from "./lib/llmScelta";
 import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs,
@@ -200,7 +200,7 @@ REGOLE OBBLIGATORIE basate sul PIN:
     prompt += `\n⚠ Questa partita e' GIA' INIZIATA o finita. Ragiona come se fossi prima del calcio d'inizio: ignora qualsiasi informazione su risultato, marcatori o andamento di QUESTA partita, anche se compare nei dati web.\n`;
   }
 
-  let prediction;
+  let prediction: any;
   let testoGrezzo = "";
   const t0 = Date.now();
   try {
@@ -210,16 +210,16 @@ REGOLE OBBLIGATORIE basate sul PIN:
     if (prova) return jsonResponse({ prova: true, modello: llmOption.label, ok: false, secondi: Math.round((Date.now() - t0) / 1000), errore: e.message, inizio_risposta: testoGrezzo.slice(0, 300) }, 200);
     return jsonResponse({ error: e.message }, 502);
   }
+  let vuota = motivoRispostaVuota(prediction);
   if (prova) {
     const p: any = prediction;
     const fasceP = normalizzaFasce(p.fasce);
     return jsonResponse({
-      prova: true, modello: llmOption.label, ok: !p.illeggibile && !!p.analysis && !!String(p.family || "").trim(),
+      prova: true, modello: llmOption.label, ok: !vuota,
       secondi: Math.round((Date.now() - t0) / 1000),
       lunghezza_prompt: prompt.length, lunghezza_risposta: testoGrezzo.length,
       illeggibile: !!p.illeggibile,
-      // es. "LETTURA DELLA PARTITA: ... PERCHE' QUESTA SCELTA: ..." (Nemotron Super, 06/10)
-      schema_ricopiato: /:\s*\.\.\.(\s|$)/.test(String(p.analysis || "")),
+      risposta_vuota: vuota,
       famiglia: p.family ?? null, pronostico: p.main_prediction ?? null, fiducia: p.confidence ?? null,
       mercati_giocabili: Array.isArray(p.playable_markets) ? p.playable_markets.length : 0,
       fasce_compilate: fasceP ? Object.keys(fasceP).length : 0,
@@ -227,16 +227,40 @@ REGOLE OBBLIGATORIE basate sul PIN:
       inizio_risposta: testoGrezzo.slice(0, 200),
     });
   }
-  // Risposta illeggibile anche dopo la riparazione (01/10/2026, Israele-Kosovo):
-  // NON si salva. Prima finiva in scheda come "INSTABILE" con il JSON grezzo
-  // come lettura, e contava come "pronostico gia' presente".
-  if ((prediction as any).illeggibile || !prediction.analysis || !String(prediction.family || "").trim()) {
-    return jsonResponse({ error: "Risposta dell'AI incompleta o illeggibile: riprova con Rigenera Pronostico." }, 502);
+
+  // RISPOSTA VUOTA (06/10/2026, Estonia-Islanda): Nemotron Super ha ricopiato
+  // lo schema ("LETTURA DELLA PARTITA: ... PERCHE' QUESTA SCELTA: ...") e il
+  // pronostico e' stato salvato e mostrato con fiducia "Alta". Ora non si
+  // salva: si rifa' UNA volta con DeepSeek (o con lo stesso modello, se era
+  // gia' DeepSeek), e la scheda dice che e' stato rifatto e perche'. Solo se
+  // c'e' tempo: il primo tentativo puo' aver consumato quasi tutto il limite.
+  let usato: LlmOption = llmOption;
+  let rifatto: string | null = null;
+  if (vuota && Date.now() - t0 < 360_000) {
+    const riserva = LLM_OPTIONS.find((o) => o.id === DEFAULT_LLM && o.id !== llmOption.id && isProviderUsable(o.provider)) ?? llmOption;
+    try {
+      const testo2 = await callLlm(riserva, PREDICTION_SYSTEM, prompt);
+      const p2 = parseAiJson(testo2);
+      const vuota2 = motivoRispostaVuota(p2);
+      if (!vuota2) {
+        rifatto = `${llmOption.label} ha dato una ${vuota}: rifatto con ${riserva.label}.`;
+        prediction = p2; usato = riserva; vuota = null;
+      } else {
+        vuota = `${vuota} (${llmOption.label}), e anche ${riserva.label}: ${vuota2}`;
+      }
+    } catch (e: any) {
+      vuota = `${vuota} (${llmOption.label}); nuovo tentativo con ${riserva.label} fallito: ${e.message}`;
+    }
+  }
+  // Risposta illeggibile o vuota (01/10 e 06/10/2026): NON si salva. Prima
+  // finiva in scheda e contava come "pronostico gia' presente".
+  if (vuota) {
+    return jsonResponse({ error: `Pronostico AI non salvato: ${vuota}. Riprova con Rigenera Pronostico o scegli un altro modello in LLM & Budget.` }, 502);
   }
 
   // Traccia il costo stimato (0 per i provider gratuiti come Groq)
   try {
-    await incrementSetting("ai_spent", llmOption.cost_per_pred);
+    await incrementSetting("ai_spent", usato.cost_per_pred);
     await incrementSetting("ai_count", 1);
   } catch {
     /* non bloccante */
@@ -260,7 +284,13 @@ REGOLE OBBLIGATORIE basate sul PIN:
   // chiavi 1.40/1.50/1.60/1.75, quindi non lo vede.
   const consiglio = normalizzaConsiglio((prediction as any).consiglio, prediction.main_prediction);
   if (consiglio && prediction.main_prediction) consiglio.mercato = prediction.main_prediction;
-  const fasce = fasceAI || consiglio ? { ...(fasceAI || {}), ...(consiglio ? { consiglio } : {}) } : null;
+  // Anche il modello che l'ha fatto (06/10/2026): prima non si salvava e non
+  // si poteva dire quale modello sbaglia di piu'. Sta in `fasce` come il
+  // consiglio; validaFasce legge solo le chiavi delle soglie.
+  const fasce = {
+    ...(fasceAI || {}), ...(consiglio ? { consiglio } : {}),
+    modello: usato.label, ...(rifatto ? { rifatto } : {}),
+  };
 
   // I tre campi nuovi (28/09/2026) esistono solo se Rossi ha aggiunto le colonne
   // con la ALTER TABLE. Se non ci sono, PostgREST rifiuta TUTTA la riga: si
@@ -337,6 +367,31 @@ REGOLE OBBLIGATORIE basate sul PIN:
     xg_salvati: xgSalvati, web_disponibile: webDisponibile, web_fonti: fontiWeb,
     web_da_archivio: webDaArchivio, web_motivo: webMotivo,
   });
+}
+
+/**
+ * Perche' la risposta del modello non e' un pronostico (null = e' buona).
+ * Oltre a illeggibile/incompleta, riconosce lo schema ricopiato: lettura
+ * fatta di "..." o motivazioni lasciate a "..." (Nemotron Super, 06/10/2026).
+ */
+export function motivoRispostaVuota(p: any): string | null {
+  if (!p || p.illeggibile) return "risposta illeggibile";
+  const analisi = String(p.analysis || "").trim();
+  if (!analisi || !String(p.family || "").trim()) return "risposta incompleta";
+  if (/:\s*(\.\.\.|…)(\s|$)/.test(analisi) || analisi.replace(/[^a-z]/gi, "").length < 60) {
+    return "risposta vuota (puntini al posto del ragionamento)";
+  }
+  const vuoto = (s: unknown) => /^\s*(\.\.\.|…)?\s*$/.test(String(s ?? ""));
+  const fasce = p.fasce && typeof p.fasce === "object" ? Object.values(p.fasce) : [];
+  const motivazioni = [
+    p.consiglio?.perche,
+    ...fasce.map((f: any) => f?.perche),
+    ...(Array.isArray(p.playable_markets) ? p.playable_markets.map((m: any) => m?.reasoning) : []),
+  ].filter((x) => x !== undefined && x !== null);
+  if (motivazioni.length && motivazioni.filter(vuoto).length * 2 >= motivazioni.length) {
+    return "risposta vuota (motivazioni lasciate a puntini)";
+  }
+  return null;
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {

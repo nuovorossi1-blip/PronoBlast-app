@@ -333,6 +333,7 @@ export default function MatchDetail() {
     setAiPending(true);
     predictionQueue.enqueue(id, forceRegen).then((p) => {
       if (p) {
+        if ((p as any).fasce?.rifatto) notify("Pronostico AI rifatto", (p as any).fasce.rifatto);
         setPrediction(p);
         matchDetailCache.invalidate(id);
         load(true);
@@ -1488,6 +1489,12 @@ export default function MatchDetail() {
                 return (
                   <>
                     {avvisoPost}
+                    {(prediction.fasce as any)?.modello ? (
+                      <Text style={styles.modelloTxt}>
+                        Fatto con {(prediction.fasce as any).modello}
+                        {(prediction.fasce as any).rifatto ? ` · ${(prediction.fasce as any).rifatto}` : ""}
+                      </Text>
+                    ) : null}
                     {fasceV && (
                       <View style={styles.fasceRow}>
                         {fasceV.map((f) => {
@@ -1856,6 +1863,7 @@ const styles = StyleSheet.create({
   palettoBox: { borderWidth: 1, borderColor: colors.warning, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 8, padding: 8 },
   palettoOk: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.10)" },
   palettoTxt: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 17 },
+  modelloTxt: { color: colors.textMuted, fontSize: 11, marginBottom: 6 },
   statVuoto: { color: colors.textMuted, fontSize: 11, paddingVertical: 6, textAlign: "center" },
   analisiBox: { backgroundColor: colors.surfaceHi, borderRadius: 10, padding: 10, gap: 4 },
   analisiTitolo: { color: colors.textMuted, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
