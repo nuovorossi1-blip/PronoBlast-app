@@ -95,7 +95,13 @@ export async function calcolaManualeStats(): Promise<ManualeStats> {
   }
   const confronto: ManualeStats["confronto_profilo"] = {};
 
+  // A PEZZETTI (07/10/2026): classifyFamily costa ~17 ms a partita e
+  // l'archivio ne ha 9.000+: tutto di fila erano ~2,5 minuti in cui il server
+  // del PC non rispondeva a nessuno (l'app "non si apriva" dopo ogni
+  // riavvio). Ogni 10 partite si cede il passo alle altre richieste.
+  let giro = 0;
   for (const r of righe) {
+    if (++giro % 10 === 0) await new Promise((ok) => setImmediate(ok));
     const risultato = String(r.result || "");
     if (esitoMercato("1", risultato) === null) continue;   // risultato illeggibile
     // Pagella dei sistemi: ogni pick registrato prima della partita.

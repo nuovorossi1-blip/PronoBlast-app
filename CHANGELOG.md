@@ -155,6 +155,21 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (2) — Server bloccato dopo il riavvio; Punta su questo fuori soglia
+
+- Rossi: "non si apre l'app". Dopo ogni riavvio il server del PC non
+  rispondeva per minuti. Causa misurata: `calcolaManualeStats` (manuale.ts)
+  chiama `classifyFamily` su tutto l'archivio (9.315 partite, ~17 ms l'una =
+  ~2,5 minuti di CPU di fila); la cache e' in memoria e si perde al riavvio.
+  /verdetto?day= la chiede: sul server di prova /matches-days andava in
+  timeout per 80 s. Ora il ciclo cede il passo ogni 10 partite: durante il
+  calcolo le altre richieste rispondono (prima timeout, ora pochi secondi).
+- "Punta su questo": giocata della Quota minima se c'e', altrimenti la
+  migliore della partita nelle altre fasce (poi il piu' probabile del
+  catalogo da 1,40), coerente con la direzione della lettura (senza
+  direzione niente segni/DC; con direzione 1 niente mercati sul 2); sotto il
+  58% l'avviso "poco affidabile". Commit 021d1f6.
+
 ### 2026-10-07 — Scheda gol, "Punta su questo" dai numeri (scelta B), dossier a partita
 
 Analisi con Rossi prima del codice (dettagli nella voce 06/10 (5) e sotto):
