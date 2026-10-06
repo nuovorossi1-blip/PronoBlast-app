@@ -175,6 +175,11 @@ codice + `.md` insieme -> costruisce.
   errore: il filtro "niente segni senza direzione" scartava "X oppure GG"
   (comincia con X). Per i mercati del manuale conta la % dell'archivio
   (62% su 2.446) e non la stima Poisson, anche per scegliere fra le fasce.
+- Misura del manuale salvata in `settings.manuale_stats_cache`
+  (`manualeStatsRecenti`): si risponde subito con l'ultima misura e, oltre i
+  10 minuti, la si ricalcola in sottofondo. Anche /manuale-stats la usa (prima
+  ricalcolava a ogni apertura della scheda). Dopo un riavvio: 2,4 s invece di
+  157 s.
 
 ### 2026-10-07 — Scheda gol, "Punta su questo" dai numeri (scelta B), dossier a partita
 

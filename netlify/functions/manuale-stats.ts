@@ -1,5 +1,5 @@
 import { jsonResponse } from "./lib/supabaseRest";
-import { calcolaManualeStats, METODO_MANUALE } from "./lib/manuale";
+import { manualeStatsRecenti, METODO_MANUALE } from "./lib/manuale";
 
 /**
  * GET /manuale-stats — quanto ha risposto finora il MANUALE per scenario
@@ -19,7 +19,10 @@ import { calcolaManualeStats, METODO_MANUALE } from "./lib/manuale";
  */
 export default async (_req: Request): Promise<Response> => {
   try {
-    const stats = await calcolaManualeStats();
+    // Dal 07/10/2026 l'ultima misura (al massimo di 10 minuti, ricalcolata in
+    // sottofondo e salvata nel database): prima ogni apertura della scheda
+    // rifaceva il calcolo, ~2,5 minuti dopo un riavvio.
+    const stats = await manualeStatsRecenti();
     return jsonResponse({ ok: true, partite_valutate: stats.partite_valutate, metodo: METODO_MANUALE, scenari: stats.scenari, pagella: stats.pagella, confronto_profilo: stats.confronto_profilo });
   } catch (e) {
     console.error("[manuale-stats]", e);

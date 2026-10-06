@@ -1,4 +1,4 @@
-import { pgGetAll, rowToOdds } from "./supabaseRest";
+import { pgGet, pgGetAll, pgPost, rowToOdds } from "./supabaseRest";
 import { getScenarioNote, esitoMercato, chiaveScenario, underAmmessiATettoAperto, inizioPartitaMs } from "../../../frontend/src/api";
 import { classifyFamily } from "./clusterEngine";
 
@@ -38,18 +38,52 @@ export type ManualeStats = {
 export const METODO_MANUALE = "vinte / (vinte + perse) sulle partite concluse con quello scenario; rimborsi (DNB col pareggio) e mezze (AH -0,75 vinto di un gol) contati a parte, fuori dalla percentuale";
 
 /**
- * Stessa misura, ricordata per 10 minuti nell'istanza della funzione: il
- * verdetto server la chiede per ogni partita della giornata e l'archivio
- * intero non cambia fra una partita e l'altra. /manuale-stats resta viva.
+ * Stessa misura, ricordata 10 minuti: il verdetto server la chiede per ogni
+ * partita della giornata e l'archivio non cambia fra una partita e l'altra.
+ *
+ * SALVATA NEL DATABASE (07/10/2026): il calcolo costa ~2,5 minuti di CPU
+ * (classifyFamily su 9.000+ partite) e dopo ogni riavvio del server del PC
+ * la scheda restava senza le % dell'archivio per minuti ("Punta su questo"
+ * senza il manuale). Ora: si risponde SUBITO con l'ultima misura (in memoria
+ * o in `settings.manuale_stats_cache`) e, se ha piu' di 10 minuti, la si
+ * ricalcola in sottofondo. Solo la primissima volta (nessuna misura salvata)
+ * si aspetta il calcolo.
  */
-let memo: { at: number; valore: Promise<ManualeStats> } | null = null;
-export function manualeStatsRecenti(): Promise<ManualeStats> {
-  if (!memo || Date.now() - memo.at > 10 * 60 * 1000) {
-    const valore = calcolaManualeStats();
-    memo = { at: Date.now(), valore };
-    valore.catch((e) => { console.error("[manuale] misura", e); memo = null; });
+const CHIAVE_DB = "manuale_stats_cache";
+const FRESCA_MS = 10 * 60 * 1000;
+let ultima: { at: number; stats: ManualeStats } | null = null;
+let inCorso: Promise<ManualeStats> | null = null;
+
+function ricalcola(): Promise<ManualeStats> {
+  if (!inCorso) {
+    inCorso = calcolaManualeStats()
+      .then(async (stats) => {
+        ultima = { at: Date.now(), stats };
+        try {
+          await pgPost("settings", { key: CHIAVE_DB, value: ultima, updated_at: new Date().toISOString() }, "resolution=merge-duplicates,return=minimal");
+        } catch (e) {
+          console.error("[manuale] salvataggio misura", e);
+        }
+        return stats;
+      })
+      .finally(() => { inCorso = null; });
   }
-  return memo.valore;
+  return inCorso;
+}
+
+export async function manualeStatsRecenti(): Promise<ManualeStats> {
+  if (!ultima) {
+    try {
+      const r = await pgGet(`settings?key=eq.${CHIAVE_DB}&select=value`);
+      const v = r[0]?.value;
+      if (v?.stats && typeof v.at === "number" && !ultima) ultima = { at: v.at, stats: v.stats };
+    } catch (e) {
+      console.error("[manuale] lettura misura salvata", e);
+    }
+  }
+  if (!ultima) return ricalcola();
+  if (Date.now() - ultima.at > FRESCA_MS) ricalcola().catch((e) => console.error("[manuale] misura", e));
+  return ultima.stats;
 }
 
 export async function calcolaManualeStats(): Promise<ManualeStats> {
