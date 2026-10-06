@@ -205,7 +205,7 @@ export async function tettoTavily(): Promise<number> {
  * Se la tabella non c'e' ancora (SQL non lanciato), tutto funziona come prima:
  * si cerca ogni volta.
  */
-export const DOSSIER_VALIDO_ORE = 6;
+export const DOSSIER_VALIDO_ORE = 12;
 
 export async function contestoPartitaSalvato(
   matchId: string,

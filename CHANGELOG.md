@@ -99,7 +99,7 @@ Altre cose da sapere subito:
 
 - **Frontend**: Expo / React Native — `frontend/`
 - **Backend**: Netlify Functions (TypeScript) — `netlify/functions/*.ts`
-- **Database**: Supabase, progetto "emergent-app-db" (id `zjucgmngettxfwgxazxl`)
+- **Database**: Supabase, progetto "pronoblast-app-db" (id `zjucgmngettxfwgxazxl`; fino al 06/10/2026 si chiamava "emergent-app-db")
 - **Motore pronostici**, 3 sistemi indipendenti fusi in
   `frontend/src/api.ts` → `buildFinalVerdict()`:
   - **STRUTT** — Poisson puro, `netlify/functions/lib/clusterEngine.ts`
@@ -161,7 +161,7 @@ Primo passo del piano "ricerca web senza finire Tavily" (piano completo: dossier
 per tutte le partite del giorno da FotMob/SofaScore/ClubElo + SearXNG, Tavily solo
 di riserva). Misurato prima: 342 crediti su 1000 usati a inizio mese.
 - **Dossier salvato** (`dossier_web`, SQL in `docs/database.sql` sez. 6): il
-  contesto web di una partita si riusa per 6 ore. "Rigenera" e il cambio di
+  contesto web di una partita si riusa per 12 ore (prima versione: 6). "Rigenera" e il cambio di
   modello non rifanno piu' le 3 ricerche (prima 6 crediti ogni volta). Ricerca
   nuova a forza: `ai-predict?...&rifaiWeb=true`. Si salva anche "nessun dato
   attendibile" (leghe minori), non gli errori del momento. Senza la tabella

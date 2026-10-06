@@ -1,7 +1,7 @@
 -- =============================================================================
 -- docs/database.sql — lo schema Supabase che il codice si aspetta
 -- =============================================================================
--- Progetto Supabase: "emergent-app-db" (id zjucgmngettxfwgxazxl).
+-- Progetto Supabase: "pronoblast-app-db" (id zjucgmngettxfwgxazxl; ex "emergent-app-db").
 --
 -- COME SI USA: Supabase → SQL Editor → incolla tutto → Run.
 -- E' RILANCIABILE quante volte si vuole: solo ADD COLUMN IF NOT EXISTS e SELECT.
@@ -150,7 +150,7 @@ select cron.schedule(
 -- 6. DOSSIER WEB PER PARTITA (2026-10-06, ramo ricerca-web)
 -- -----------------------------------------------------------------------------
 -- Il contesto trovato da Tavily per una partita si salva qui e si riusa per
--- DOSSIER_VALIDO_ORE (6) ore: "Rigenera" e il cambio di modello non rifanno
+-- DOSSIER_VALIDO_ORE (12) ore: "Rigenera" e il cambio di modello non rifanno
 -- le ricerche (prima: 6 crediti a ogni rigenera). Vedi lib/webSearch.ts.
 -- Il tipo di match_id copia quello di matches.id (uuid o text).
 -- RLS spenta come le altre tabelle: il server usa la chiave anon.
