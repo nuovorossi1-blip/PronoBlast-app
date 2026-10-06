@@ -155,6 +155,32 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-06 (3) — Tutti i modelli OpenRouter dal vivo, fornitore piu' economico, limite di tempo
+
+- **Modelli OpenRouter dal vivo** (`lib/llmScelta.ts`): in "LLM & Budget" si
+  sceglie QUALSIASI modello del catalogo OpenRouter (~390, letto dal vivo, in
+  memoria 6 ore), con costo stimato a pronostico (12.000 token in + 2.500 out),
+  ricerca e filtri Gratis / Con strumenti. In `settings.llm_model` il valore e'
+  `or:<id OpenRouter>`; le opzioni fisse di `LLM_OPTIONS` restano. Esclusi i
+  `:batch` (rispondono in differita, con un'API apposita) e i router a prezzo
+  variabile (-1) non hanno costo. `ai-predict` e `budget` usano `modelloScelto()`.
+- **Credito OpenRouter** della chiave dell'app (caricato, usato, residuo,
+  richieste gratis del giorno) nella stessa pagina, con il tasto di ricarica.
+- **Fornitore piu' economico automatico** (`settings.openrouter_economico`,
+  predefinito si'): `provider: { sort: "price" }` sulle chiamate OpenRouter.
+  Provato su un pronostico di 12.000 token: 0,08 cent contro 0,13. Un ordine
+  di fornitori calcolato da noi (sconti compresi) e' stato scartato: con la
+  "conservazione zero dei dati" dell'account i fornitori piu' scontati
+  (StreamLake -70%, DeepInfra, GMI) rifiutano e si finiva sulle riserve.
+- **Limite di tempo dei modelli su server nostro**: `llmProviders.ts` applicava
+  il limite di Netlify (21 s) quando non era su Vercel. Ora
+  `LIMITE_PIATTAFORMA_SECONDI` (messo da `server-locale/server.ts` a 630) da'
+  fino a 10 minuti: serve ai fornitori che rispondono solo alla fine (Gemini,
+  Groq, Claude, GPT) e alla futura VPS. OpenRouter e DeepSeek non ne
+  risentivano (iniziano subito a rispondere).
+- `:batch` provato: con la "conservazione zero dei dati" OpenRouter rifiuta le
+  API in differita (422). Da riconsiderare solo se l'utente cambia la privacy.
+
 ### 2026-10-06 (2) — Dossier da FotMob + SearXNG, dossier automatico, quote alle 12
 
 Passi 2-4 del piano "ricerca web senza finire Tavily". Il dossier di una

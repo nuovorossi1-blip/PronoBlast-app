@@ -23,6 +23,10 @@ const QUI = path.dirname(fileURLToPath(import.meta.url));
 const RADICE = path.resolve(QUI, "..");
 const DIST = path.join(RADICE, "frontend", "dist");
 const PORTA = Number(process.env.PORTA || 3000);
+// Su un server nostro (questo PC, domani la VPS) una richiesta puo' durare
+// quanto serve: i modelli gratuiti di OpenRouter ci mettono minuti. Senza,
+// llmProviders.ts applicherebbe il limite di Netlify (21 s). Il .env vince.
+process.env.LIMITE_PIATTAFORMA_SECONDI ||= "630";
 
 // Le rotte delle funzioni sono quelle riscritte da vercel.json verso /api/...
 const vercel = JSON.parse(fs.readFileSync(path.join(RADICE, "vercel.json"), "utf8"));

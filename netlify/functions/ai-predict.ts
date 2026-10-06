@@ -10,6 +10,7 @@ import { manualeStatsRecenti, type ManualeStats } from "./lib/manuale";
 import { preHeuristicRanking, preEligibleMarkets } from "./lib/preHeuristic";
 import { LLM_OPTIONS, DEFAULT_LLM, callLlm, type LlmOption } from "./lib/llmProviders";
 import { contestoPartitaSalvato, blocoTesto } from "./lib/webSearch";
+import { modelloScelto } from "./lib/llmScelta";
 import { underAmmessiATettoAperto, getScenarioNote, chiaveScenario, FASCE_AI, chiaveFascia, inizioPartitaMs,
   candidatiManuale, quotaManuale, nomeCatalogoManuale, type CandidatoManuale } from "../../frontend/src/api";
 
@@ -309,10 +310,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
 }
 
 async function getSelectedLlm(): Promise<LlmOption> {
+  // Anche un modello OpenRouter qualsiasi ("or:<id>"), vedi lib/llmScelta.ts.
   try {
-    const rows = await pgGet(`settings?key=eq.llm_model&select=value`);
-    const id = rows.length ? rows[0].value : DEFAULT_LLM;
-    return LLM_OPTIONS.find((o) => o.id === id) || LLM_OPTIONS[0];
+    return await modelloScelto();
   } catch {
     return LLM_OPTIONS[0];
   }

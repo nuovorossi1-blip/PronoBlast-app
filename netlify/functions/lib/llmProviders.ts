@@ -14,6 +14,8 @@ export type LlmOption = {
   speed: string;
   quality: string;
   desc: string;
+  /** Solo OpenRouter: chiedere il fornitore piu' economico del momento (llmScelta.ts). */
+  economico?: boolean;
 };
 
 export const LLM_OPTIONS: LlmOption[] = [
@@ -152,8 +154,16 @@ export async function callLlm(
   // La riserva serve proprio a quello: il tempo che NON e' della chiamata al
   // modello. Se un giorno cambia maxDuration in vercel.json, va cambiato anche
   // platformCapMs qui — sono due numeri che devono restare in accordo.
-  const platformCapMs = onVercel ? 300_000 : 26_000; // vercel.json / limite Netlify
-  const reserveMs = onVercel ? 45_000 : 5_000;
+  //
+  // SERVER NOSTRO (06/10/2026): sul PC di casa, e domani sulla VPS, nessuno
+  // uccide la richiesta. Prima qui si cadeva nel caso Netlify (21 s) e i
+  // modelli gratuiti di OpenRouter, che ci mettono minuti, venivano sempre
+  // interrotti. Il server (server-locale/server.ts) mette
+  // LIMITE_PIATTAFORMA_SECONDI; si puo' anche scrivere nel .env.
+  const limiteProprio = Number(readEnv("LIMITE_PIATTAFORMA_SECONDI")) || 0;
+  const platformCapMs = limiteProprio > 0 ? limiteProprio * 1000
+    : onVercel ? 300_000 : 26_000; // vercel.json / limite Netlify
+  const reserveMs = limiteProprio > 0 ? 30_000 : onVercel ? 45_000 : 5_000;
   const timeoutMs = Math.max(10_000, platformCapMs - reserveMs);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -180,6 +190,13 @@ export async function callLlm(
       temperature: 0.2,
       max_tokens: maxTokens,
       ...(disableThinking ? { thinking: { type: "disabled" } } : {}),
+      // Fornitore piu' economico del momento, scelto da OpenRouter fra quelli
+      // che l'account puo' usare (con la "conservazione zero dei dati" attiva
+      // alcuni fornitori scontati rifiutano). Provato il 06/10 su un pronostico
+      // di 12.000 token: 0,08 cent contro 0,13 senza; un ordine calcolato da noi
+      // finiva sulle riserve perche' i primi fornitori rifiutavano.
+      ...(option.provider === "openrouter" && option.economico && !option.model.endsWith(":free")
+        ? { provider: { sort: "price" } } : {}),
     }),
   });
   } catch (e: any) {

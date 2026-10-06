@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -15,6 +15,15 @@ export default function LlmSettings() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [budget, setBudget] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Modelli OpenRouter dal vivo (06/10/2026): credito, interruttore "piu'
+  // economico", ricerca su tutto il catalogo. Il catalogo si carica solo
+  // quando si apre la sezione (sono ~400 modelli).
+  const [orInfo, setOrInfo] = useState<any>(null);
+  const [selected, setSelected] = useState<any>(null);
+  const [catalogo, setCatalogo] = useState<any[] | null>(null);
+  const [caricoCatalogo, setCaricoCatalogo] = useState(false);
+  const [cerca, setCerca] = useState("");
+  const [filtro, setFiltro] = useState<"tutti" | "gratis" | "strumenti">("tutti");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -22,9 +31,30 @@ export default function LlmSettings() {
       const [llm, bud] = await Promise.all([api.getLlmSettings(), api.getBudget()]);
       setOptions(llm.options);
       setSelectedId(llm.selected_id);
+      setSelected(llm.selected);
+      setOrInfo(llm.openrouter);
       setBudget(bud);
     } finally { setLoading(false); }
   }, []);
+
+  const apriCatalogo = async () => {
+    setCaricoCatalogo(true);
+    try { setCatalogo((await api.getCatalogoOpenRouter()).modelli); }
+    catch (e: any) { notify("Errore", e?.message); }
+    finally { setCaricoCatalogo(false); }
+  };
+
+  const cambiaEconomico = async (v: boolean) => {
+    setOrInfo((x: any) => ({ ...x, economico: v }));
+    try { await api.setOpenRouterEconomico(v); } catch (e: any) { notify("Errore", e?.message); load(); }
+  };
+
+  const filtrati = (catalogo || []).filter((m) => {
+    if (filtro === "gratis" && !m.gratis) return false;
+    if (filtro === "strumenti" && !m.strumenti) return false;
+    const q = cerca.trim().toLowerCase();
+    return !q || m.id.toLowerCase().includes(q) || m.nome.toLowerCase().includes(q);
+  });
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -84,6 +114,18 @@ export default function LlmSettings() {
           </View>
         )}
         <Text style={styles.section}>SCEGLI MODELLO LLM</Text>
+        {selectedId?.startsWith("or:") && selected && (
+          <View style={[styles.opt, styles.optActive]}>
+            <View style={[styles.radio, styles.radioOn]}><Ionicons name="checkmark" size={14} color="#FFF" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>{selected.label}</Text>
+              <Text style={styles.optDesc}>{selected.model} · {selected.desc}</Text>
+              <View style={styles.optMeta}>
+                <Text style={styles.tagCost}>${Number(selected.cost_per_pred || 0).toFixed(4)}/pred · ~€{(Number(selected.cost_per_pred || 0) * 40 * 30 * 0.93).toFixed(2)}/mese</Text>
+              </View>
+            </View>
+          </View>
+        )}
         {options.map((o) => {
           const active = o.id === selectedId;
           return (
@@ -101,6 +143,74 @@ export default function LlmSettings() {
             </TouchableOpacity>
           );
         })}
+
+        {/* Tutti i modelli OpenRouter dal vivo */}
+        {orInfo?.configurato && (
+          <>
+            <Text style={styles.section}>TUTTI I MODELLI OPENROUTER (DAL VIVO)</Text>
+            <View style={styles.budgetCard}>
+              <Text style={styles.budgetLbl}>CREDITO OPENROUTER</Text>
+              {orInfo.credito ? (
+                <>
+                  <Text style={styles.budgetVal}>${orInfo.credito.residuo.toFixed(2)}</Text>
+                  <Text style={styles.budgetDetail}>residuo · caricati ${orInfo.credito.caricato.toFixed(2)} · usati ${orInfo.credito.usato.toFixed(2)}</Text>
+                  {orInfo.credito.gratis_oggi && (
+                    <Text style={styles.budgetDetail}>Modelli gratis oggi: {orInfo.credito.gratis_oggi.used} / {orInfo.credito.gratis_oggi.limit}</Text>
+                  )}
+                </>
+              ) : <Text style={styles.budgetDetail}>Credito non disponibile</Text>}
+              <TouchableOpacity onPress={() => openExternalUrl("https://openrouter.ai/settings/credits")} style={styles.topupBtn}>
+                <Ionicons name="card-outline" size={16} color="#FFF" />
+                <Text style={styles.topupTxt}>RICARICA OPENROUTER</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.opt, { justifyContent: "space-between" }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optLabel}>Fornitore più economico automatico</Text>
+                <Text style={styles.optDesc}>Ogni pronostico va al fornitore OpenRouter più conveniente del momento: gli sconti si prendono da soli.</Text>
+              </View>
+              <Switch value={!!orInfo.economico} onValueChange={cambiaEconomico} trackColor={{ true: colors.primary, false: colors.borderLight }} />
+            </View>
+            {!catalogo ? (
+              <TouchableOpacity onPress={apriCatalogo} style={styles.opt} disabled={caricoCatalogo}>
+                {caricoCatalogo ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="list-outline" size={20} color={colors.primary} />}
+                <Text style={styles.optLabel}>Mostra tutti i modelli OpenRouter</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TextInput value={cerca} onChangeText={setCerca} placeholder="Cerca (deepseek, glm, nemotron, claude…)"
+                  placeholderTextColor={colors.textDim} style={styles.cerca} autoCapitalize="none" autoCorrect={false} />
+                <View style={styles.optMeta}>
+                  {(["tutti", "gratis", "strumenti"] as const).map((f) => (
+                    <TouchableOpacity key={f} onPress={() => setFiltro(f)}>
+                      <Text style={filtro === f ? styles.tagCost : styles.tag}>{f === "tutti" ? "Tutti" : f === "gratis" ? "Gratis" : "Con strumenti"}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <Text style={styles.tag}>{filtrati.length} modelli</Text>
+                </View>
+                {filtrati.slice(0, 60).map((m) => {
+                  const id = `or:${m.id}`;
+                  const active = id === selectedId;
+                  return (
+                    <TouchableOpacity key={m.id} onPress={() => select(id)} style={[styles.opt, active && styles.optActive]}>
+                      <View style={[styles.radio, active && styles.radioOn]}>{active && <Ionicons name="checkmark" size={14} color="#FFF" />}</View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.optLabel}>{m.nome}</Text>
+                        <Text style={styles.optDesc}>{m.id}</Text>
+                        <View style={styles.optMeta}>
+                          <Text style={styles.tagCost}>{m.gratis ? "Gratis" : m.costo != null ? `$${m.costo.toFixed(4)}/pred · ~€${(m.costo * 40 * 30 * 0.93).toFixed(2)}/mese` : "prezzo ?"}</Text>
+                          {!m.gratis && m.in_m != null && <Text style={styles.tag}>${m.in_m} / ${m.out_m} per M</Text>}
+                          {!m.strumenti && <Text style={styles.tag}>no strumenti</Text>}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+                {filtrati.length > 60 && <Text style={styles.budgetHint}>Mostrati i primi 60 (dal più economico): usa la ricerca per gli altri.</Text>}
+              </>
+            )}
+          </>
+        )}
         <View style={{ height: 100 }} />
       </ScrollView>
       <BottomNav />
@@ -131,4 +241,5 @@ const styles = StyleSheet.create({
   optMeta: { flexDirection: "row", gap: 6, marginTop: 6 },
   tag: { backgroundColor: colors.surfaceHi, color: colors.textMuted, fontSize: 9, fontWeight: "700", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   tagCost: { backgroundColor: "rgba(255,140,66,0.15)", color: colors.primary, fontSize: 9, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  cerca: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, fontSize: 13 },
 });

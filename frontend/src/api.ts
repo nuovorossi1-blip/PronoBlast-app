@@ -544,7 +544,13 @@ export const api = {
     netlifyReq<any>(`/import-db`, { method: "POST", body: JSON.stringify(payload) }),
   deleteAll: () => netlifyReq<{ ok: boolean }>(`/delete-all`, { method: "DELETE" }),
   aiStudioPrompt: () => netlifyReq<{ csv: string; count: number }>(`/aistudio-prompt`),
-  getLlmSettings: () => netlifyReq<{ options: any[]; selected_id: string }>("/llm-settings"),
+  getLlmSettings: () => netlifyReq<{ options: any[]; selected_id: string; selected: any;
+    openrouter: { configurato: boolean; economico: boolean;
+      credito: { caricato: number; usato: number; residuo: number; gratis_oggi: { used: number; limit: number; remaining: number } | null } | null } }>("/llm-settings"),
+  /** Tutti i modelli OpenRouter dal vivo, gia' ordinati dal piu' economico (06/10/2026). */
+  getCatalogoOpenRouter: () => netlifyReq<{ modelli: { id: string; nome: string; gratis: boolean; strumenti: boolean;
+    contesto: number | null; in_m: number | null; out_m: number | null; costo: number | null }[] }>("/llm-settings?catalogo=openrouter"),
+  setOpenRouterEconomico: (economico: boolean) => netlifyReq<{ ok: boolean }>("/llm-settings", { method: "POST", body: JSON.stringify({ economico }) }),
   setLlmSettings: (id: string) => netlifyReq<{ ok: boolean; selected_id: string }>("/llm-settings", { method: "POST", body: JSON.stringify({ id }) }),
   getBudget: () => netlifyReq<{ estimated_spent_usd: number; predictions_made: number; current_model: string; cost_per_prediction_usd: number; topup_url: string;
     tavily: { usati: number; limite: number | null; piano: string; tetto: number } | null }>("/budget"),
