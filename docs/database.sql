@@ -218,5 +218,10 @@ select cron.schedule('pronoblast-quote-12', '0 * * * *', $$
     headers := '{"Content-Type": "application/json"}'::jsonb, body := '{"azione": "avvia"}'::jsonb,
     timeout_milliseconds := 30000)
   where extract(hour from now() at time zone 'Europe/Rome') = 12 $$);
+-- Pulizia del registro degli orologi (cron.job_run_details): una riga per ogni
+-- esecuzione, ~0,5 MB al giorno con due orologi al minuto (misurato il 06/10:
+-- 8.074 righe in 6 giorni). Si tengono 7 giorni. Ogni notte alle 2:15 UTC.
+select cron.schedule('pronoblast-pulizia-registro', '15 2 * * *',
+  $$ delete from cron.job_run_details where end_time < now() - interval '7 days' $$);
 -- Controllo: select jobname, schedule, active from cron.job;
 -- Stato del dossier: select value from settings where key = 'dossier_giornata';
