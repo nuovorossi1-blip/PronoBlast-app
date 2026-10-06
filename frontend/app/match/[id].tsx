@@ -620,36 +620,76 @@ export default function MatchDetail() {
           // Quota minima scelta); il consiglio dell'AI resta sotto come parere.
           // C'e' anche SENZA pronostico AI: e' la conclusione della scheda gol.
           const decideAI = aiDecide(predVerdetto, match);
-          let mot: { market: string; odd: number | null; stimata: boolean; prob: number | null } | null = null;
+          // LA GIOCATA MIGLIORE ANCHE FUORI SOGLIA (07/10/2026, Rossi): "se a
+          // quella soglia c'e', dimmi quella; se no, dimmi la giocata migliore
+          // della partita, indipendentemente dalla soglia". Si prova la Quota
+          // minima scelta; se non c'e' niente, le altre fasce, e si prende la
+          // piu' probabile.
+          type PickMotore = { market: string; odd: number | null; stimata: boolean; prob: number | null; soglia: number };
+          let mot: PickMotore | null = null;
           if (!decideAI && structural) {
             const famM = structural.pre_ranking?.length
               ? structural.pre_ranking.map((x) => ({ market: x.market, odd: x.odd, family: "" }))
               : quickPredictionFamily(match.odds);
             const ingM = fusioneInIngresso(structural, famM, []);
-            const v = buildFinalVerdict(ingM.structural, rankPicks(ingM.pre, [], marketStats), undefined, match.odds, history, { minOdd, manuale: manualeQui })
-              .filter((x) => ammessoDallaStruttura(x.market, structural.structure))[0];
-            if (v) {
+            const preM = rankPicks(ingM.pre, [], marketStats);
+            // COERENTE CON LA LETTURA (07/10/2026, Rossi): se la scheda dice
+            // "nessuna direzione, si gioca sui gol", il consiglio non puo' essere
+            // un 1X o un 1; con direzione 1 niente mercati sul 2 e viceversa.
+            const dirL = letturaGol(structural.structure.lambda_home, structural.structure.lambda_away).direzione;
+            const m0 = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
+            const versoCasa = (m: string) => /^(1|1X)(\s|$|\+)/.test(m0(m)) || /^1 (DNB|AH)/.test(m0(m));
+            const versoOspite = (m: string) => /^(2|X2)(\s|$|\+)/.test(m0(m)) || /^2 (DNB|AH)/.test(m0(m));
+            const conSegno = (m: string) => versoCasa(m) || versoOspite(m) || /^(X|12)(\s|$|\+)/.test(m0(m));
+            const coerente = (m: string) => dirL === null ? !conSegno(m) : dirL === "1" ? !versoOspite(m) : !versoCasa(m);
+            const motoreA = (soglia: number): PickMotore | null => {
+              const manS = candidatiManuale(match.odds, manualeStats?.scenari, soglia, structural.market_odds, false, structural.structure);
+              const v = buildFinalVerdict(ingM.structural, preM, undefined, match.odds, history, { minOdd: soglia, manuale: manS })
+                .filter((x) => ammessoDallaStruttura(x.market, structural.structure) && coerente(x.market))[0];
+              if (!v) return null;
               const vp = valutaPuntaSu(v.market, ctxC);
-              mot = { market: v.market, odd: vp?.odd ?? v.odd ?? null, stimata: vp?.stimata ?? !!v.oddEstimated, prob: vp?.prob ?? v.coverage ?? null };
+              return { market: v.market, odd: vp?.odd ?? v.odd ?? null, stimata: vp?.stimata ?? !!v.oddEstimated, prob: vp?.prob ?? v.coverage ?? null, soglia };
+            };
+            mot = motoreA(minOdd);
+            if (!mot) {
+              const altre = FASCE_AI.filter((f) => Math.abs(f - minOdd) > 0.001).map(motoreA).filter((x): x is PickMotore => !!x);
+              mot = altre.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))[0] ?? null;
+            }
+            // Ultima riserva: il mercato piu' probabile del catalogo del motore
+            // con quota da 1,40 in su, coerente con la lettura e con la struttura.
+            if (!mot) {
+              const r = (structural.ranking || [])
+                .filter((x) => isVerdictMarket(x.market) && coerente(x.market) && ammessoDallaStruttura(x.market, structural.structure))
+                .map((x) => ({ x, v: valutaPuntaSu(x.market, ctxC) }))
+                .filter(({ v }) => v && v.odd !== null && v.odd >= FASCE_AI[0])
+                .sort((a, b) => b.x.coverage - a.x.coverage)[0];
+              if (r && r.v) mot = { market: r.x.market, odd: r.v.odd, stimata: r.v.stimata, prob: r.x.coverage, soglia: r.v.fascia ?? FASCE_AI[0] };
             }
           }
+          const fuoriSoglia = !!mot && Math.abs(mot.soglia - minOdd) > 0.001;
+          const debole = !!mot && mot.prob !== null && mot.prob < PROB_AFFIDABILE;
+          const notaFuori = [
+            fuoriSoglia && mot ? `Da ${minOdd.toFixed(2)} i numeri non trovano niente di coerente: questa è la giocata migliore della partita (fascia ${mot.soglia.toFixed(2)}).` : "",
+            debole ? `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: poco affidabile, valuta se lasciare la partita.` : "",
+          ].filter(Boolean).join(" ") || null;
           const c = predVerdetto?.main_prediction && predVerdetto.fasce ? valutaPuntaSu(predVerdetto.main_prediction, ctxC) : null;
           if (!c || !predVerdetto) {
             if (!structural) return null;
             return (
               <View style={styles.puntaBox}>
                 <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · DAI NUMERI"}</Text>
-                <Text style={styles.puntaVal}>{mot ? mot.market : `Nessuna giocata da ${minOdd.toFixed(2)}`}</Text>
+                <Text style={styles.puntaVal}>{mot ? mot.market : "Nessuna giocata"}</Text>
                 {mot ? (
                   <Text style={styles.puntaMeta}>
                     {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
                     {mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : ""}
                   </Text>
                 ) : null}
+                {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                 <Text style={styles.puntaNota}>
                   {mot
-                    ? "Motore e quote, alla Quota minima scelta. Genera il pronostico AI per sapere se c'è una notizia (assenze, formazioni) che lo cambia."
-                    : "A questa quota i numeri non trovano niente di coerente: prova una fascia più bassa nel verdetto qui sotto."}
+                    ? "Motore e quote. Genera il pronostico AI per sapere se c'è una notizia (assenze, formazioni) che lo cambia."
+                    : "Nessuna giocata coerente in nessuna fascia: partita da lasciare."}
                 </Text>
               </View>
             );
@@ -682,12 +722,13 @@ export default function MatchDetail() {
                       </Text>
                     </>
                   ) : (
-                    <Text style={styles.puntaVal}>{`Nessuna giocata da ${minOdd.toFixed(2)}`}</Text>
+                    <Text style={styles.puntaVal}>Nessuna giocata</Text>
                   )}
+                  {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                   <Text style={styles.puntaPerche}>
                     {mot
-                      ? "Motore e quote, alla Quota minima scelta. L'AI non ha trovato notizie che le quote non sappiano già (assenze, formazioni, motivazioni), quindi decidono i numeri."
-                      : "A questa quota i numeri non trovano niente di coerente: prova una fascia più bassa nel verdetto qui sotto. L'AI non ha notizie nuove, quindi non decide lei."}
+                      ? "Motore e quote. L'AI non ha trovato notizie che le quote non sappiano già (assenze, formazioni, motivazioni), quindi decidono i numeri."
+                      : "Nessuna giocata coerente in nessuna fascia: partita da lasciare. L'AI non ha notizie nuove, quindi non decide lei."}
                   </Text>
                   <TouchableOpacity onPress={() => setParereAperto((x) => !x)} activeOpacity={0.7}>
                     <Text style={styles.puntaParere}>
