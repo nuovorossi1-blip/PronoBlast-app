@@ -105,8 +105,8 @@ export default function Selected() {
     const ids = items.filter((m) => !m.result).map((m) => m.id);
     if (!ids.length) { notify("Niente da fare", "Tutte le partite in Schedina sono gia' concluse."); return; }
     confirmAction({
-      title: "Generare i pronostici AI?",
-      message: `Per ${ids.length} partite, una alla volta dalla prima. Solo quelle non ancora iniziate; se il pronostico c'e' gia' non viene rifatto. Il lavoro continua sul server anche a schermo spento.`,
+      title: "Pronostico AI su tutta la Schedina?",
+      message: `Per ${ids.length} partite, una alla volta, con il modello scelto in LLM & Budget (lo stesso tasto "Pronostico AI" della scheda partita). Solo quelle non ancora iniziate. Il consigliato di ogni partita viene confermato, o cambiato se l'AI trova una notizia vera. Il lavoro continua sul server anche a schermo spento.`,
       confirmText: "Genera",
       onConfirm: async () => {
         try { await srv.avvia("ai_schedina", { ids }); }
@@ -378,12 +378,21 @@ export default function Selected() {
                         <Text style={[styles.preTagTxt, { color: colors.textDim }]}>apri per il verdetto</Text>
                       </View>
                     )}
-                    {m.main_prediction && (
-                      <View style={[styles.predTag, outcomeStyle(aiOutcome)]}>
-                        <Ionicons name="sparkles" size={10} color={colors.aiText} />
-                        <Text style={styles.predTagTxt}>{m.main_prediction}</Text>
+                    {/* IL CONSIGLIATO (07/10/2026): lo stesso della scheda partita,
+                        confermato o cambiato dal Pronostico AI. */}
+                    {(m as any).consigliato?.market ? (
+                      <View style={[styles.predTag, outcomeStyle(m.result ? evaluateMarketOutcome((m as any).consigliato.market, m.result) : null)]}>
+                        <Ionicons name={(m as any).consigliato.ai ? "sparkles" : "checkmark-circle"} size={10} color={colors.aiText} />
+                        <Text style={styles.predTagTxt}>
+                          {`${(m as any).consigliato.nome} ${(m as any).consigliato.stimata ? "≈" : "@"}${Number((m as any).consigliato.quota).toFixed(2)}`}
+                          {(m as any).consigliato.ai === "confermato" ? " · ✓ AI" : (m as any).consigliato.ai === "cambiato" ? " · cambiato dall'AI" : ""}
+                        </Text>
                       </View>
-                    )}
+                    ) : (m as any).consigliato?.daLasciare ? (
+                      <View style={[styles.predTag, { borderStyle: "dashed" }]}>
+                        <Text style={[styles.predTagTxt, { color: colors.warning }]}>da lasciare</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
                 <View style={styles.cardRight}>

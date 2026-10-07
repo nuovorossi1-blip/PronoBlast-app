@@ -3043,3 +3043,131 @@ export function intervalloGol(lambda: number, soglia = 0.7): [number, number] {
   }
   return best;
 }
+
+// ============================================================================
+// IL CONSIGLIATO E TUTTE LE GIOCATE CON IL LORO PERCHE' (07/10/2026, Rossi)
+//
+// "Punterei dove tutti i dati sono d'accordo e la percentuale e' misurata, e
+// lascerei le partite incerte." Regola, uguale per scheda e multipla:
+//  - partita DA LASCIARE se forma e quote non sono d'accordo o se la favorita
+//    ha assenze pesanti;
+//  - candidati: quota da 1,40 in su, percentuale MISURATA e stabile nella
+//    tabella scenari (peggiore fra partite vecchie e recenti >= 58%),
+//    coerenti con i gol attesi e con la direzione;
+//  - vince il miglior equilibrio fra probabilita' e quota:
+//    min(misurata, Poisson di questa partita) x quota.
+//  Esempio Croazia-Spagna: MG 2-4 Spagna (60% x 1,55 = 0,93) batte Over 2.5
+//  (piu' sicuro, 64%, ma 1,45) e MG 2-4 totali (Poisson qui 57%: rischio 5+).
+// ============================================================================
+
+export type RigaGiocata = {
+  market: string;            // nome del catalogo/manuale
+  nome: string;              // con i nomi delle squadre al posto di casa/ospite
+  quota: number;
+  stimata: boolean;
+  misurata: { pA: number; pB: number; n: number } | null;
+  stima: number | null;      // Poisson di questa partita (motore)
+  punteggio: number | null;  // equilibrio probabilita' x quota (solo candidati)
+  perche: string;
+  consigliato?: boolean;
+};
+
+export type AnalisiGiocate = { consigliato: RigaGiocata | null; daLasciare: string | null; avvisi: string[]; righe: RigaGiocata[] };
+
+const segnoBase = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
+const versoCasaM = (m: string) => /^(1|1X)(\s|$|\+)/.test(segnoBase(m)) || /^1 (DNB|AH)/.test(segnoBase(m));
+const versoOspiteM = (m: string) => /^(2|X2)(\s|$|\+)/.test(segnoBase(m)) || /^2 (DNB|AH)/.test(segnoBase(m));
+const conSegnoM = (m: string) => versoCasaM(m) || versoOspiteM(m) || /^(X|12)(\s*\+|$)/.test(segnoBase(m));
+
+export function analizzaGiocate(x: {
+  odds: Odds;
+  marketOdds: Record<string, { odd: number; estimated: boolean }> | null | undefined;
+  ranking: { market: string; coverage: number }[];
+  voci: Record<string, VoceTabella[]> | null | undefined;
+  manuali: string[];
+  totAtteso: number | null;
+  direzione: "1" | "2" | null;
+  casa: string; ospite: string;
+  pesataCasa: { fatti: number; subiti: number } | null | undefined;
+  pesataOspite: { fatti: number; subiti: number } | null | undefined;
+  accordo: boolean | null | undefined;
+  assentiCasa: number; assentiOspite: number;
+}): AnalisiGiocate {
+  const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
+  const pc = (p: number) => `${Math.round(p * 100)}%`;
+  const g1 = (v: number) => v.toFixed(1).replace(".", ",");
+  const visti = new Set<string>();
+  const righe: RigaGiocata[] = [];
+  const aggiungi = (m: string, q: { odd: number; stimata: boolean } | null) => {
+    if (!q || !(q.odd > 1)) return;
+    const k = normalizeMarket(m.replace(/\s+fisso$/i, ""));
+    if (visti.has(k)) return;
+    visti.add(k);
+    const f = fasciaDellaQuota(q.odd);
+    const v = f !== null ? (x.voci?.[f.toFixed(2)] || []).find((t) => normalizeMarket(t.market.replace(/\s+fisso$/i, "")) === k) : undefined;
+    const r = x.ranking.find((t) => normalizeMarket(t.market) === k);
+    righe.push({
+      market: m, nome: nome(m), quota: q.odd, stimata: q.stimata,
+      misurata: v ? { pA: v.pA, pB: v.pB, n: v.nA + v.nB } : null,
+      stima: r ? r.coverage : null, punteggio: null, perche: "",
+    });
+  };
+  for (const [m, q] of Object.entries(x.marketOdds || {})) aggiungi(m, { odd: q.odd, stimata: q.estimated });
+  for (const m of x.manuali) aggiungi(m, quotaManuale(m, x.odds, x.marketOdds || undefined));
+
+  // Partita da lasciare?
+  let daLasciare: string | null = null;
+  if (x.accordo === false) daLasciare = "forma e quote non sono d'accordo: partita incerta";
+  // Le assenze NON bloccano (07/10/2026, Croazia-Spagna: la Spagna con 4
+  // assenti ha vinto lo stesso): il conteggio non dice se sono titolari.
+  // Restano un avviso; la notizia vera la valuta il Pronostico AI.
+  const avvisi: string[] = [];
+  const favAssenti = x.direzione === "1" ? x.assentiCasa : x.direzione === "2" ? x.assentiOspite : 0;
+  if (favAssenti >= 3) avvisi.push(`la favorita (${x.direzione === "1" ? x.casa : x.ospite}) ha ${favAssenti} assenti: se sono titolari il Pronostico AI può cambiare la giocata`);
+
+  const contraria = (m: string) =>
+    x.direzione === null ? conSegnoM(m) && !/OPPURE/i.test(m)
+      : x.direzione === "1" ? versoOspiteM(m) : versoCasaM(m);
+  // Il punto debole: la squadra che segna meno contro avversari di questo livello.
+  const deboleSegna = x.pesataCasa && x.pesataOspite
+    ? (x.pesataCasa.fatti <= x.pesataOspite.fatti
+        ? { nome: x.casa, contro: x.ospite, f: x.pesataCasa.fatti }
+        : { nome: x.ospite, contro: x.casa, f: x.pesataOspite.fatti })
+    : null;
+
+  // Candidati e punteggio
+  for (const r of righe) {
+    if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
+    const pm = Math.min(r.misurata.pA, r.misurata.pB);
+    if (pm < 0.58) continue;
+    const p = r.stima != null ? Math.min(pm, r.stima) : pm;
+    if (p < 0.55) continue;
+    r.punteggio = p * r.quota;
+  }
+  const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
+  const consigliato = daLasciare ? null : candidati[0] ?? null;
+  if (consigliato) consigliato.consigliato = true;
+  const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
+
+  // Il perche' di ogni riga
+  for (const r of righe) {
+    const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
+    if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
+    else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
+    else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
+    else if (/^GG\b/i.test(r.market.trim()) && deboleSegna && deboleSegna.f <= 1.1) r.perche = `serve un gol di ${deboleSegna.nome}, che contro squadre come ${deboleSegna.contro} fa ${g1(deboleSegna.f)} a partita: quasi testa o croce.`;
+    else if (r === piuSicura && consigliato && r.quota < consigliato.quota) r.perche = `la più sicura (${pc(pm!)}), ma paga meno del consigliato.`;
+    else if (pm !== null && pm >= 0.58) r.perche = `buona: ${pc(r.misurata!.pA)} / ${pc(r.misurata!.pB)} in archivio${r.punteggio != null && consigliato ? ", ma rende un po' meno del consigliato" : ""}.`;
+    else if (pm !== null) r.perche = `in archivio vince solo il ${pc(r.misurata!.pA)} / ${pc(r.misurata!.pB)}.`;
+    else if (r.stima !== null && r.stima < 0.5) r.perche = "probabilità bassa.";
+    else r.perche = "nessuna misura in archivio a questa quota: solo stima.";
+  }
+  // Ordine: il consigliato, poi le giocabili (da 1,40) dalla piu' probabile,
+  // in fondo quelle sotto 1,40.
+  const prob = (r: RigaGiocata) => (r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : r.stima ?? 0);
+  righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
+    || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
+    || prob(b) - prob(a));
+  return { consigliato, daLasciare, avvisi, righe };
+}

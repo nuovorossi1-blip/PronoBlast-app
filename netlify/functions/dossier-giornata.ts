@@ -1,6 +1,6 @@
 import { pgGet, pgGetAll, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import { contestoPartitaSalvato, DOSSIER_VALIDO_ORE } from "./lib/webSearch";
-import { generaLetturaAI, letturaDaRifare } from "./lib/letturaPartita";
+import { generaLetturaAI, letturaDaRifare, consigliatoDi, consigliatoValido } from "./lib/letturaPartita";
 import { leagueTier } from "./lib/leagueTier";
 import { impostaAlias } from "./lib/teamMatch";
 import { inizioPartitaMs } from "../../frontend/src/api";
@@ -75,6 +75,11 @@ async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<str
       const r = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(m.id)}&select=numeri`);
       const q = (await pgGet(`matches?id=eq.${encodeURIComponent(m.id)}&select=odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`))[0];
       if (r[0]?.numeri && q && letturaDaRifare(r[0].numeri, q)) lettura = (await generaLetturaAI(m.id)) ? " + lettura AI" : " (lettura AI non riuscita)";
+      // Il consigliato (schedina e multipla lo leggono da qui).
+      if (r[0]?.numeri && q && !consigliatoValido(r[0].numeri, q)) {
+        const c = await consigliatoDi(m.id);
+        lettura += c?.market ? ` + consigliato ${c.market}` : c?.daLasciare ? " + da lasciare" : "";
+      }
     } catch { lettura = " (lettura AI non riuscita)"; }
     if (ctx.da_archivio) { conteggi.gia_pronto++; return "gia' pronto" + lettura; }
     if (ctx.fonti_dati?.includes("FotMob")) conteggi.fotmob++;

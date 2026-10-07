@@ -155,6 +155,35 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (6) — IL CONSIGLIATO, tabella "perche' si', perche' no", schedina e multipla allineate
+
+Rossi: "punterei dove tutti i dati sono d'accordo e la percentuale e' misurata,
+e lascerei le partite incerte"; "una tabella con tutte le giocate, quota,
+probabilita' e perche' si' o perche' no"; "il Pronostico AI della schedina e'
+lo stesso della partita?" (no: usava ancora il vecchio); "Genera multipla parte
+da campionati maggiori e nazionali e da quelle con piu' notizie".
+- `analizzaGiocate()` in api.ts (una regola per scheda, schedina, multipla):
+  da lasciare se forma e quote non sono d'accordo; candidati da 1,40 con %
+  misurata stabile >= 58% nella tabella scenari, coerenti con gol attesi e
+  direzione; vince min(misurata, Poisson) x quota. Le assenze (solo conteggio,
+  non si sa se titolari) sono un avviso, non bloccano: la Spagna con 4 assenti
+  ha vinto. Ogni giocata ha il suo perche'.
+- Scheda: riquadro IL CONSIGLIATO prima dello scenario (con "Perche' non",
+  "Confermato" o "Cambiato dal Pronostico AI"); tabella TUTTE LE GIOCATE in
+  cima ad Approfondisci.
+- `consigliatoDi()` (letturaPartita.ts), salvato in `numeri.consigliato` con le
+  quote: dal giro automatico, all'apertura della partita e dopo il Pronostico
+  AI; `consigliatoValido` lo scarta se le quote sono cambiate (Botafogo-Vasco:
+  il Pronostico AI del 07/10 mattina non vale piu' dopo le quote delle 12).
+- Schedina: "PRONOSTICI AI" = il nuovo Pronostico AI (lettura col modello
+  scelto + consigliato), non piu' ai-predict; l'etichetta mostra il
+  consigliato ("✓ AI", "cambiato dall'AI", "da lasciare").
+- Genera multipla (`consigliati` predefinito): gambe = consigliato o sue
+  alternative stabili, da 1,40 in su indipendentemente dalla fascia; partite
+  da lasciare escluse; ordine nazionali e livello 1, poi piu' notizie nel
+  dossier, poi orario; i consigliati mancanti si calcolano al volo (max 80).
+  Prova 08/10: 81 partite, 12 da lasciare, 4 gambe, quota ~5, 47 s.
+
 ### 2026-10-07 (5) — Una sola lettura AI, automatica; Pronostico AI = la stessa col modello scelto
 
 Rossi: "se e' automatica falla e basta"; "Pronostico AI accanto al nome delle

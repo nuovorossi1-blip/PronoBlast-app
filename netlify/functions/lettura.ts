@@ -1,5 +1,5 @@
 import { jsonResponse } from "./lib/supabaseRest";
-import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote } from "./lib/letturaPartita";
+import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
 /**
@@ -25,10 +25,16 @@ export default async (req: Request): Promise<Response> => {
     if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && letturaDaRifare(dati.numeri, dati.match)) {
       ai = (await generaLetturaAI(id, dati)) ?? ai;
     }
+    // Il consigliato salvato (per schedina e multipla), se manca o e' vecchio.
+    if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && !consigliatoValido(dati.numeri, dati.match)) {
+      try { await consigliatoDi(id, dati); } catch { /* lo rifa' il giro */ }
+    }
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
       if (url.searchParams.get("pro") === "1") {
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
+        // Il consigliato salvato (schedina, multipla) segue il Pronostico AI.
+        try { await consigliatoDi(id, { ...dati, numeri: { ...(dati.numeri || {}), lettura_pro: pro } }); } catch { /* si rifa' col giro */ }
       } else {
         ai = (await generaLetturaAI(id, dati)) ?? ai;
         if (!ai) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);

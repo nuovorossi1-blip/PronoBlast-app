@@ -1,3 +1,4 @@
+import { consigliatoDi, consigliatoValido } from "./lib/letturaPartita";
 import {
   structuralAnalysis, giocateAmmissibili, evaluateMarketStrict,
   type Odds, type MlScoreEntry, type RankedMarket,
@@ -143,6 +144,12 @@ export default async (req: Request): Promise<Response> => {
   }
   const patternSet = new Set(patterns.map((m) => m.toUpperCase()));
 
+  // SOLO I CONSIGLIATI (07/10/2026, Rossi: "punta dove tutti i dati sono
+  // d'accordo e la percentuale e' misurata, lascia le partite incerte"):
+  // ogni gamba e' il consigliato della partita (o una sua alternativa
+  // stabile), le partite "da lasciare" non entrano. consigliati:false =
+  // il comportamento di prima (giocata piu' probabile del motore).
+  const soloConsigliati = body?.consigliati !== false && !patternSet.size;
   const apply = !!body?.apply;
   const replaceSelection = body?.replaceSelection !== false;
 
@@ -198,7 +205,8 @@ export default async (req: Request): Promise<Response> => {
       .slice(0, MAX_ALTERNATIVES)
       .map((r) => ({ market: r.market, prob: round4(r.coverage), odd: r.odd as number, odd_estimated: !!r.odd_estimated }));
 
-    if (!options.length && !isLocked) {
+    // Coi consigliati la giocata non viene dal motore: la partita resta in gara.
+    if (!options.length && !isLocked && !soloConsigliati) {
       if (patternSet.size) skippedNoPattern++; else skippedNoPlay++;
       continue;
     }
@@ -213,6 +221,52 @@ export default async (req: Request): Promise<Response> => {
       ranking,
       scenario,
     });
+  }
+
+  // 2-bis) I consigliati: quelli salvati dal giro automatico (dossier) con le
+  //    quote di adesso; quelli che mancano si calcolano qui, in ordine di
+  //    priorita' e fino a un tetto, per non far aspettare troppo.
+  let skippedLasciare = 0, skippedSenzaConsigliato = 0;
+  if (soloConsigliati && candidates.length) {
+    const numeri: Record<string, any> = {};
+    const tutti = candidates.map((c) => c.match_id);
+    for (let i = 0; i < tutti.length; i += 80) {
+      const pezzo = tutti.slice(i, i + 80).map((x) => `"${x}"`).join(",");
+      try {
+        for (const d of await pgGet(`dossier_web?match_id=in.(${pezzo})&select=match_id,numeri`)) numeri[d.match_id] = d.numeri;
+      } catch (e) { console.error("[build-multipla] dossier", e); }
+    }
+    const riga = (id: string) => rows.find((r) => String(r.id) === id);
+    // Priorita': nazionali e campionati maggiori, poi chi ha piu' notizie
+    // (dossier FotMob con assenti/formazioni), poi l'orario.
+    const notizie = (id: string) => {
+      const n = numeri[id];
+      if (!n) return 0;
+      return (n.fotmob_id ? 1 : 0) + ((n.assenti_casa ?? 0) + (n.assenti_ospite ?? 0) > 0 ? 1 : 0) + (n.formazioni && n.formazioni !== "non disponibili" ? 1 : 0);
+    };
+    for (const c of candidates) { if (isNazionale(c.manifestazione)) c.tier = 1; }
+    candidates.sort((a, b) => a.tier - b.tier || notizie(b.match_id) - notizie(a.match_id) || a.time.localeCompare(b.time));
+    const tetto = Math.min(80, Math.max(30, events * 8));
+    let calcolati = 0;
+    for (const c of candidates) {
+      if (lockedIds.has(c.match_id)) continue;
+      let cons = consigliatoValido(numeri[c.match_id], riga(c.match_id));
+      if (!cons && calcolati < tetto) {
+        calcolati++;
+        try { cons = await consigliatoDi(c.match_id); } catch (e) { console.error("[build-multipla] consigliato", c.match_id, e); }
+      }
+      if (!cons) { c.options = []; skippedSenzaConsigliato++; continue; }
+      if (cons.daLasciare) { c.options = []; skippedLasciare++; continue; }
+      const opts: Option[] = [];
+      if (cons.market && cons.quota && cons.pA != null && cons.pB != null) {
+        opts.push({ market: cons.market, prob: round4(Math.min(cons.pA, cons.pB)), odd: cons.quota, odd_estimated: cons.stimata });
+      }
+      for (const a of cons.alternative || []) opts.push({ market: a.market, prob: round4(a.p), odd: a.quota, odd_estimated: a.stimata });
+      // Il consigliato e' "da 1,40 in su", indipendente dalla fascia scelta
+      // (Rossi: "indipendentemente dalla quota, ma non sotto 1,40").
+      c.options = opts.filter((o) => o.odd >= 1.4);
+      if (!c.options.length) skippedSenzaConsigliato++;
+    }
   }
 
   // 3) Gambe bloccate da Rossi: si prendono cosi' come sono, anche se il
@@ -235,7 +289,9 @@ export default async (req: Request): Promise<Response> => {
   //    partita con la giocata piu' probabile prima. Max K per campionato.
   const pool = candidates
     .filter((c) => !usedIds.has(c.match_id) && c.options.length > 0)
-    .sort((a, b) => a.tier - b.tier || b.options[0].prob - a.options[0].prob || a.time.localeCompare(b.time));
+    .sort((a, b) => soloConsigliati
+      ? 0   // gia' in ordine: livello, notizie, orario
+      : a.tier - b.tier || b.options[0].prob - a.options[0].prob || a.time.localeCompare(b.time));
 
   const leagueCount = () => {
     const m = new Map<string, number>();
@@ -384,9 +440,14 @@ export default async (req: Request): Promise<Response> => {
     total_prob: probAll,
     legs,
     tiers_used: Array.from(new Set(legs.map((l) => l.tier))).sort(),
-    pool: { matches: rows.length, candidates: candidates.length, skipped_started: skippedStarted, skipped_excluded: skippedExcluded, skipped_no_play: skippedNoPlay, skipped_no_pattern: skippedNoPattern },
+    pool: { matches: rows.length, candidates: candidates.length, skipped_started: skippedStarted, skipped_excluded: skippedExcluded, skipped_no_play: skippedNoPlay, skipped_no_pattern: skippedNoPattern, solo_consigliati: soloConsigliati, skipped_da_lasciare: skippedLasciare, skipped_senza_consigliato: skippedSenzaConsigliato },
   });
 };
+
+/** Nazionali maggiori (07/10/2026): contano come i campionati di livello 1. */
+function isNazionale(c: string): boolean {
+  return /^(EURONL|EURQ|MOND|WCQ|AMINAZ|EURO$|COPAM|AFCNAZ|CONCAF)/.test(c);
+}
 
 function toLeg(c: Candidate, opt: Option, locked: boolean): Leg {
   return {

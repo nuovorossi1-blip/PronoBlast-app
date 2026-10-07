@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -537,6 +537,31 @@ export default function MatchDetail() {
     onConfirm: () => {},
   });
 
+  // IL CONSIGLIATO e tutte le giocate col perche' (07/10/2026): stessa regola
+  // della multipla (analizzaGiocate in api.ts).
+  const analisi: AnalisiGiocate | null = (() => {
+    const st = structural?.structure;
+    if (!match || !st) return null;
+    const pr = lettura?.programma ?? null;
+    const nota = getScenarioNote(match.odds, st);
+    const totAtteso = (pr?.forma_casa != null ? (st.lambda_home + pr.forma_casa) / 2 : st.lambda_home)
+      + (pr?.forma_ospite != null ? (st.lambda_away + pr.forma_ospite) / 2 : st.lambda_away);
+    try {
+      return analizzaGiocate({
+        odds: match.odds as any, marketOdds: structural?.market_odds,
+        ranking: (structural?.ranking || []).map((r) => ({ market: r.market, coverage: r.coverage })),
+        voci: nota && tabella ? tabella.scenari[chiaveScenario(nota)] : null,
+        manuali: nota?.markets || [], totAtteso,
+        direzione: letturaGol(st.lambda_home, st.lambda_away).direzione,
+        casa: match.squadra1, ospite: match.squadra2,
+        pesataCasa: pr?.pesata_casa, pesataOspite: pr?.pesata_ospite, accordo: pr?.accordo ?? null,
+        assentiCasa: pr?.assenti_casa ?? 0, assentiOspite: pr?.assenti_ospite ?? 0,
+      });
+    } catch {
+      return null;
+    }
+  })();
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {/* Header */}
@@ -569,6 +594,65 @@ export default function MatchDetail() {
             </View>
           )}
         </View>
+
+        {/* ============ IL CONSIGLIATO (07/10/2026, Rossi) ============
+            "Punterei dove tutti i dati sono d'accordo e la percentuale e'
+            misurata, e lascerei le partite incerte." Indipendente dalla fascia
+            (sempre da 1,40 in su). Il Pronostico AI lo conferma o lo cambia
+            solo con una notizia verificata. */}
+        {analisi && lettura ? (() => {
+          const c = analisi.consigliato;
+          const pc = (x: number) => `${Math.round(x * 100)}%`;
+          const pro = lettura.pro && !lettura.pro_vecchia ? lettura.pro : null;
+          const cambiato = !!pro?.notizia_verificata && !!pro.mercato && (!c || normalizeMarket(pro.mercato) !== normalizeMarket(c.market));
+          const perche = [
+            ...analisi.righe.filter((r) => !r.consigliato && r.quota >= 1.4 && (r.misurata || /GG/.test(r.market))).slice(0, 2),
+            ...analisi.righe.filter((r) => !r.consigliato && r.quota < 1.4 && r.quota >= 1.15).slice(-1),
+          ];
+          const frase = (() => {
+            const pr = lettura.programma;
+            if (!pr?.pesata_casa || !pr?.pesata_ospite) return "";
+            const forte = pr.pesata_casa.fatti >= pr.pesata_ospite.fatti
+              ? { n: match.squadra1, a: match.squadra2, f: pr.pesata_casa.fatti, s: pr.pesata_ospite.subiti }
+              : { n: match.squadra2, a: match.squadra1, f: pr.pesata_ospite.fatti, s: pr.pesata_casa.subiti };
+            const n1 = (v: number) => v.toFixed(1).replace(".", ",");
+            return `${forte.n} fa ${n1(forte.f)} gol contro squadre come ${forte.a}, ${forte.a} ne prende ${n1(forte.s)}.`;
+          })();
+          return (
+            <View style={styles.consBox}>
+              <Text style={styles.consLbl}>IL CONSIGLIATO</Text>
+              {cambiato && pro ? (
+                <>
+                  <Text style={styles.consVal}>{pro.mercato!.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}</Text>
+                  <Text style={styles.consAvviso}>{`Cambiato dal Pronostico AI per: ${pro.notizia}`}</Text>
+                </>
+              ) : c ? (
+                <>
+                  <Text style={styles.consVal}>{c.nome}</Text>
+                  <Text style={styles.consMeta}>
+                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)} · ${pc(c.misurata!.pA)} / ${pc(c.misurata!.pB)} in archivio (${c.misurata!.n} partite)`}
+                  </Text>
+                  <Text style={styles.consTesto}>{`Tutti i dati d'accordo. ${frase}`}</Text>
+                  {analisi.avvisi.map((v) => <Text key={v} style={styles.consAvviso}>{`⚠ ${v.charAt(0).toUpperCase()}${v.slice(1)}.`}</Text>)}
+                  {perche.length ? (
+                    <Text style={styles.consPic}>{"Perché non: " + perche.map((r) => `${r.nome} (${r.perche.replace(/\.$/, "")})`).join(" · ")}</Text>
+                  ) : null}
+                  {pro ? <Text style={styles.consOk}>{`✓ Confermato dal Pronostico AI (${pro.modello.replace(" (OpenRouter)", "")})`}</Text> : null}
+                </>
+              ) : analisi.daLasciare ? (
+                <>
+                  <Text style={styles.consVal}>Da lasciare</Text>
+                  <Text style={styles.consAvviso}>{`Motivo: ${analisi.daLasciare}. Se vuoi giocarla lo stesso, guarda "Punta su questo" più sotto o il Pronostico AI.`}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.consVal}>Nessuna giocata sicura</Text>
+                  <Text style={styles.consPic}>{"Nessun mercato da 1,40 in su con percentuale misurata e stabile per questo scenario. Guarda \"Punta su questo\" per scegliere tu la fascia."}</Text>
+                </>
+              )}
+            </View>
+          );
+        })() : null}
 
         {/* ============ NOTA SCENARIO 1X2 (richiesta da Rossi il 09/09) ============
             Calcolo separato e di sola lettura sulle quote gia' a sistema:
@@ -1069,6 +1153,30 @@ export default function MatchDetail() {
         </TouchableOpacity>
         {approfondisci && (
           <>
+            {/* TUTTE LE GIOCATE (07/10/2026, Rossi): quota, probabilita' e perche'
+                si' o perche' no, per ogni mercato della partita. */}
+            {analisi ? (
+              <View style={styles.tabBox}>
+                <Text style={styles.consLbl}>TUTTE LE GIOCATE · PERCHÉ SÌ, PERCHÉ NO</Text>
+                <View style={[styles.tabRiga, styles.tabTesta]}>
+                  <Text style={[styles.tabC1, styles.tabTestaTxt]}>Giocata</Text>
+                  <Text style={[styles.tabC2, styles.tabTestaTxt]}>Quota</Text>
+                  <Text style={[styles.tabC3, styles.tabTestaTxt]}>Prob.</Text>
+                  <Text style={[styles.tabC4, styles.tabTestaTxt]}>Perché</Text>
+                </View>
+                {analisi.righe.slice(0, 30).map((r) => (
+                  <View key={r.market} style={[styles.tabRiga, r.consigliato && styles.tabRigaCons]}>
+                    <Text style={[styles.tabC1, r.consigliato && { fontWeight: "900" }]}>{r.nome}</Text>
+                    <Text style={styles.tabC2}>{`${r.stimata ? "≈" : ""}${r.quota.toFixed(2)}`}</Text>
+                    <Text style={styles.tabC3}>
+                      {r.misurata ? `${Math.round(r.misurata.pA * 100)}/${Math.round(r.misurata.pB * 100)}%` : r.stima != null ? `~${Math.round(r.stima * 100)}%` : "–"}
+                    </Text>
+                    <Text style={styles.tabC4}>{r.perche}</Text>
+                  </View>
+                ))}
+                <Text style={styles.golPic}>{"Prob.: \"60/60%\" = misurata in archivio (partite vecchie / recenti); \"~53%\" = stima Poisson di questa partita."}</Text>
+              </View>
+            ) : null}
         {/* ============ VERDETTO FINALE (fusione 3 sistemi) ============ */}
         {(() => {
           if (!structural) return null;
@@ -1991,6 +2099,23 @@ const styles = StyleSheet.create({
   golSez: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1, marginTop: 8 },
   golTesto: { color: colors.text, fontSize: 12, lineHeight: 18 },
   golAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  consBox: { borderWidth: 2, borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.08)", borderRadius: 14, padding: 14, gap: 3 },
+  consLbl: { color: colors.success, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
+  consVal: { color: colors.text, fontSize: 22, fontWeight: "900" },
+  consMeta: { color: colors.textMuted, fontSize: 13, fontWeight: "700" },
+  consTesto: { color: colors.text, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  consPic: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  consAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  consOk: { color: colors.success, fontSize: 12, fontWeight: "800", marginTop: 4 },
+  tabBox: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10, gap: 2 },
+  tabRiga: { flexDirection: "row", gap: 6, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border },
+  tabRigaCons: { backgroundColor: "rgba(16,185,129,0.10)" },
+  tabTesta: { borderBottomColor: colors.textMuted },
+  tabTestaTxt: { color: colors.textMuted, fontWeight: "900", fontSize: 10 },
+  tabC1: { flex: 2.2, color: colors.text, fontSize: 11 },
+  tabC2: { flex: 0.9, color: colors.text, fontSize: 11, textAlign: "right" },
+  tabC3: { flex: 1.1, color: colors.text, fontSize: 11, textAlign: "right" },
+  tabC4: { flex: 3.6, color: colors.textMuted, fontSize: 10, lineHeight: 14 },
   proBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "center", marginTop: 10, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.primary },
   proBtnTxt: { color: "#000", fontSize: 13, fontWeight: "900" },
   letturaAI: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 8, paddingTop: 4, gap: 2 },

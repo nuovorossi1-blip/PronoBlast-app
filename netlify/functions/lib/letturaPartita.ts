@@ -15,8 +15,8 @@
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
 import { pgGet, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
-import { structuralAnalysis } from "./clusterEngine";
-import { getScenarioNote, chiaveScenario, inizioPartitaMs } from "../../../frontend/src/api";
+import { structuralAnalysis, quoteCatalogo } from "./clusterEngine";
+import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
 import { tabellaScenari } from "./tabellaScenari";
@@ -198,4 +198,80 @@ export async function generaLetturaAI(
     }
   }
   return null;
+}
+
+
+/**
+ * IL CONSIGLIATO lato server (07/10/2026): la stessa regola della scheda
+ * (analizzaGiocate in api.ts), per schedina e "Genera multipla". Se il
+ * Pronostico AI (lettura_pro) ha una notizia verificata con le quote di
+ * adesso, il consigliato diventa il suo mercato ("cambiato").
+ * Salvato in `dossier_web.numeri.consigliato`.
+ */
+export type ConsigliatoSalvato = {
+  market: string | null; nome: string | null; quota: number | null; stimata: boolean;
+  pA: number | null; pB: number | null; n: number | null;
+  daLasciare: string | null; avvisi: string[];
+  alternative: { market: string; nome: string; quota: number; stimata: boolean; p: number }[];
+  ai: "confermato" | "cambiato" | null; notizia: string | null;
+  quote: QuoteFirma; quando: string;
+};
+
+export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true): Promise<ConsigliatoSalvato | null> {
+  const x = dati ?? (await datiLettura(matchId));
+  if (!x) return null;
+  const m = x.match;
+  const odds: any = rowToOdds(m);
+  const s: any = structuralAnalysis(odds, 1.4);
+  const st = s.structure;
+  const pr = x.programma;
+  const nota = getScenarioNote(odds, st);
+  let voci: any = null;
+  try { voci = nota ? (await tabellaScenari()).scenari[chiaveScenario(nota)] ?? null : null; } catch { /* senza tabella niente consigliato */ }
+  const totAtteso = (pr.forma_casa != null ? (st.lambda_home + pr.forma_casa) / 2 : st.lambda_home)
+    + (pr.forma_ospite != null ? (st.lambda_away + pr.forma_ospite) / 2 : st.lambda_away);
+  const a = analizzaGiocate({
+    odds, marketOdds: quoteCatalogo(odds),
+    ranking: (s.ranking || []).map((r: any) => ({ market: r.market, coverage: r.coverage })),
+    voci, manuali: nota?.markets || [], totAtteso,
+    direzione: letturaGol(st.lambda_home, st.lambda_away).direzione,
+    casa: m.squadra1, ospite: m.squadra2,
+    pesataCasa: pr.pesata_casa, pesataOspite: pr.pesata_ospite, accordo: pr.accordo,
+    assentiCasa: pr.assenti_casa, assentiOspite: pr.assenti_ospite,
+  });
+  const c = a.consigliato;
+  const out: ConsigliatoSalvato = {
+    market: c?.market ?? null, nome: c?.nome ?? null, quota: c?.quota ?? null, stimata: !!c?.stimata,
+    pA: c?.misurata?.pA ?? null, pB: c?.misurata?.pB ?? null, n: c?.misurata?.n ?? null,
+    daLasciare: a.daLasciare, avvisi: a.avvisi,
+    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato).slice(0, 3)
+      .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
+    ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
+  };
+  const pro = x.numeri?.lettura_pro;
+  if (pro && !quoteCambiate(pro.quote, out.quote)) {
+    if (pro.notizia_verificata && pro.mercato && (!out.market || normalizeMarket(pro.mercato) !== normalizeMarket(out.market))) {
+      const q = quoteCatalogo(odds)[pro.mercato];
+      out.ai = "cambiato"; out.notizia = pro.notizia || null;
+      out.market = pro.mercato; out.nome = pro.mercato.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
+      out.quota = q?.odd ?? out.quota; out.stimata = q ? q.estimated : true; out.daLasciare = null;
+    } else if (out.market) {
+      out.ai = "confermato";
+    }
+  }
+  if (salva) {
+    try {
+      const numeri = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=numeri`))[0]?.numeri;
+      if (numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, { numeri: { ...numeri, consigliato: out } });
+    } catch (e) {
+      console.error("[consigliato] salvataggio", e);
+    }
+  }
+  return out;
+}
+
+/** Il consigliato salvato, se c'e' ed e' fatto con le quote di adesso. */
+export function consigliatoValido(numeri: any, match: any): ConsigliatoSalvato | null {
+  const c = numeri?.consigliato;
+  return c && !quoteCambiate(c.quote, firmaQuote(match)) ? c : null;
 }

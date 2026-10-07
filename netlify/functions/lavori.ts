@@ -1,3 +1,4 @@
+import { generaLetturaAI, consigliatoDi } from "./lib/letturaPartita";
 import { pgGet, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import {
   accumulaBacktest, sommaBacktestVuota,
@@ -187,19 +188,21 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
           const inizio = inizioPartitaMs(m.day, m.time);
           if (m.result || (inizio !== null && inizio <= Date.now())) esito = "gia' iniziata: saltata";
           else {
-            const prima = await pgGet(`predictions?match_id=eq.${encodeURIComponent(id)}&select=id&limit=1`);
-            if (prima.length) esito = "pronostico AI gia' presente";
-            else {
-              try {
-                await chiama(aiPredict, `/ai-predict?matchId=${encodeURIComponent(id)}`, "POST");
-                esito = "pronostico AI generato";
-              } catch (e: any) {
-                // Un errore su una partita non ferma le altre.
-                esito = `errore: ${String(e?.message || e).slice(0, 120)}`;
+            // NUOVO PRONOSTICO AI (07/10/2026, Rossi: "lo stesso della pagina
+            // partita"): la lettura col modello scelto in LLM & Budget, poi il
+            // consigliato (confermato o cambiato da una notizia verificata).
+            try {
+              const pro = await generaLetturaAI(id, undefined, { pro: true });
+              if (!pro) esito = "errore: il modello non ha dato una lettura valida";
+              else {
+                const c = await consigliatoDi(id);
+                esito = c?.market
+                  ? `consigliato ${c.nome ?? c.market}${c.ai === "cambiato" ? " (cambiato dal Pronostico AI)" : c.ai === "confermato" ? " (confermato)" : ""}`
+                  : c?.daLasciare ? `da lasciare: ${c.daLasciare}` : "nessuna giocata sicura";
               }
-            }
-            if (!esito.startsWith("errore")) {
-              try { await verdettoDiPartita(m, await readMinOdd().catch(() => 1.4), true); } catch { /* il verdetto si aggiorna anche aprendo la scheda */ }
+            } catch (e: any) {
+              // Un errore su una partita non ferma le altre.
+              esito = `errore: ${String(e?.message || e).slice(0, 120)}`;
             }
           }
         }
