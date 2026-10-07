@@ -155,6 +155,16 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (9) — Multipla: Altro pronostico, Altra partita, No campionato e Metti in Schedina
+
+Rossi: "non funzionano correttamente", "pure Metti in schedina non funziona".
+Causa: tutte e quattro rifanno la multipla con le altre gambe BLOCCATE, e per
+le gambe bloccate il server cercava il mercato solo fra le giocate del vecchio
+motore: "X oppure GG", i multigol e le combo del consigliato non c'erano e la
+richiesta falliva (400). Ora le gambe bloccate calcolano anche loro il
+consigliato e il mercato si cerca fra opzioni, giocate sicure e motore.
+Provate tutte e quattro sul 08/10.
+
 ### 2026-10-07 (8) — Pagella del consigliato (Strumenti -> Controllo)
 
 Rossi: "serve piu' a te per capire se stiamo andando nella direzione giusta".

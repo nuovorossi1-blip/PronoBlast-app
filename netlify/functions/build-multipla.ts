@@ -253,14 +253,17 @@ export default async (req: Request): Promise<Response> => {
     const tetto = Math.min(80, Math.max(30, events * 8));
     let calcolati = 0;
     for (const c of candidates) {
-      if (lockedIds.has(c.match_id)) continue;
+      // Anche le gambe bloccate (Altro pronostico, Altra partita, No
+      // campionato, Metti in Schedina): servono le loro giocate sicure per
+      // ritrovare il mercato scelto (07/10/2026: prima la richiesta falliva
+      // con "X oppure GG" e i multigol del consigliato).
       let cons = consigliatoValido(numeri[c.match_id], riga(c.match_id));
       if (!cons && calcolati < tetto) {
         calcolati++;
         try { cons = await consigliatoDi(c.match_id); } catch (e) { console.error("[build-multipla] consigliato", c.match_id, e); }
       }
-      if (!cons) { c.options = []; skippedSenzaConsigliato++; continue; }
-      if (cons.daLasciare) { c.options = []; skippedLasciare++; continue; }
+      if (!cons) { motore.set(c.match_id, c.options); if (!lockedIds.has(c.match_id)) c.options = []; skippedSenzaConsigliato++; continue; }
+      if (cons.daLasciare) { motore.set(c.match_id, c.options); if (!lockedIds.has(c.match_id)) c.options = []; skippedLasciare++; continue; }
       const opts: Option[] = [];
       if (cons.market && cons.quota && cons.pA != null && cons.pB != null) {
         opts.push({ market: cons.market, prob: round4(Math.min(cons.pA, cons.pB)), odd: cons.quota, odd_estimated: cons.stimata });
@@ -283,7 +286,8 @@ export default async (req: Request): Promise<Response> => {
   for (const l of locked) {
     const c = candidates.find((x) => x.match_id === l.matchId);
     if (!c) return jsonResponse({ error: `Gamba bloccata non trovata fra le partite del giorno: ${l.matchId}` }, 400);
-    const fromOptions = c.options.find((o) => o.market.toUpperCase() === l.market.toUpperCase());
+    const stesso = (o: Option) => o.market.toUpperCase() === l.market.toUpperCase();
+    const fromOptions = c.options.find(stesso) ?? (sicure.get(c.match_id) || []).find(stesso) ?? (motore.get(c.match_id) || []).find(stesso);
     const fromRanking = c.ranking.find((r) => r.market.toUpperCase() === l.market.toUpperCase());
     const opt: Option | null = fromOptions
       ?? (fromRanking && fromRanking.odd ? { market: fromRanking.market, prob: round4(fromRanking.coverage), odd: fromRanking.odd, odd_estimated: !!fromRanking.odd_estimated } : null);
