@@ -2991,4 +2991,33 @@ export type LetturaAI = {
   modello: string; quando: string; direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
 };
-export type RispostaLettura = { programma: { frasi: string[]; accordo: boolean | null } | null; ai: LetturaAI | null; dossier?: boolean; error?: string };
+export type RispostaLettura = {
+  programma: {
+    frasi: string[]; accordo: boolean | null; motivi: string[];
+    forma_casa: number | null; forma_ospite: number | null;
+    pesata_casa: { fatti: number; subiti: number } | null; pesata_ospite: { fatti: number; subiti: number } | null;
+    assenti_casa: number; assenti_ospite: number;
+  } | null;
+  ai: LetturaAI | null; dossier?: boolean; error?: string;
+};
+
+/** Intervallo di gol piu' stretto che copre almeno `soglia` dei casi (Poisson). */
+export function intervalloGol(lambda: number, soglia = 0.7): [number, number] {
+  const p: number[] = [];
+  let f = 1;
+  for (let k = 0; k <= 10; k++) { if (k > 1) f *= k; p.push(Math.exp(-lambda) * Math.pow(lambda, k) / f); }
+  // Il piu' stretto; a parita' di larghezza quello che copre di piu'
+  // (Slovacchia lambda 1,9: 1-3 copre il 72%, 0-2 il 70% -> 1-3).
+  let best: [number, number] = [0, 10], larg = 99, copre = 0;
+  for (let a = 0; a <= 10; a++) {
+    let q = 0;
+    for (let b = a; b <= 10; b++) {
+      q += p[b];
+      if (q >= soglia) {
+        if (b - a < larg || (b - a === larg && q > copre)) { larg = b - a; best = [a, b]; copre = q; }
+        break;
+      }
+    }
+  }
+  return best;
+}

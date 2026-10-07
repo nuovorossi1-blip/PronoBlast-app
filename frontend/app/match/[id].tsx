@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -592,94 +592,95 @@ export default function MatchDetail() {
           );
         })()}
 
-        {/* ============ COSA ASPETTARSI DAI GOL (07/10/2026, Rossi) ============
-            Solo cio' che serve a Rossi: gol che fa e che prende ognuna (dalle
-            quote, motore Poisson), ultime 5 vere (FotMob: fatti/subiti, casa o
-            fuori, risultati), fascia di gol della partita e risultati esatti
-            piu' probabili. Il resto (tipo di partita, avvisi) lo usa l'AI,
-            non la scheda. Vedi letturaGol in api.ts. */}
+        {/* ============ LA LETTURA (07/10/2026, Rossi) ============
+            Come la lettura fatta a mano su Moldova-Slovacchia: chi e' favorita,
+            chi segna e chi prende contro avversari di QUESTO livello (forma
+            pesata, lib/letturaProgramma.ts), gol che ci aspettiamo e risultati
+            piu' vicini (Poisson su quote e forma pesata, a meta'), poi la
+            lettura dell'AI gratis. Le medie semplici delle ultime 5 restano in
+            piccolo: da sole ingannavano (Slovacchia "prende 2,0" per le
+            trasferte contro squadre forti). */}
         {structural?.structure && (() => {
           const s = structural.structure;
-          const L = letturaGol(s.lambda_home, s.lambda_away, forma);
+          const pr = lettura?.programma ?? null;
+          const lc = pr?.forma_casa != null ? (s.lambda_home + pr.forma_casa) / 2 : s.lambda_home;
+          const lo = pr?.forma_ospite != null ? (s.lambda_away + pr.forma_ospite) / 2 : s.lambda_away;
+          const L = letturaGol(lc, lo, forma);
+          const Lq = letturaGol(s.lambda_home, s.lambda_away, forma);
           const pc = (x: number) => `${Math.round(x * 100)}%`;
-          const media2 = (a: number | null, b: number | null) =>
-            a == null ? b : b == null ? a : (a + b) / 2;
           const n1 = (x: number | null | undefined) => (x == null ? "–" : x.toFixed(1).replace(".", ","));
-          const fp = (w?: { n: number; fatti: number | null; subiti: number | null }) =>
-            w && w.n ? `${n1(w.fatti)} / ${n1(w.subiti)}${w.n < 5 ? ` (${w.n})` : ""}` : "–";
-          const andamento = (sq: FormaGol["casa"], nome: string) => (
-            <Text style={styles.golTesto} key={sq.nome}>
-              <Text style={{ fontWeight: "900" }}>{nome}: </Text>
-              {sq.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join("  ·  ")}
-            </Text>
+          const rg = (r: [number, number]) => (r[0] === r[1] ? `${r[0]}` : `${r[0]}-${r[1]}`);
+          const ic = intervalloGol(lc), io = intervalloGol(lo);
+          // Frasi semplici, dai numeri.
+          const frasi: { t: string; avviso?: boolean }[] = [];
+          if (Lq.direzione) {
+            const fav = Lq.direzione === "1" ? match.squadra1 : match.squadra2;
+            const q = Lq.direzione === "1" ? match.odds?.odd_1 : match.odds?.odd_2;
+            const p = Lq.direzione === "1" ? Lq.p1 : Lq.p2;
+            frasi.push({ t: `${fav} favorita${p >= 0.65 ? " netta" : ""} (${Lq.direzione} a ${q ? Number(q).toFixed(2) : "n/d"}).` });
+          } else {
+            frasi.push({ t: "Nessuna favorita netta: si gioca sui gol." });
+          }
+          const descrivi = (nome: string, contro: string, w: { fatti: number; subiti: number } | null | undefined) => {
+            if (!w) return;
+            const att = w.fatti < 0.9 ? "segna poco" : w.fatti >= 1.6 ? "segna con continuità" : "segna nella media";
+            const dif = w.subiti <= 0.8 ? "prende pochi gol" : w.subiti >= 1.5 ? "prende gol facilmente" : "prende qualche gol";
+            frasi.push({ t: `${nome} ${att} e ${dif} contro squadre come ${contro} (fa ${n1(w.fatti)}, prende ${n1(w.subiti)}).` });
+          };
+          descrivi(match.squadra1, match.squadra2, pr?.pesata_casa);
+          descrivi(match.squadra2, match.squadra1, pr?.pesata_ospite);
+          if (pr?.accordo === true) frasi.push({ t: "Forma e quote sono d'accordo ✓" });
+          else if (pr?.accordo === false) frasi.push({ t: `Forma e quote NON sono d'accordo: ${pr.motivi.join("; ")}. Partita più incerta.`, avviso: true });
+          const ass: string[] = [];
+          if ((pr?.assenti_casa ?? 0) >= 3) ass.push(`${match.squadra1} con ${pr!.assenti_casa} assenti`);
+          if ((pr?.assenti_ospite ?? 0) >= 3) ass.push(`${match.squadra2} con ${pr!.assenti_ospite} assenti`);
+          if (ass.length) frasi.push({ t: `Assenze pesanti: ${ass.join("; ")}.`, avviso: true });
+          const piccolo = (f: FormaGol["casa"] | undefined, sede: string) => !f ? null : (
+            <>
+              <Text style={styles.golPic}>{`Ultime ${f.totale.n}: fa ${n1(f.totale.fatti)} · prende ${n1(f.totale.subiti)} · ${sede}: fa ${n1(f.sede.fatti)} · prende ${n1(f.sede.subiti)}`}</Text>
+              <Text style={styles.golPic}>
+                {f.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join(" · ")}
+              </Text>
+            </>
           );
-          const riga = (et: string, a: string, b: string, k: string) => (
-            <View key={k} style={styles.golRiga}>
-              <Text style={styles.golEt}>{et}</Text>
-              <Text style={styles.golVal}>{a}</Text>
-              <Text style={styles.golVal}>{b}</Text>
-            </View>
-          );
+          const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
           return (
             <View style={styles.golBox}>
-              <Text style={styles.golTitolo}>COSA ASPETTARSI DAI GOL</Text>
-              <View style={{ flexDirection: "row", gap: 10 }}>
+              <Text style={styles.golTitolo}>LA LETTURA</Text>
+              {frasi.map((f, i) => (
+                <Text key={i} style={[styles.golTesto, f.avviso && styles.golAvviso]}>{f.avviso ? "⚠ " : "• "}{f.t}</Text>
+              ))}
+              <Text style={styles.golSez}>GOL CHE CI ASPETTIAMO</Text>
+              <Text style={styles.golTesto}>
+                {match.squadra1} <Text style={{ fontWeight: "900" }}>{rg(ic)}</Text>{" · "}
+                {match.squadra2} <Text style={{ fontWeight: "900" }}>{rg(io)}</Text>{" · "}
+                totale <Text style={{ fontWeight: "900" }}>{L.golDa}-{L.golA}</Text>
+              </Text>
+              <Text style={styles.golTesto}>
+                Risultati più vicini: <Text style={{ fontWeight: "900" }}>{L.risultati.slice(0, 4).map((r) => `${r.casa}-${r.ospite}`).join(" · ")}</Text>
+              </Text>
+              <Text style={styles.golPic}>{`${n1(L.totale)} gol attesi (quote e forma pesata; il totale cade nella forchetta nel ${pc(L.pFascia)} dei casi)`}</Text>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
                 {[
-                  { nome: match.squadra1, fa: L.casa.attesi, prende: L.ospite.attesi, f: forma?.casa, sede: "in casa" },
-                  { nome: match.squadra2, fa: L.ospite.attesi, prende: L.casa.attesi, f: forma?.ospite, sede: "fuori" },
+                  { nome: match.squadra1, w: pr?.pesata_casa, f: forma?.casa, sede: "in casa", contro: match.squadra2 },
+                  { nome: match.squadra2, w: pr?.pesata_ospite, f: forma?.ospite, sede: "fuori", contro: match.squadra1 },
                 ].map((q) => (
                   <View key={q.nome} style={styles.golSquadra}>
                     <Text style={styles.golTesta} numberOfLines={1}>{q.nome}</Text>
-                    {/* Solo l'andamento VERO (07/10/2026, Rossi): i gol attesi
-                        dalle quote erano speculari ("fa 3,0 / prende 0,5" e
-                        l'inverso all'altra) e confondevano. */}
-                    {q.f ? (
+                    {q.w ? (
                       <>
-                        {/* Rossi (07/10/2026): "fa" e "prende" = MEDIA fra le ultime
-                            5 in totale e le ultime 5 in casa (o fuori, per l'ospite). */}
-                        <Text style={styles.golNum}>Fa <Text style={styles.golNumB}>{n1(media2(q.f.totale.fatti, q.f.sede.n ? q.f.sede.fatti : null))}</Text> gol</Text>
-                        <Text style={styles.golNum}>Prende <Text style={styles.golNumB}>{n1(media2(q.f.totale.subiti, q.f.sede.n ? q.f.sede.subiti : null))}</Text> gol</Text>
-                        <Text style={styles.golPic}>{`media di: ultime ${q.f.totale.n} (fa ${n1(q.f.totale.fatti)} · prende ${n1(q.f.totale.subiti)}) e ultime ${q.f.sede.n} ${q.sede} (fa ${n1(q.f.sede.fatti)} · prende ${n1(q.f.sede.subiti)})`}</Text>
-                        <Text style={styles.golPic}>
-                          {q.f.totale.partite.map((x) => `${x.fatti > x.subiti ? "V" : x.fatti === x.subiti ? "N" : "P"} ${x.fatti}-${x.subiti}`).join(" · ")}
-                        </Text>
+                        <Text style={styles.golNum}>Fa <Text style={styles.golNumB}>{n1(q.w.fatti)}</Text> · prende <Text style={styles.golNumB}>{n1(q.w.subiti)}</Text></Text>
+                        <Text style={styles.golPic}>{`contro squadre come ${q.contro}`}</Text>
                       </>
-                    ) : (
-                      <Text style={styles.golPic}>Ultime partite non trovate su FotMob.</Text>
-                    )}
+                    ) : null}
+                    {piccolo(q.f, q.sede)}
+                    {!q.w && !q.f ? <Text style={styles.golPic}>Ultime partite non trovate su FotMob.</Text> : null}
                   </View>
                 ))}
               </View>
-              <Text style={styles.golSez}>LA PARTITA</Text>
-              <Text style={styles.golTesto}>Da {L.golDa} a {L.golA} gol ({pc(L.pFascia)} dei casi) · {n1(L.totale)} gol attesi</Text>
-              <Text style={styles.golTesto}>
-                Favorita per le quote: <Text style={{ fontWeight: "900" }}>
-                  {Math.abs(L.casa.attesi - L.ospite.attesi) < 0.25
-                    ? "nessuna delle due, forze simili"
-                    : (L.casa.attesi > L.ospite.attesi ? match.squadra1 : match.squadra2)}
-                </Text>
-              </Text>
-              <Text style={styles.golTesto}>
-                Direzione: <Text style={{ fontWeight: "900" }}>
-                  {L.direzione
-                    ? `${L.direzione} (${L.direzione === "1" ? match.squadra1 : match.squadra2})`
-                    : "nessuna, la favorita non è abbastanza forte"}
-                </Text>
-              </Text>
-              {/* LA LETTURA (07/10/2026, Rossi): le conclusioni del programma
-                  (forma pesata con gli avversari, d'accordo o no, assenze) e
-                  sotto la lettura dell'AI gratis, fatta in automatico col dossier. */}
-              {lettura?.programma?.frasi?.length ? (
-                <>
-                  <Text style={styles.golSez}>LA LETTURA</Text>
-                  {lettura.programma.frasi.map((f, i) => (
-                    <Text key={i} style={[styles.golTesto, /^⚠/.test(f) && styles.golAvviso]}>{f}</Text>
-                  ))}
-                </>
-              ) : null}
               {lettura?.ai ? (
                 <View style={styles.letturaAI}>
-                  <Text style={styles.golSez}>{`LETTURA AI · ${lettura.ai.modello.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "")} (gratis)`}</Text>
+                  <Text style={styles.golSez}>{`LETTURA AI · ${nomeModello(lettura.ai.modello)} (gratis)`}</Text>
                   <Text style={styles.golTesto}>{lettura.ai.lettura}</Text>
                   <Text style={styles.golTesto}>
                     {`Gol: ${match.squadra1} ${lettura.ai.gol_casa} · ${match.squadra2} ${lettura.ai.gol_ospite} · totale ${lettura.ai.gol_totali}`}
@@ -834,7 +835,7 @@ export default function MatchDetail() {
                 {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                 <Text style={styles.puntaNota}>
                   {mot
-                    ? "Motore e quote. Genera il pronostico AI per sapere se c'è una notizia (assenze, formazioni) che lo cambia."
+                    ? "Dai numeri: scenario, motore e quote."
                     : "Nessuna giocata coerente in nessuna fascia: partita da lasciare."}
                 </Text>
               </View>
@@ -874,7 +875,7 @@ export default function MatchDetail() {
                   {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                   <Text style={styles.puntaPerche}>
                     {mot
-                      ? "Motore e quote. L'AI non ha trovato notizie che le quote non sappiano già (assenze, formazioni, motivazioni), quindi decidono i numeri."
+                      ? "Dai numeri: l'AI non ha notizie che lo cambino."
                       : "Nessuna giocata coerente in nessuna fascia: partita da lasciare. L'AI non ha notizie nuove, quindi non decide lei."}
                   </Text>
                   <TouchableOpacity onPress={() => setParereAperto((x) => !x)} activeOpacity={0.7}>

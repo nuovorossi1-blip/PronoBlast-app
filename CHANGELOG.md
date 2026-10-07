@@ -155,6 +155,22 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (4) — La scheda dice le stesse cose della lettura fatta a mano
+
+Rossi, su Moldova-Slovacchia: "era quello che ci siamo prefissati o come la
+tua lettura?". Non lo era: in alto "Slovacchia prende 2,0" (media semplice,
+gonfiata dalle trasferte contro squadre forti) e sotto "prende 0,6 contro
+squadre come la Moldova"; mancavano gol attesi e risultati.
+- Box LA LETTURA (prima "Cosa aspettarsi dai gol"): frasi dai numeri (favorita
+  e quota; chi segna e chi prende contro squadre come l'avversaria, dalla
+  forma pesata; d'accordo o no; assenze pesanti), GOL CHE CI ASPETTIAMO (per
+  squadra e totale, Poisson con lambda = media di quote e forma pesata) e
+  risultati piu' vicini; le due squadre con "fa / prende contro squadre come
+  X" in grande e le medie delle ultime 5 in piccolo; sotto la lettura AI.
+- `intervalloGol()` in api.ts: forchetta piu' stretta al 70%, a parita' quella
+  che copre di piu'.
+- "Punta su questo": una riga di spiegazione invece di tre.
+
 ### 2026-10-07 (3) — Pagina partita "da leggere": scenario, lettura, giocata per fascia
 
 Rossi: "all'utente serve la lettura come quella fatta sulla Moldova, non n
