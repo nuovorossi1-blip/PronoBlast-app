@@ -161,6 +161,10 @@
       "destination": "/api/lettura"
     },
     {
+      "source": "/pagella-consigliato",
+      "destination": "/api/pagella-consigliato"
+    },
+    {
       "source": "/lavori",
       "destination": "/api/lavori"
     },

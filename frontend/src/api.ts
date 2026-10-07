@@ -505,6 +505,7 @@ export const api = {
     ),
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
   tabellaScenari: () => netlifyReq<TabellaScenari>(`/tabella-scenari`),
+  pagellaConsigliato: () => netlifyReq<PagellaConsigliato>(`/pagella-consigliato`),
   /** GET con auto=1 (la lettura gratis si fa da sola se manca); genera = POST; pro = modello scelto. */
   lettura: (id: string, opz: { genera?: boolean; pro?: boolean; auto?: boolean } = {}) =>
     netlifyReq<RispostaLettura>(
@@ -3074,7 +3075,11 @@ export type RigaGiocata = {
   consigliato?: boolean;
 };
 
-export type AnalisiGiocate = { consigliato: RigaGiocata | null; daLasciare: string | null; avvisi: string[]; righe: RigaGiocata[] };
+export type AnalisiGiocate = {
+  consigliato: RigaGiocata | null; daLasciare: string | null; avvisi: string[]; righe: RigaGiocata[];
+  /** La giocata che sarebbe stata consigliata se la partita non fosse "da lasciare" (per la pagella). */
+  seNonLasciata: RigaGiocata | null;
+};
 
 const segnoBase = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
 const versoCasaM = (m: string) => /^(1|1X)(\s|$|\+)/.test(segnoBase(m)) || /^1 (DNB|AH)/.test(segnoBase(m));
@@ -3171,5 +3176,16 @@ export function analizzaGiocate(x: {
   righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
-  return { consigliato, daLasciare, avvisi, righe };
+  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? candidati[0] ?? null : null };
 }
+
+// PAGELLA DEL CONSIGLIATO (07/10/2026), vedi pagella-consigliato.ts.
+export type PagellaConsigliato = {
+  partite_misurate: number;
+  consigliato: { n: number; vinte: number; resa: number | null };
+  confermati_ai: { n: number; vinte: number; resa: number | null };
+  cambi_ai: { n: number; ai_vinte: number; numeri_vinte: number; esempi: string[] };
+  da_lasciare: { n: number; vinte: number; resa: number | null };
+  letture: Record<string, { n: number; dir_date: number; dir_ok: number; tot_ok: number; ris_ok: number }>;
+  multiple: { n: number; vinte: number; finite: number; quote_vinte: number[] };
+};

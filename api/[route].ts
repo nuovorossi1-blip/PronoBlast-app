@@ -69,6 +69,7 @@ import dossier_giornata from "../netlify/functions/dossier-giornata";
 import forma_gol from "../netlify/functions/forma-gol";
 import tabella_scenari from "../netlify/functions/tabella-scenari";
 import lettura from "../netlify/functions/lettura";
+import pagella_consigliato from "../netlify/functions/pagella-consigliato";
 
 type Handler = (req: Request) => Promise<Response>;
 
@@ -121,6 +122,7 @@ const ROUTES: Record<string, Handler> = {
   "forma-gol": forma_gol,
   "tabella-scenari": tabella_scenari,
   "lettura": lettura,
+  "pagella-consigliato": pagella_consigliato,
 };
 
 async function dispatch(req: Request): Promise<Response> {

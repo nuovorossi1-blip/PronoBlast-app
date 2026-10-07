@@ -155,6 +155,21 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (8) — Pagella del consigliato (Strumenti -> Controllo)
+
+Rossi: "serve piu' a te per capire se stiamo andando nella direzione giusta".
+- `pagella-consigliato` (sola lettura) sulle partite finite con
+  `numeri.consigliato` (congelato al calcio d'inizio): 1) consigliato vinte e
+  resa, confermati dall'AI; 2) cambi del Pronostico AI: chi aveva ragione fra
+  AI e numeri (`numeri_market`); 3) partite "da lasciare": la giocata che si
+  sarebbe fatta (`lasciata_market`, nuovo, da `analizzaGiocate().seNonLasciata`)
+  avrebbe vinto?; 4) letture AI (gratis e per modello): direzione, gol totali,
+  risultato fra i piu' vicini; 5) multiple messe in Schedina
+  (`settings.multiple_giocate`, salvate da build-multipla con apply).
+- Pagina `/controllo` (non `/pagella-consigliato`: stesso nome della funzione
+  e la ricarica del browser aprirebbe il JSON), voce "Pagella del consigliato"
+  in Strumenti, sezione CONTROLLO.
+
 ### 2026-10-07 (7) — Multipla coi filtri sui consigliati, proposte; cambio dell'AI applicato in schedina
 
 Rossi: "6 eventi, quota 14, solo 1: se non ci sono mi dici e mi proponi di

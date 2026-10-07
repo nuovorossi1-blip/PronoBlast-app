@@ -217,6 +217,8 @@ export type ConsigliatoSalvato = {
   /** Se l'AI ha cambiato: la giocata dei numeri, per tornare indietro e per
    *  misurare chi ha ragione (pagella, Rossi 07/10/2026). */
   numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
+  /** Se "da lasciare": cosa si sarebbe giocato (pagella: lasciarle e' giusto?). */
+  lasciata_market?: string | null; lasciata_quota?: number | null;
   quote: QuoteFirma; quando: string;
 };
 
@@ -250,6 +252,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato).slice(0, 8)
       .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
     ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
+    lasciata_market: a.seNonLasciata?.market ?? null, lasciata_quota: a.seNonLasciata?.quota ?? null,
   };
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {

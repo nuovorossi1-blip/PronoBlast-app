@@ -6,7 +6,7 @@ import {
 import { parseResult } from "./lib/marketEval";
 import { classifyScenario } from "./lib/scenario";
 import { leagueTier, tierLabel, type LeagueTier } from "./lib/leagueTier";
-import { pgGet, pgGetAll, pgPatch, rowToOdds, jsonResponse } from "./lib/supabaseRest";
+import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds, jsonResponse } from "./lib/supabaseRest";
 import { readMinOdd } from "./odd-settings";
 
 /**
@@ -494,6 +494,12 @@ export default async (req: Request): Promise<Response> => {
         });
       }
       applied = true;
+      // Pagella (07/10/2026): ogni multipla messa in Schedina si ricorda.
+      try {
+        const prima = (await pgGet("settings?key=eq.multiple_giocate&select=value"))[0]?.value || [];
+        const nuova = { quando: new Date().toISOString(), day, total_odd: round2(legs.reduce((p, l) => p * l.odd, 1)), legs: legs.map((l) => ({ match_id: l.match_id, market: l.market, odd: l.odd })) };
+        await pgPost("settings", { key: "multiple_giocate", value: [...prima, nuova].slice(-300) }, "resolution=merge-duplicates,return=minimal");
+      } catch (e) { console.error("[build-multipla] storico multiple", e); }
     } catch (e: any) {
       return jsonResponse({ ok: false, error: `Multipla calcolata ma non salvata: ${e.message}`, legs, total_odd: total }, 502);
     }

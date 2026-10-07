@@ -298,6 +298,14 @@ export default function Strumenti() {
 
       <ScrollView contentContainerStyle={styles.list} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16}>
         {srv.inCorso ? <LavoroBox lavoro={srv.lavoro} onFerma={srv.ferma} /> : null}
+        <Text style={styles.section}>CONTROLLO</Text>
+        <Tool
+          testID="tool-pagella-consigliato"
+          icon="ribbon-outline"
+          title="Pagella del consigliato"
+          desc="Il consigliato vince? I cambi del Pronostico AI hanno ragione? Lasciare le partite incerte è giusto? Si riempie da sola con le partite finite."
+          onPress={() => router.push("/controllo" as any)}
+        />
         <Text style={styles.section}>IMPORT DATI</Text>
         <Tool
           testID="tool-aggiorna-quote"
