@@ -33,7 +33,7 @@ export type TabellaScenari = {
   scenari: Record<string, Record<string, VoceTabella[]>>;
 };
 
-const CHIAVE_DB = "tabella_scenari";
+const CHIAVE_DB = "tabella_scenari_v2";   // v2: 8 mercati per fascia invece di 3
 const VALIDA_MS = 7 * 24 * 3600_000;
 const MIN_PER_META = 50;
 
@@ -80,7 +80,7 @@ export async function calcolaTabellaScenari(): Promise<TabellaScenari> {
           return { market, manuale: c.manuale, pA, nA: c.A.n, pB, nB: c.B.n, p: Math.min(pA, pB) };
         })
         .sort((a, b) => b.p - a.p)
-        .slice(0, 3);
+        .slice(0, 8);   // anche le alternative (MG 2-4 Spagna, 07/10/2026)
       if (voci.length) (scenari[sc] ||= {})[fk] = voci;
     }
   }

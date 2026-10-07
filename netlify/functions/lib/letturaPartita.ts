@@ -14,19 +14,26 @@
  * Estonia-Islanda ("partita chiusa, Under 2.5 e NoGol plausibili", fini' 0-0).
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
-import { pgGet, pgPatch, rowToOdds } from "./supabaseRest";
+import { pgGet, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
 import { structuralAnalysis } from "./clusterEngine";
 import { getScenarioNote, chiaveScenario, inizioPartitaMs } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
 import { tabellaScenari } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
-import { opzioneDaId } from "./llmScelta";
+import { opzioneDaId, modelloScelto } from "./llmScelta";
+import { notiziaVerificata } from "./predictionPrompt";
 
 export const MODELLI_GRATIS = ["nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3.5-lightning:free"];
 
+export type QuoteFirma = Record<string, number | null>;
 export type LetturaAI = {
   modello: string; quando: string;
+  /** Le quote con cui e' stata fatta: se cambiano, si rifa' (07/10/2026). */
+  quote?: QuoteFirma;
+  /** Solo la lettura "Pronostico AI" (modello scelto): la giocata che la
+   *  notizia giustifica, e se la notizia c'e' davvero nei dati. */
+  mercato?: string; notizia_verificata?: boolean; pro?: boolean;
   direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
 };
@@ -41,7 +48,61 @@ Regole:
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
 
+const SISTEMA_PRO = SISTEMA.replace(
+  `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`,
+  `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi","mercato":"SOLO se la notizia cambia la giocata dei numeri: il mercato che giocheresti (es. 'X2', 'U2.5', 'MG 1-3 totali'); altrimenti stringa vuota"}
+La "notizia" va COPIATA dai dati (nomi dei giocatori, assenze, formazioni): il codice controlla che ci sia davvero.`,
+);
+
 const n1 = (x: any) => (x == null ? "n/d" : Number(x).toFixed(1));
+
+/** Le quote che contano per la lettura. */
+export function firmaQuote(m: any): QuoteFirma {
+  const q = (v: any) => (v == null || v === "" ? null : Number(v));
+  return { "1": q(m.odd_1), X: q(m.odd_x), "2": q(m.odd_2), O25: q(m.odd_o25), U25: q(m.odd_u25), GG: q(m.odd_gg), NG: q(m.odd_ng) };
+}
+
+/**
+ * Le quote sono cambiate abbastanza da rifare la lettura? (07/10/2026, Rossi:
+ * "se scarico le quote alle 15 o alle 18 e cambiano, rifai solo quelle che
+ * variano"). Si' se una quota principale si e' mossa del 5% o piu', o se e'
+ * cambiata la favorita; i ritocchi (1,85 -> 1,83) no.
+ */
+export function quoteCambiate(prima: QuoteFirma | undefined | null, ora: QuoteFirma): boolean {
+  if (!prima) return true;
+  for (const k of Object.keys(ora)) {
+    const a = prima[k], b = ora[k];
+    if (a == null || b == null) continue;
+    if (Math.abs(b - a) / a >= 0.05) return true;
+  }
+  const fav = (q: QuoteFirma) => ((q["1"] ?? 99) < (q["2"] ?? 99) ? "1" : "2");
+  return fav(prima) !== fav(ora);
+}
+
+/** La lettura gratis va fatta (o rifatta)? */
+export function letturaDaRifare(numeri: any, match: any): boolean {
+  const l = numeri?.lettura_ai;
+  return !l || quoteCambiate(l.quote, firmaQuote(match));
+}
+
+// LIMITE DEI MODELLI GRATIS: OpenRouter ne concede 1000 al giorno all'account
+// (riserva compresa). Ci si ferma a 900 per lasciare margine al resto.
+const CHIAVE_CONTO = "letture_gratis";
+export const LIMITE_GRATIS = 900;
+const oggi = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rome" }).format(new Date());
+export async function letturePossibili(): Promise<boolean> {
+  try {
+    const v = (await pgGet(`settings?key=eq.${CHIAVE_CONTO}&select=value`))[0]?.value;
+    return !(v?.giorno === oggi() && (v?.n ?? 0) >= LIMITE_GRATIS);
+  } catch { return true; }
+}
+async function contaLettura() {
+  try {
+    const v = (await pgGet(`settings?key=eq.${CHIAVE_CONTO}&select=value`))[0]?.value;
+    const n = v?.giorno === oggi() ? (v.n ?? 0) + 1 : 1;
+    await pgPost("settings", { key: CHIAVE_CONTO, value: { giorno: oggi(), n } }, "resolution=merge-duplicates,return=minimal");
+  } catch { /* il conto non deve fermare la lettura */ }
+}
 
 /** Tutti i dati di una partita, la lettura del programma e il testo per l'AI. */
 export async function datiLettura(matchId: string): Promise<{
@@ -89,31 +150,51 @@ ${programma.testo}`;
   return { match: m, forma, programma, testo, numeri: d?.numeri ?? null };
 }
 
-/** Lettura AI con un modello gratis; salvata nel dossier. null se non riesce. */
-export async function generaLetturaAI(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>): Promise<LetturaAI | null> {
+/**
+ * Lettura AI salvata nel dossier. Gratis (Nemotron, `lettura_ai`) oppure
+ * "Pronostico AI" con il modello scelto in LLM & Budget (`lettura_pro`, con
+ * il controllo della notizia che puo' cambiare "Punta su questo").
+ * null se non riesce.
+ */
+export async function generaLetturaAI(
+  matchId: string,
+  dati?: Awaited<ReturnType<typeof datiLettura>>,
+  opzioni: { pro?: boolean } = {},
+): Promise<LetturaAI | null> {
   const x = dati ?? (await datiLettura(matchId));
   if (!x) return null;
-  for (const mod of MODELLI_GRATIS) {
+  const pro = !!opzioni.pro;
+  if (!pro && !(await letturePossibili())) return null;
+  const modelli: any[] = pro ? [await modelloScelto()] : await Promise.all(MODELLI_GRATIS.map((m) => opzioneDaId("or:" + m)));
+  for (const opt of modelli) {
+    if (!opt) continue;
     try {
-      const opt: any = await opzioneDaId("or:" + mod);
-      if (!opt) continue;
-      const risposta = await callLlm(opt, SISTEMA, x.testo);
+      if (!pro) await contaLettura();
+      const risposta = await callLlm(opt, pro ? SISTEMA_PRO : SISTEMA, x.testo);
       const j = JSON.parse((risposta.match(/\{[\s\S]*\}/) || [""])[0]);
       if (!j?.lettura || String(j.lettura).replace(/[^a-z]/gi, "").length < 40) continue;   // vuota o a puntini
       const str = (v: any, max = 600) => (typeof v === "string" ? v.trim().slice(0, max) : "");
       const l: LetturaAI = {
-        modello: opt.label, quando: new Date().toISOString(),
+        modello: opt.label, quando: new Date().toISOString(), quote: firmaQuote(x.match),
         direzione: str(j.direzione, 10), gol_casa: str(j.gol_casa, 10), gol_ospite: str(j.gol_ospite, 10), gol_totali: str(j.gol_totali, 10),
         forma_e_quote: str(j.forma_e_quote, 30), notizia: str(j.notizia, 300),
         risultati_probabili: (Array.isArray(j.risultati_probabili) ? j.risultati_probabili : []).map((r: any) => str(r, 8)).filter(Boolean).slice(0, 4),
         lettura: str(j.lettura, 900),
       };
-      if (x.numeri) {
-        await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, { numeri: { ...x.numeri, lettura_ai: l } });
+      if (pro) {
+        l.pro = true;
+        l.mercato = str(j.mercato, 40);
+        l.notizia_verificata = !!l.mercato && notiziaVerificata(l.notizia, x.testo);
+      }
+      // Rilegge i numeri: un'altra lettura puo' averli cambiati nel frattempo.
+      const numeri = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=numeri`))[0]?.numeri ?? x.numeri;
+      if (numeri) {
+        await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, { numeri: { ...numeri, [pro ? "lettura_pro" : "lettura_ai"]: l } });
       }
       return l;
     } catch (e) {
-      console.error("[letturaAI]", mod, (e as any)?.message || e);
+      console.error("[letturaAI]", opt?.id, (e as any)?.message || e);
+      if (pro) throw e;
     }
   }
   return null;

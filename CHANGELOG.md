@@ -155,6 +155,40 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (5) — Una sola lettura AI, automatica; Pronostico AI = la stessa col modello scelto
+
+Rossi: "se e' automatica falla e basta"; "Pronostico AI accanto al nome delle
+partite, con il modello che scelgo (GLM-5, Kimi K3...)"; "se ricarico le quote
+alle 15 o alle 18 rifai solo quelle che variano"; "a 1,75 metti un allarme:
+non superare, decide l'utente"; "MG 2-4 Spagna ci stava".
+
+Test (9 partite del 06/10, lettura con i calcoli del programma): direzione
+giusta Nemotron gratis 5/8, DeepSeek V4 Flash 6/9, GLM-5 5/9, Kimi K3 5/9;
+risultato vero fra i "piu' vicini" 3, 4, 3, 4. I modelli a pagamento non sono
+nettamente meglio su 9 partite; DeepSeek e' il migliore e il piu' economico.
+Tutti hanno sbagliato Estonia-Islanda (0-0).
+
+- Lettura AI gratis senza tasto: `GET /lettura?auto=1` la fa se manca o se le
+  quote sono cambiate (partite non iniziate). Ogni lettura salva le quote usate
+  (`firmaQuote`); `quoteCambiate`: 5% su una quota principale o favorita
+  cambiata. Conto giornaliero in `settings.letture_gratis`, stop a 900.
+- Giro automatico (dossier-giornata): prima la schedina, poi i campionati di
+  livello 1, poi l'orario; rifa' le letture con quote cambiate. Dopo ogni
+  caricamento quote riuscito il server locale riavvia il giro del giorno.
+- "Pronostico AI" (tasto sotto i nomi delle squadre e in basso): la stessa
+  lettura col modello di LLM & Budget, salvata in `numeri.lettura_pro`, con
+  campo `mercato` e `notiziaVerificata`: se la notizia e' nei dati e le quote
+  sono le stesse, decide "Punta su questo" ("DAL PRONOSTICO AI (NOTIZIA)").
+  Tolto il vecchio riquadro Pronostico AI in fondo.
+- "Partita incerta: qui il Pronostico AI puo' aiutare" quando forma e quote
+  non sono d'accordo.
+- "Punta su questo": niente sotto il 55% e niente contro i gol attesi
+  (`coerenteConGol`); se la fascia scelta non ha niente di sicuro, la migliore
+  della partita + l'allarme "Alla tua quota: X vince solo il 46%... non
+  superare 1,40. Decidi tu"; fino a 2 alternative della stessa fascia; nomi
+  delle squadre al posto di casa/ospite. Tabella con 8 mercati per fascia
+  (`tabella_scenari_v2`).
+
 ### 2026-10-07 (4) — La scheda dice le stesse cose della lettura fatta a mano
 
 Rossi, su Moldova-Slovacchia: "era quello che ci siamo prefissati o come la

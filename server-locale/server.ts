@@ -68,6 +68,12 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
   }
   const richiesta = new Request(url, { method: req.method, headers: intestazioni, body: corpo });
   const risposta: Response = nome === "upload-excel" ? await uploadExcel(richiesta) : await dispatch(richiesta);
+  // QUOTE CARICATE (07/10/2026, Rossi: "se scarico le quote alle 15 o alle 18
+  // e cambiano"): si riavvia il giro del dossier del giorno, che rifa' la
+  // lettura AI gratis solo delle partite con le quote cambiate o nuove.
+  if (nome === "upload-excel" && risposta.ok) {
+    fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
+  }
   const fuori: Record<string, string> = { ...INTESTAZIONI };
   risposta.headers.forEach((v, k) => { if (k !== "content-encoding" && k !== "content-length") fuori[k] = v; });
   res.writeHead(risposta.status, fuori);

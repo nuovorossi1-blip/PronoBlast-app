@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -127,20 +127,31 @@ export default function MatchDetail() {
   // La lettura (07/10/2026): frasi del programma + lettura dell'AI gratis.
   const [lettura, setLettura] = useState<RispostaLettura | null>(null);
   const [letturaInCorso, setLetturaInCorso] = useState(false);
+  const [proInCorso, setProInCorso] = useState(false);
+  // Rossi (07/10/2026): "se e' automatica falla e basta, senza cliccarci".
+  // Prima subito quello che c'e', poi (auto=1) il server fa la lettura gratis
+  // se manca o se le quote sono cambiate.
   useEffect(() => {
     if (!id) return;
     let vivo = true;
     setLettura(null);
     api.lettura(id).then((r) => { if (vivo) setLettura(r); }).catch(() => {});
+    setLetturaInCorso(true);
+    api.lettura(id, { auto: true })
+      .then((r) => { if (vivo) setLettura(r); })
+      .catch(() => {})
+      .finally(() => { if (vivo) setLetturaInCorso(false); });
     return () => { vivo = false; };
   }, [id]);
-  const faiLettura = () => {
-    if (!id || letturaInCorso) return;
-    setLetturaInCorso(true);
-    api.lettura(id, true)
+  // "Pronostico AI": la stessa lettura col modello scelto in LLM & Budget,
+  // con il controllo della notizia che puo' cambiare "Punta su questo".
+  const faiPro = () => {
+    if (!id || proInCorso) return;
+    setProInCorso(true);
+    api.lettura(id, { genera: true, pro: true })
       .then((r) => setLettura(r))
-      .catch((e) => notify("Lettura AI non fatta", String(e?.message || e).replace(/^\d{3}\s+/, "")))
-      .finally(() => setLetturaInCorso(false));
+      .catch((e) => notify("Pronostico AI non fatto", String(e?.message || e).replace(/^\d{3}\s+/, "")))
+      .finally(() => setProInCorso(false));
   };
   useEffect(() => {
     let vivo = true;
@@ -392,8 +403,8 @@ export default function MatchDetail() {
   // quando l'utente è già su questa pagina. Reagiamo lanciando la
   // generazione (force=true se esiste già una predizione = rigenera).
   useEffect(() => {
-    if (!gen || !id || aiPending) return;
-    runPrediction(!!prediction);
+    if (!gen || !id || proInCorso) return;
+    faiPro();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gen, id]);
 
@@ -547,6 +558,10 @@ export default function MatchDetail() {
           <Text style={styles.team}>{match.squadra1}</Text>
           <Text style={styles.vs}>vs</Text>
           <Text style={styles.team}>{match.squadra2}</Text>
+          <TouchableOpacity onPress={faiPro} activeOpacity={0.7} style={styles.proBtn} disabled={proInCorso}>
+            <Ionicons name="sparkles" size={14} color="#000" />
+            <Text style={styles.proBtnTxt}>{proInCorso ? "Pronostico AI in corso…" : "Pronostico AI"}</Text>
+          </TouchableOpacity>
           {match.result && (
             <View style={styles.resultBox}>
               <Text style={styles.resultLbl}>RISULTATO</Text>
@@ -678,6 +693,29 @@ export default function MatchDetail() {
                   </View>
                 ))}
               </View>
+              {pr?.accordo === false && !lettura?.pro ? (
+                <Text style={[styles.golTesto, styles.golAvviso]}>{"⚠ Partita incerta: qui il Pronostico AI può aiutare (tasto in alto)."}</Text>
+              ) : null}
+              {lettura?.pro ? (
+                <View style={styles.letturaAI}>
+                  <Text style={styles.golSez}>{`PRONOSTICO AI · ${nomeModello(lettura.pro.modello)}`}</Text>
+                  {lettura.pro_vecchia ? (
+                    <Text style={[styles.golTesto, styles.golAvviso]}>{"Fatto con quote diverse da quelle di adesso: rifallo se vuoi."}</Text>
+                  ) : null}
+                  <Text style={styles.golTesto}>{lettura.pro.lettura}</Text>
+                  <Text style={styles.golTesto}>
+                    {`Gol: ${match.squadra1} ${lettura.pro.gol_casa} · ${match.squadra2} ${lettura.pro.gol_ospite} · totale ${lettura.pro.gol_totali}`}
+                  </Text>
+                  {lettura.pro.risultati_probabili.length ? (
+                    <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.pro.risultati_probabili.join(" · ")}`}</Text>
+                  ) : null}
+                  {lettura.pro.notizia ? (
+                    <Text style={[styles.golTesto, styles.golAvviso]}>
+                      {`Notizia: ${lettura.pro.notizia}${lettura.pro.notizia_verificata ? " (verificata nei dati)" : ""}`}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
               {lettura?.ai ? (
                 <View style={styles.letturaAI}>
                   <Text style={styles.golSez}>{`LETTURA AI · ${nomeModello(lettura.ai.modello)} (gratis)`}</Text>
@@ -688,15 +726,15 @@ export default function MatchDetail() {
                   {lettura.ai.risultati_probabili.length ? (
                     <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.ai.risultati_probabili.join(" · ")}`}</Text>
                   ) : null}
+                  {lettura.ai_vecchia ? <Text style={styles.golPic}>{"Fatta con le quote di prima: si rifà da sola."}</Text> : null}
                   {lettura.ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${lettura.ai.notizia}`}</Text> : null}
                 </View>
               ) : (
-                <TouchableOpacity onPress={faiLettura} activeOpacity={0.7} style={styles.letturaBtn} disabled={letturaInCorso}>
-                  <Ionicons name="sparkles" size={14} color={colors.primary} />
-                  <Text style={styles.letturaBtnTxt}>
-                    {letturaInCorso ? "L'AI sta leggendo la partita…" : "Fai la lettura AI (gratis)"}
-                  </Text>
-                </TouchableOpacity>
+                <Text style={styles.golPic}>
+                  {letturaInCorso
+                    ? "La lettura AI (gratis) sta arrivando…"
+                    : "Lettura AI gratis non disponibile: partita già iniziata, oppure modelli gratis occupati. Puoi usare il Pronostico AI in alto."}
+                </Text>
               )}
             </View>
           );
@@ -727,17 +765,47 @@ export default function MatchDetail() {
           // fascia scelta. Altrimenti il secondo o il terzo della tabella, poi
           // il motore come prima.
           const notaT = getScenarioNote(match.odds, structural?.structure);
+          // Gol attesi della lettura (quote e forma pesata a meta'): il consiglio
+          // non puo' andare contro (Croazia-Spagna: 3,7 attesi e MG 1-3 proposto).
+          const prL = lettura?.programma ?? null;
+          const stL = structural?.structure;
+          const totAtteso = stL
+            ? (prL?.forma_casa != null ? (stL.lambda_home + prL.forma_casa) / 2 : stL.lambda_home)
+              + (prL?.forma_ospite != null ? (stL.lambda_away + prL.forma_ospite) / 2 : stL.lambda_away)
+            : null;
+          // La notizia VERIFICATA del Pronostico AI (modello scelto) decide,
+          // con quote ancora uguali a quelle con cui e' stato fatto.
+          const proDecide = !!lettura?.pro?.notizia_verificata && !!lettura.pro.mercato && !lettura.pro_vecchia;
           const perScenario = notaT && tabella ? tabella.scenari[chiaveScenario(notaT)] || {} : {};
-          const daTabella = (soglia: number): PickMotore | null => {
+          // I mercati della tabella per una fascia, con la quota di QUESTA partita
+          // dentro la fascia. Sicuri = almeno 55% e coerenti con i gol attesi
+          // (Croazia-Spagna a 1,75: MG 1-3 totali al 46-48% contro 3,7 gol attesi).
+          const candidatiTabella = (soglia: number, sicuri: boolean): PickMotore[] => {
+            const out: PickMotore[] = [];
+            const visti = new Set<string>();
             for (const voce of perScenario[soglia.toFixed(2)] || []) {
+              // "2" e "2 fisso" (manuale) sono lo stesso mercato.
+              const chiave = normalizeMarket(voce.market.replace(/\s+fisso$/i, ""));
+              if (visti.has(chiave)) continue;
+              visti.add(chiave);
+              if (sicuri && (voce.p < 0.55 || !coerenteConGol(voce.market, totAtteso))) continue;
               const vp = valutaPuntaSu(voce.market, ctxC);
               const qm = vp?.odd != null ? { odd: vp.odd, stimata: vp.stimata } : quotaManuale(voce.market, match.odds, structural?.market_odds);
               if (!qm || fasciaDellaQuota(qm.odd) !== soglia) continue;
-              return { market: voce.market, odd: qm.odd, stimata: qm.stimata, prob: voce.p, soglia, archivio: null, tab: voce };
+              out.push({ market: voce.market, odd: qm.odd, stimata: qm.stimata, prob: voce.p, soglia, archivio: null, tab: voce });
             }
-            return null;
+            return out;
           };
-          if (!decideAI) {
+          const daTabella = (soglia: number): PickMotore | null => candidatiTabella(soglia, true)[0] ?? null;
+          // "MG 2-4 ospite" -> "MG 2-4 Spagna" (Rossi, 07/10/2026).
+          const nomeM = (m: string) => m.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
+          const pcT = (x: number) => `${Math.round(x * 100)}%`;
+          if (proDecide && lettura?.pro?.mercato) {
+            const vp = valutaPuntaSu(lettura.pro.mercato, ctxC);
+            const qm = vp?.odd != null ? { odd: vp.odd, stimata: vp.stimata } : quotaManuale(lettura.pro.mercato, match.odds, structural?.market_odds);
+            mot = { market: lettura.pro.mercato, odd: qm?.odd ?? null, stimata: qm?.stimata ?? true, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };
+          }
+          if (!decideAI && !mot) {
             mot = daTabella(minOdd);
             // Niente nella fascia scelta: la migliore della tabella nelle altre fasce.
             if (!mot) {
@@ -794,6 +862,28 @@ export default function MatchDetail() {
             }
           }
           const fuoriSoglia = !!mot && Math.abs(mot.soglia - minOdd) > 0.001;
+          // Le altre giocate buone della stessa fascia (es. a 1,50 anche MG 2-4 Spagna).
+          const alternativeT = mot?.tab
+            ? candidatiTabella(mot.soglia, true).filter((x) => normalizeMarket(x.market) !== normalizeMarket(mot!.market)).slice(0, 2)
+            : [];
+          // Alla quota scelta non c'e' niente di sicuro: si mostra lo stesso cosa
+          // c'e', con l'allarme. Decide Rossi (07/10/2026).
+          const deboleQui = fuoriSoglia ? candidatiTabella(minOdd, false)[0] ?? null : null;
+          const extraT = (
+            <>
+              {alternativeT.map((a) => (
+                <Text key={a.market} style={styles.puntaMeta}>
+                  {`Anche: ${nomeM(a.market)} ${a.stimata ? "≈" : "@"} ${a.odd?.toFixed(2)} · ${pcT(a.tab!.pA)} / ${pcT(a.tab!.pB)}`}
+                </Text>
+              ))}
+              {deboleQui && mot ? (
+                <Text style={styles.puntaAvviso}>
+                  {`⚠ Alla tua quota (${minOdd.toFixed(2)}): ${nomeM(deboleQui.market)} ${deboleQui.stimata ? "≈" : "@"} ${deboleQui.odd?.toFixed(2)} vince solo il ${pcT(deboleQui.tab!.pA)} / ${pcT(deboleQui.tab!.pB)}` +
+                    `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Non è sicura: su questa partita non superare ${mot.soglia.toFixed(2)}. Decidi tu.`}
+                </Text>
+              ) : null}
+            </>
+          );
           // La fascia la sceglie Rossi (rischio e guadagno sono suoi): qui, accanto
           // alla giocata, e non solo dentro il verdetto.
           const selettoreFascia = (
@@ -823,9 +913,12 @@ export default function MatchDetail() {
             if (!structural) return null;
             return (
               <View style={styles.puntaBox}>
-                <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                <Text style={styles.puntaLbl}>{proDecide ? "PUNTA SU QUESTO · DAL PRONOSTICO AI (NOTIZIA)" : "PUNTA SU QUESTO · DAI NUMERI"}</Text>
                 {selettoreFascia}
-                <Text style={styles.puntaVal}>{mot ? mot.market : "Nessuna giocata"}</Text>
+                {proDecide && lettura?.pro?.notizia ? (
+                  <Text style={styles.puntaAvviso}>{`Cambiato per: ${lettura.pro.notizia}`}</Text>
+                ) : null}
+                <Text style={styles.puntaVal}>{mot ? nomeM(mot.market) : "Nessuna giocata"}</Text>
                 {mot ? (
                   <Text style={styles.puntaMeta}>
                     {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
@@ -833,6 +926,7 @@ export default function MatchDetail() {
                   </Text>
                 ) : null}
                 {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
+                {extraT}
                 <Text style={styles.puntaNota}>
                   {mot
                     ? "Dai numeri: scenario, motore e quote."
@@ -859,11 +953,14 @@ export default function MatchDetail() {
             <View style={styles.puntaBox}>
               {!decideAI ? (
                 <>
-                  <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                  <Text style={styles.puntaLbl}>{proDecide ? "PUNTA SU QUESTO · DAL PRONOSTICO AI (NOTIZIA)" : "PUNTA SU QUESTO · DAI NUMERI"}</Text>
                   {selettoreFascia}
+                  {proDecide && lettura?.pro?.notizia ? (
+                    <Text style={styles.puntaAvviso}>{`Cambiato per: ${lettura.pro.notizia}`}</Text>
+                  ) : null}
                   {mot ? (
                     <>
-                      <Text style={styles.puntaVal}>{mot.market}</Text>
+                      <Text style={styles.puntaVal}>{nomeM(mot.market)}</Text>
                       <Text style={styles.puntaMeta}>
                         {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
                         {misuraMot}
@@ -873,11 +970,13 @@ export default function MatchDetail() {
                     <Text style={styles.puntaVal}>Nessuna giocata</Text>
                   )}
                   {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
+                  {extraT}
                   <Text style={styles.puntaPerche}>
                     {mot
-                      ? "Dai numeri: l'AI non ha notizie che lo cambino."
+                      ? proDecide ? "Il Pronostico AI ha trovato una notizia vera nei dati che cambia la giocata dei numeri." : "Dai numeri: l'AI non ha notizie che lo cambino."
                       : "Nessuna giocata coerente in nessuna fascia: partita da lasciare. L'AI non ha notizie nuove, quindi non decide lei."}
                   </Text>
+                  {!lettura?.pro && (
                   <TouchableOpacity onPress={() => setParereAperto((x) => !x)} activeOpacity={0.7}>
                     <Text style={styles.puntaParere}>
                       {"Parere AI: "}<Text style={{ fontWeight: "900" }}>{c.market}</Text>
@@ -885,6 +984,7 @@ export default function MatchDetail() {
                       {parereAperto ? "  ▾ chiudi" : "  ▸ tocca per i dettagli"}
                     </Text>
                   </TouchableOpacity>
+                  )}
                   {parereAperto && cons?.notizia ? (
                     <Text style={styles.puntaPerche}>{`Notizia citata ma non trovata nei dati: "${cons.notizia}"`}</Text>
                   ) : null}
@@ -1748,317 +1848,8 @@ export default function MatchDetail() {
           );
         })()}
 
-        {/* AI prediction block - always visible. Shows result_ok color when result is set */}
-        <View style={[
-          styles.aiBlock,
-          match.result && prediction?.main_prediction && {
-            borderColor: (() => {
-              const parts = match.result.split("-").map(n => parseInt(n, 10));
-              if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return colors.border;
-              const home = parts[0], away = parts[1], total = home + away;
-              const m = (prediction.main_prediction || "").toUpperCase().replace(/\s/g, "");
-              let ok: boolean | null = null;
-              if (m === "1") ok = home > away;
-              else if (m === "X") ok = home === away;
-              else if (m === "2") ok = away > home;
-              else if (m.startsWith("1X")) ok = home >= away;
-              else if (m.startsWith("X2")) ok = away >= home;
-              else if (m.startsWith("12")) ok = home !== away;
-              else if (m.startsWith("O")) { const n = parseFloat(m.replace(/[^\d.]/g, "")); ok = total > n; }
-              else if (m.startsWith("U")) { const n = parseFloat(m.replace(/[^\d.]/g, "")); ok = total < n; }
-              else if (m === "GG") ok = home > 0 && away > 0;
-              else if (m === "NG") ok = home === 0 || away === 0;
-              else if (m.includes("MG") && m.includes("2-4")) {
-                if (m.includes("CASA")) ok = home >= 2 && home <= 4;
-                else if (m.includes("OSPITE")) ok = away >= 2 && away <= 4;
-                else ok = total >= 2 && total <= 4;
-              }
-              return ok === true ? colors.success : ok === false ? colors.danger : colors.border;
-            })(),
-            borderWidth: 2,
-          },
-        ]}>
-          <View style={styles.aiHeader}>
-            <Ionicons name="sparkles" size={16} color={colors.aiText} />
-            <Text style={styles.aiTitle}>PRONOSTICO AI</Text>
-            {prediction?.confidence && (
-              <View style={styles.confBadge}>
-                <Text style={styles.confTxt}>{prediction.confidence}</Text>
-              </View>
-            )}
-          </View>
-          {prediction ? (
-            <>
-              {/* La famiglia dell'AI (prediction.family) non si mostra piu': in
-                  scheda la famiglia e' una sola, quella del motore in STRUTTURA
-                  MATCH (round 2, TICKET 1). */}
-              {(() => {
-                // ============================================================
-                // SCHEDA AI (01/10/2026): fasce di quota in alto, pronostico
-                // principale della fascia, paletto di affidabilita', tabella
-                // casa | ospite, lettura e perche' separati, classifica della
-                // fascia, fonti compatte. I pronostici vecchi (senza fasce)
-                // mostrano i mercati giocabili come prima.
-                // ============================================================
-                const fasceV = validaFasce(prediction.fasce, { odds: match.odds as any, structural, manuale: manualeFasce });
-                const avvisoPost = aiPostPartita ? (
-                  <View style={styles.palettoBox}>
-                    <Text style={styles.palettoTxt}>
-                      ⚠ Generato dopo il calcio d'inizio: può conoscere il risultato. Solo dimostrazione, non conta per verdetto e pagella.
-                    </Text>
-                  </View>
-                ) : null;
-                const sogliaAttiva = fasciaAI ?? minOdd;
-                const fascia: FasciaValidata | null = fasceV?.find((f) => Math.abs(f.soglia - sogliaAttiva) < 0.001) ?? null;
-                const maxOk = sogliaMassimaAffidabile(fasceV);
-                const principale = fasceV ? fascia?.pick?.market ?? null : prediction.main_prediction ?? null;
-                const pickF = fascia?.pick ?? null;
-                const parti = dividiAnalisi(prediction.analysis);
-                const fonti = (prediction.fonti_web || []).map((f) => f.url).filter(Boolean);
-                const tutteFonti = fonti.length ? fonti : parti.fonti;
-                const s = structural?.structure;
-                const st = prediction.statistiche_squadre || null;
-                // xG e xGA dell'AI tolti (07/10/2026): erano totali del girone
-                // (Estonia 3,39) o copie dei gol attesi Poisson (Inghilterra 3,05).
-                // I numeri veri li mostra "Cosa aspettarsi dai gol" (FotMob).
-                const righeWeb = RIGHE_STATISTICHE.filter((r) => !/^xga?$/i.test(String(r.chiave))).filter((r) => (st?.casa?.[r.chiave] || "").trim() || (st?.ospite?.[r.chiave] || "").trim());
-                const righeSistema: { etichetta: string; casa: string; ospite: string }[] = [
-                  { etichetta: "Quota segno", casa: match.odds?.odd_1 ? Number(match.odds.odd_1).toFixed(2) : "n/d", ospite: match.odds?.odd_2 ? Number(match.odds.odd_2).toFixed(2) : "n/d" },
-                  ...(s ? [{ etichetta: "Gol attesi (Poisson)", casa: s.lambda_home.toFixed(2), ospite: s.lambda_away.toFixed(2) }] : []),
-                  // xG (web) tolto: vedi sopra.
-                ];
-                return (
-                  <>
-                    {avvisoPost}
-                    {(prediction.fasce as any)?.modello ? (
-                      <Text style={styles.modelloTxt}>
-                        Fatto con {(prediction.fasce as any).modello}
-                        {(prediction.fasce as any).rifatto ? ` · ${(prediction.fasce as any).rifatto}` : ""}
-                      </Text>
-                    ) : null}
-                    {fasceV && (
-                      <View style={styles.fasceRow}>
-                        {fasceV.map((f) => {
-                          const on = Math.abs(f.soglia - sogliaAttiva) < 0.001;
-                          return (
-                            <TouchableOpacity
-                              key={f.soglia}
-                              onPress={() => setFasciaAI(f.soglia)}
-                              style={[styles.minOddChip, on && styles.minOddChipOn, !f.affidabile && styles.minOddChipOltre]}
-                            >
-                              <Text style={[styles.minOddChipTxt, on && styles.minOddChipTxtOn]}>
-                                {chiaveFascia(f.soglia)}{f.affidabile ? "" : " ⚠"}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    )}
-
-                    {principale ? (
-                      <LinearGradient
-                        colors={[colors.primaryLight, colors.primaryDark]}
-                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                        style={styles.mainPred}
-                      >
-                        <Text style={styles.mainPredLbl}>
-                          {fascia ? `PICK DELLA FASCIA ${etichettaFascia(fascia.soglia)}` : "PRONOSTICO PRINCIPALE"}
-                        </Text>
-                        <Text style={styles.mainPredVal}>{principale}</Text>
-                        {pickF && (
-                          <Text style={styles.mainPredMeta}>
-                            {pickF.odd ? `${pickF.stimata ? "≈" : "@"} ${pickF.odd.toFixed(2)}` : ""}
-                            {pickF.prob !== null ? ` · ${pctProb(pickF.prob)} Poisson` : ""}
-                            {` · motore ${pickF.rankMotore ? "#" + pickF.rankMotore : "fuori ranking"}`}
-                            {pickF.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
-                          </Text>
-                        )}
-                      </LinearGradient>
-                    ) : fasceV && Math.abs(sogliaAttiva - minOdd) > 0.001 ? (
-                      // Sulla fascia del verdetto lo dice gia' il verdetto lassu':
-                      // qui solo quando si guarda un'altra fascia.
-                      <View style={styles.palettoBox}>
-                        <Text style={styles.palettoTxt}>
-                          Nessuna giocata coerente nella fascia {etichettaFascia(sogliaAttiva)}: meglio nessun pronostico che uno contro la lettura.
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {/* PALETTO: fin dove la lettura regge (stesso 58% della soglia consigliata). */}
-                    {fasceV && (
-                      <View style={[styles.palettoBox, fascia?.affidabile && styles.palettoOk]}>
-                        <Text style={[styles.palettoTxt, fascia?.affidabile && { color: colors.success }]}>
-                          {fascia?.affidabile
-                            ? `Affidabile a questa quota${maxOk ? ` (fino a ${chiaveFascia(maxOk)})` : ""}.`
-                            : maxOk
-                              ? `⚠ Non superare ${chiaveFascia(maxOk)}: a ${sogliaAttiva.toFixed(2)} la scelta ${pickF ? `(${pickF.market}${pickF.prob !== null ? `, ${pctProb(pickF.prob)}` : ""}) ` : ""}è sotto il ${Math.round(PROB_AFFIDABILE * 100)}%, non affidabile.`
-                              : `⚠ Nessuna fascia arriva al ${Math.round(PROB_AFFIDABILE * 100)}%: partita da non forzare.`}
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* La proposta dell'IA non e' il verdetto se cade fuori dai
-                        mercati giocati (whitelist): va detto. */}
-                    {principale && !isVerdictMarket(principale) && (
-                      <View style={styles.aiFuoriWrap}>
-                        <Ionicons name="information-circle-outline" size={14} color={colors.warning} />
-                        <Text style={styles.aiFuoriTxt}>
-                          Proposta IA fuori dai mercati giocati: non può diventare il verdetto finale.
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* Tabella CASA | OSPITE: righe di sistema sempre presenti
-                        (quote, gol attesi) + le statistiche trovate sul web.
-                        Dato assente = "n/d", mai inventato. */}
-                    <View style={styles.statTable}>
-                      <View style={[styles.statRow, styles.statHeadRow]}>
-                        <Text style={[styles.statCell, styles.statHead]} numberOfLines={1}>{match.squadra1}</Text>
-                        <Text style={[styles.statLbl, styles.statHead]} />
-                        <Text style={[styles.statCell, styles.statHead, { textAlign: "right" }]} numberOfLines={1}>{match.squadra2}</Text>
-                      </View>
-                      {righeSistema.map((r) => (
-                        <View key={r.etichetta} style={styles.statRow}>
-                          <Text style={styles.statCell}>{r.casa}</Text>
-                          <Text style={styles.statLbl}>{r.etichetta}</Text>
-                          <Text style={[styles.statCell, { textAlign: "right" }]}>{r.ospite}</Text>
-                        </View>
-                      ))}
-                      {righeWeb.map((r) => (
-                        <View key={r.chiave} style={styles.statRow}>
-                          <Text style={styles.statCell}>{st?.casa?.[r.chiave] || "n/d"}</Text>
-                          <Text style={styles.statLbl}>{r.etichetta}</Text>
-                          <Text style={[styles.statCell, { textAlign: "right" }]}>{st?.ospite?.[r.chiave] || "n/d"}</Text>
-                        </View>
-                      ))}
-                      {!righeWeb.length && (
-                        <Text style={styles.statVuoto}>Nessuna statistica dal web in questo pronostico.</Text>
-                      )}
-                    </View>
-
-                    {parti.lettura ? (
-                      <View style={styles.analisiBox}>
-                        <Text style={styles.analisiTitolo}>LETTURA DELLA PARTITA</Text>
-                        <Text style={styles.analysis}>{parti.lettura}</Text>
-                      </View>
-                    ) : null}
-                    {(parti.perche || fascia?.perche) ? (
-                      <View style={styles.analisiBox}>
-                        <Text style={styles.analisiTitolo}>PERCHÉ QUESTA SCELTA</Text>
-                        {parti.perche ? <Text style={styles.analysis}>{parti.perche}</Text> : null}
-                        {fascia?.perche ? (
-                          <Text style={[styles.analysis, { marginTop: 6 }]}>
-                            <Text style={{ fontWeight: "900" }}>A {chiaveFascia(fascia.soglia)}: </Text>{fascia.perche}
-                          </Text>
-                        ) : null}
-                      </View>
-                    ) : null}
-
-                    {fascia ? (
-                      <View style={styles.playableList}>
-                        <Text style={styles.playableTitle}>CLASSIFICA AI · FASCIA {chiaveFascia(fascia.soglia)}</Text>
-                        {fascia.voci.map((v, i) => (
-                          <View key={v.market} style={styles.playableItem}>
-                            <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
-                              <Text style={[styles.rankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.playableMarket}>
-                                {v.market}{v.odd ? `  ${v.stimata ? "≈" : "@"}${v.odd.toFixed(2)}` : ""}
-                              </Text>
-                              <Text style={styles.playableReason}>
-                                {v.prob !== null ? `${pctProb(v.prob)} Poisson · ` : ""}
-                                motore {v.rankMotore ? `#${v.rankMotore}` : "fuori ranking"} · PRE {v.rankPre ? `#${v.rankPre}` : "—"}
-                                {v.aggiunto ? " · aggiunto dal controllo di coerenza" : ""}
-                                {v.prob !== null && v.prob < PROB_AFFIDABILE ? " · sotto il 58%" : ""}
-                              </Text>
-                            </View>
-                          </View>
-                        ))}
-                        {!fascia.voci.length && (
-                          <Text style={styles.playableReason}>Nessun mercato giocabile a questa fascia.</Text>
-                        )}
-                        {fascia.scartati.map((x) => (
-                          <Text key={`sc-${x.market}`} style={styles.scartatoTxt}>✕ {x.market}: {x.motivo}</Text>
-                        ))}
-                      </View>
-                    ) : prediction.playable_markets && prediction.playable_markets.length > 0 ? (
-                      <View style={styles.playableList}>
-                        <Text style={styles.playableTitle}>MERCATI GIOCABILI (ordine probabilità)</Text>
-                        {prediction.playable_markets.map((p, i) => (
-                          <View key={i} style={styles.playableItem}>
-                            <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
-                              <Text style={[styles.rankTxt, i === 0 && { color: "#FFF" }]}>{i + 1}</Text>
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.playableMarket}>{p.market}</Text>
-                              <Text style={styles.playableReason}>{p.reasoning}</Text>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-
-                    {tutteFonti.length > 0 && (
-                      <View>
-                        <TouchableOpacity onPress={() => setFontiAperte(!fontiAperte)} style={styles.percheBtn} activeOpacity={0.7}>
-                          <Ionicons name={fontiAperte ? "chevron-down" : "chevron-forward"} size={14} color={colors.textMuted} />
-                          <Text style={styles.percheBtnTxt}>FONTI WEB ({tutteFonti.length})</Text>
-                        </TouchableOpacity>
-                        {fontiAperte && tutteFonti.map((u) => (
-                          <Text key={u} style={styles.fonteTxt} numberOfLines={1} onPress={() => Linking.openURL(u).catch(() => {})}>
-                            {u.replace(/^https?:\/\/(www\.)?/, "")}
-                          </Text>
-                        ))}
-                      </View>
-                    )}
-                  </>
-                );
-              })()}
-              <TouchableOpacity
-                testID="regen-ai"
-                onPress={() => runPrediction(true)}
-                disabled={aiPending}
-                style={styles.regenBtn}
-              >
-                {aiPending ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="refresh" size={14} color={colors.primary} />
-                    <Text style={styles.regenBtnTxt}>Rigenera Pronostico</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            // Quando non c'è ancora pronostico: placeholder GRANDE e CLICCABILE
-            // che fa partire la generazione AI direttamente.
-            <TouchableOpacity
-              testID="gen-ai-card"
-              onPress={() => runPrediction(false)}
-              disabled={aiPending}
-              style={[styles.aiPlaceholder, aiPending && { opacity: 0.6 }]}
-              activeOpacity={0.7}
-            >
-              {aiPending ? (
-                <>
-                  <ActivityIndicator color={colors.primary} size="large" />
-                  <Text style={styles.aiPlaceholderTxt}>Generazione AI in corso…</Text>
-                </>
-              ) : (
-                <>
-                  <View style={styles.aiPlaceholderBtn}>
-                    <Ionicons name="sparkles" size={20} color="#000" />
-                    <Text style={styles.aiPlaceholderBtnTxt}>Genera Pronostico AI</Text>
-                  </View>
-                  <Text style={styles.aiPlaceholderTxt}>Tocca per generare il pronostico tramite DeepSeek</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
-
+        {/* Il vecchio riquadro "Pronostico AI" (classifiche per fascia) e' stato tolto il
+            07/10/2026: ora il Pronostico AI e' la lettura col modello scelto (tasto in alto). */}
           </>
         )}
         <View style={{ height: 12 }} />
@@ -2200,6 +1991,8 @@ const styles = StyleSheet.create({
   golSez: { color: colors.textDim, fontSize: 10, fontWeight: "900", letterSpacing: 1, marginTop: 8 },
   golTesto: { color: colors.text, fontSize: 12, lineHeight: 18 },
   golAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  proBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "center", marginTop: 10, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.primary },
+  proBtnTxt: { color: "#000", fontSize: 13, fontWeight: "900" },
   letturaAI: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 8, paddingTop: 4, gap: 2 },
   letturaBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.primary, borderRadius: 8, alignSelf: "flex-start" },
   letturaBtnTxt: { color: colors.primary, fontSize: 13, fontWeight: "800" },

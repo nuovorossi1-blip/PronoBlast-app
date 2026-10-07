@@ -503,8 +503,12 @@ export const api = {
     ),
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
   tabellaScenari: () => netlifyReq<TabellaScenari>(`/tabella-scenari`),
-  lettura: (id: string, genera = false) =>
-    netlifyReq<RispostaLettura>(`/lettura?matchId=${encodeURIComponent(id)}${genera ? "&genera=1" : ""}`, genera ? { method: "POST" } : undefined),
+  /** GET con auto=1 (la lettura gratis si fa da sola se manca); genera = POST; pro = modello scelto. */
+  lettura: (id: string, opz: { genera?: boolean; pro?: boolean; auto?: boolean } = {}) =>
+    netlifyReq<RispostaLettura>(
+      `/lettura?matchId=${encodeURIComponent(id)}${opz.genera ? "&genera=1" : ""}${opz.pro ? "&pro=1" : ""}${opz.auto ? "&auto=1" : ""}`,
+      opz.genera ? { method: "POST" } : undefined,
+    ),
   formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),
@@ -2990,6 +2994,7 @@ export type TabellaScenari = { aggiornata: string; divisione: string; partite: n
 export type LetturaAI = {
   modello: string; quando: string; direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
+  mercato?: string; notizia_verificata?: boolean; pro?: boolean;
 };
 export type RispostaLettura = {
   programma: {
@@ -2998,8 +3003,25 @@ export type RispostaLettura = {
     pesata_casa: { fatti: number; subiti: number } | null; pesata_ospite: { fatti: number; subiti: number } | null;
     assenti_casa: number; assenti_ospite: number;
   } | null;
-  ai: LetturaAI | null; dossier?: boolean; error?: string;
+  ai: LetturaAI | null; pro?: LetturaAI | null; dossier?: boolean; error?: string;
+  ai_vecchia?: boolean; pro_vecchia?: boolean;
 };
+
+/**
+ * Il mercato e' coerente con i gol che la lettura si aspetta? (07/10/2026,
+ * Croazia-Spagna: la lettura diceva 3,7 gol e "Punta su questo" a 1,75
+ * proponeva MG 1-3 totali, al 46-48%.) Con 3 gol o piu' attesi niente
+ * mercati da pochi gol; con 2,2 o meno niente mercati da tanti gol.
+ */
+export function coerenteConGol(market: string, totaleAtteso: number | null | undefined): boolean {
+  if (totaleAtteso == null) return true;
+  const m = market.toUpperCase().replace(/\s+/g, " ").trim();
+  const pochi = /\bU(1\.5|2\.5)\b|^NG\b|MG (0|1)-(1|2|3) TOTALI|^MG 0-2\b|^MG 1-2\b|^MG 1-3\b/.test(m) && !/CASA|OSPITE/.test(m);
+  const tanti = /\bO(2\.5|3\.5)\b|MG (3|4)-\d TOTALI|GG \+ O2\.5/.test(m);
+  if (totaleAtteso >= 3 && pochi) return false;
+  if (totaleAtteso <= 2.2 && tanti) return false;
+  return true;
+}
 
 /** Intervallo di gol piu' stretto che copre almeno `soglia` dei casi (Poisson). */
 export function intervalloGol(lambda: number, soglia = 0.7): [number, number] {

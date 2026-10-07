@@ -1,6 +1,7 @@
 import { pgGet, pgGetAll, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import { contestoPartitaSalvato, DOSSIER_VALIDO_ORE } from "./lib/webSearch";
-import { generaLetturaAI } from "./lib/letturaPartita";
+import { generaLetturaAI, letturaDaRifare } from "./lib/letturaPartita";
+import { leagueTier } from "./lib/leagueTier";
 import { impostaAlias } from "./lib/teamMatch";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
@@ -70,8 +71,10 @@ async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<str
     // Nemotron (gratis). Chi apre la partita la trova gia' scritta.
     let lettura = "";
     try {
+      // Anche RIFATTA se le quote sono cambiate (caricamento delle 15, 18...).
       const r = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(m.id)}&select=numeri`);
-      if (r[0]?.numeri && !r[0].numeri.lettura_ai) lettura = (await generaLetturaAI(m.id)) ? " + lettura AI" : " (lettura AI non riuscita)";
+      const q = (await pgGet(`matches?id=eq.${encodeURIComponent(m.id)}&select=odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`))[0];
+      if (r[0]?.numeri && q && letturaDaRifare(r[0].numeri, q)) lettura = (await generaLetturaAI(m.id)) ? " + lettura AI" : " (lettura AI non riuscita)";
     } catch { lettura = " (lettura AI non riuscita)"; }
     if (ctx.da_archivio) { conteggi.gia_pronto++; return "gia' pronto" + lettura; }
     if (ctx.fonti_dati?.includes("FotMob")) conteggi.fotmob++;
@@ -115,9 +118,13 @@ export default async (req: Request): Promise<Response> => {
       const occupato = attuale?.stato === "in_corso" && attuale.lucchetto_fino && Date.parse(attuale.lucchetto_fino) > Date.now();
       if (occupato) return jsonResponse({ ok: false, motivo: "un passo sta gia' lavorando", stato: attuale }, 409);
       const giorno = url.searchParams.get("giorno") || oggiRoma();
-      const tutte: any[] = await pgGetAll(`matches?day=eq.${giorno}&result=is.null&select=id,day,time`, "time.asc,id.asc");
+      const tutte: any[] = await pgGetAll(`matches?day=eq.${giorno}&result=is.null&select=id,day,time,selected,manifestazione`, "time.asc,id.asc");
       const ora = Date.now();
-      const daFare = tutte.filter((m) => { const i = inizioPartitaMs(m.day, m.time); return i === null || i > ora; });
+      // PRIORITA' (07/10/2026): con 100-1000 partite al giorno e 1000 letture
+      // gratis, prima la schedina, poi i campionati principali, poi l'orario.
+      const daFare = tutte
+        .filter((m) => { const i = inizioPartitaMs(m.day, m.time); return i === null || i > ora; })
+        .sort((a, b) => (Number(!!b.selected) - Number(!!a.selected)) || (leagueTier(a.manifestazione) - leagueTier(b.manifestazione)) || String(a.time).localeCompare(String(b.time)));
       const adesso = new Date().toISOString();
       const s: Stato = {
         giorno, stato: daFare.length ? "in_corso" : "finito", ids: daFare.map((m) => m.id), pos: 0, totale: daFare.length,
