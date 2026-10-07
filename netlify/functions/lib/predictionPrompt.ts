@@ -523,7 +523,12 @@ const senzaAccenti = (t: string) => t
 const PAROLE_NOTIZIA = /manca|mancano|assen|infortun|squalific|formazion|riserv|turnover|qualificat|motivaz|\bout\b|indisponibil|fuori per|senza/;
 
 export function notiziaVerificata(notizia: string | null | undefined, datiPartita: string): boolean {
-  const n = senzaAccenti(String(notizia || "")).trim();
+  // MIRATA (07/10/2026, Botafogo-Vasco): l'elenco intero degli infortunati
+  // di tutte e due le squadre e' "vero" ma non e' una notizia. Una frase,
+  // al massimo 3 giocatori, niente elenchi copiati ("|").
+  const grezza = String(notizia || "");
+  if (grezza.length > 220 || grezza.includes("|") || (grezza.match(/\(/g) || []).length > 3) return false;
+  const n = senzaAccenti(grezza).trim();
   if (n.length < 12 || NON_NOTIZIE.test(n) && !PAROLE_NOTIZIA.test(n)) return false;
   const testo = senzaAccenti(datiPartita);
   // (a) copiata dai dati: almeno 2 parole pesanti e il 60% presenti.

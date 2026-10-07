@@ -155,6 +155,21 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (10) — Altro pronostico che scorre, notizie mirate, dossier senza spazzatura
+
+- Multipla, "Altro pronostico": scorre tutte le alternative (stato `provati`),
+  prima alternava sempre fra le stesse due.
+- `notiziaVerificata`: una notizia valida e' una frase (max 220 caratteri,
+  max 3 parentesi, niente "|"): l'elenco intero degli infortunati copiato dal
+  dossier (Botafogo-Vasco) non cambia piu' la giocata. Prompt aggiornato.
+- searxng.ts: una notizia entra solo con parole di calcio (partita,
+  infortunio, formazione, lesionado, desfalque...) e non da riviste o
+  enciclopedie (Wikipedia, journal, annals, .edu, universita'). Cruzeiro-San
+  Paolo: prima 3 su 5 erano riviste mediche e la Wikipedia di Ronaldo, ora 5
+  su 5 parlano degli infortuni del San Paolo.
+- Provato il giro automatico completo (dossier + lettura AI + consigliato) su
+  2 partite del 08/10: 9-14 s a partita.
+
 ### 2026-10-07 (9) — Multipla: Altro pronostico, Altra partita, No campionato e Metti in Schedina
 
 Rossi: "non funzionano correttamente", "pure Metti in schedina non funziona".

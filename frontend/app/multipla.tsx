@@ -82,6 +82,7 @@ export default function Multipla() {
   const [excludeMatches, setExcludeMatches] = useState<string[]>([]);
   const [excludeLeagues, setExcludeLeagues] = useState<string[]>([]);
   const [pickOverride, setPickOverride] = useState<Record<string, string>>({});
+  const [provati, setProvati] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     api.days().then((d) => {
@@ -134,8 +135,13 @@ export default function Multipla() {
   const changePick = (leg: MultiplaLeg) => {
     if (!leg.alternatives.length) { toast.show("Nessun altro pronostico sopra soglia per questa partita"); return; }
     setAzione(`${leg.match_id}:pick`);
-    // Passa all'alternativa successiva (in ordine di ranking); la partita resta.
-    const next = leg.alternatives[0].market;
+    // Passa all'alternativa successiva (in ordine), senza tornare su quelle gia'
+    // viste: prima alternava sempre fra le stesse due (07/10/2026). Finite le
+    // alternative, si ricomincia dalla prima.
+    const viste = provati[leg.match_id] || [leg.market];
+    const nuova = leg.alternatives.find((a) => !viste.includes(a.market));
+    const next = (nuova ?? leg.alternatives[0]).market;
+    setProvati({ ...provati, [leg.match_id]: nuova ? [...viste, next] : [leg.market, next] });
     const ov = { ...pickOverride, [leg.match_id]: next };
     setPickOverride(ov);
     generate(res?.legs || [], excludeMatches, excludeLeagues, ov);
@@ -156,7 +162,7 @@ export default function Multipla() {
   };
 
   const reset = () => {
-    setExcludeMatches([]); setExcludeLeagues([]); setPickOverride({}); setRes(null); resRef.current = null;
+    setExcludeMatches([]); setExcludeLeagues([]); setPickOverride({}); setProvati({}); setRes(null); resRef.current = null;
   };
 
   const save = async () => {

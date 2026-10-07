@@ -51,7 +51,7 @@ Rispondi SOLO con questo JSON:
 const SISTEMA_PRO = SISTEMA.replace(
   `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`,
   `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi","mercato":"SOLO se la notizia cambia la giocata dei numeri: il mercato che giocheresti (es. 'X2', 'U2.5', 'MG 1-3 totali'); altrimenti stringa vuota"}
-La "notizia" va COPIATA dai dati (nomi dei giocatori, assenze, formazioni): il codice controlla che ci sia davvero.`,
+La "notizia" e' UNA frase con il fatto che conta (al massimo 3 giocatori, con i nomi copiati dai dati): non l'elenco intero degli assenti. Il codice controlla che ci sia davvero.`,
 );
 
 const n1 = (x: any) => (x == null ? "n/d" : Number(x).toFixed(1));

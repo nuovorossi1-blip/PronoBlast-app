@@ -66,6 +66,9 @@ async function frasiDallaPagina(url: string, chiavi: string[], max = 700): Promi
   }
 }
 
+const SITI_NON_NOTIZIE = /wikipedia|wikiwand|journal|annals|pubmed|ncbi|scholar|researchgate|sciencedirect|springer|mdpi|\.edu\b|universit/i;
+const PAROLE_CALCIO = /\b(match|vs\.?|v\.|injur\w*|lineups?|squad|coach|manager|goals?|league|serie a|brasileir\w*|campeonato|liga|preview|team news|kick-?off|stadium|stadio|derby|fixture|partita|calcio|football|soccer|futebol|f[uú]tbol|infortun\w*|formazion\w*|lesionad\w*|desfalque\w*|convocad\w*|escala[cç][aã]o|allenatore|tecnico|técnico)\b/i;
+
 export type NotizieWeb = { righe: string[]; fonti: { titolo: string; url: string }[] };
 
 /**
@@ -86,6 +89,11 @@ export async function notiziePartita(casa: string, ospite: string): Promise<Noti
       for (const r of ris) {
         if (!r.url || visti.has(r.url) || SITI_PRONOSTICI.test(r.url) || SITI_PRONOSTICI.test(r.titolo)) continue;
         if (!nomina(`${r.titolo} ${r.testo}`, chiavi)) continue;
+        // PERTINENZA (07/10/2026): nominare "Cruzeiro" non basta (riviste
+        // mediche con l'universita' Cruzeiro do Sul, la pagina Wikipedia di
+        // Ronaldo). Servono parole di calcio, e niente riviste ed enciclopedie.
+        if (SITI_NON_NOTIZIE.test(r.url) || SITI_NON_NOTIZIE.test(r.titolo)) continue;
+        if (!PAROLE_CALCIO.test(`${r.titolo} ${r.testo}`)) continue;
         visti.add(r.url);
         buoni.push(r);
       }
