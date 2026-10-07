@@ -155,6 +155,15 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (12) — Server locale compresso: l'app si apre prima
+
+Rossi: "la prima volta non e' reattivo". Misurato: le schede partita sono
+pronte in ~2 s, ma il server mandava tutto SENZA compressione: l'app (3 MB di
+JavaScript, riscaricati a ogni aggiornamento) e le risposte (ml-stats 107 KB).
+server.ts: file dell'app in brotli (3 MB -> 0,7 MB, compressi una volta e
+tenuti in memoria), risposte delle funzioni oltre 1 KB in gzip
+(ml-stats 107 KB -> 6 KB, elenco partite 114 KB -> 14 KB).
+
 ### 2026-10-07 (11) — Il consigliato si salva e riaprendo la partita c'e' subito
 
 Rossi (Inghilterra-Danimarca U19): "appena entro non c'e' il pronostico, poi lo

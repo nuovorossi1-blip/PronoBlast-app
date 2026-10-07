@@ -16,6 +16,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+import { promisify } from "node:util";
 import { POST as dispatch } from "../api/[route]";
 import uploadExcel from "../netlify/functions/upload-excel.mjs";
 
@@ -48,6 +50,29 @@ const TIPI: Record<string, string> = {
   ".webmanifest": "application/manifest+json", ".txt": "text/plain; charset=utf-8",
 };
 
+// COMPRESSIONE (07/10/2026, Rossi: "la prima volta non e' reattivo"). L'app
+// (3 MB di JavaScript) e le risposte partivano senza compressione: a ogni
+// aggiornamento il telefono riscaricava 3 MB in rete mobile. Con brotli i file
+// dell'app pesano ~5 volte meno (compressi una volta e tenuti in memoria), le
+// risposte delle funzioni si comprimono con gzip.
+const brotli = promisify(zlib.brotliCompress);
+const gzip = promisify(zlib.gzip);
+const COMPRIMIBILI = /\.(js|css|html|json|map|svg|txt|webmanifest|ttf)$/i;
+const compressi = new Map<string, { mtime: number; dati: Buffer }>();
+
+function accetta(req: http.IncomingMessage, cosa: string): boolean {
+  return String(req.headers["accept-encoding"] || "").includes(cosa);
+}
+
+async function fileCompresso(file: string): Promise<Buffer> {
+  const mtime = fs.statSync(file).mtimeMs;
+  const c = compressi.get(file);
+  if (c && c.mtime === mtime) return c.dati;
+  const dati = await brotli(fs.readFileSync(file), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } });
+  compressi.set(file, { mtime, dati });
+  return dati;
+}
+
 function leggiCorpo(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((ok, ko) => {
     const pezzi: Buffer[] = [];
@@ -76,11 +101,17 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
   }
   const fuori: Record<string, string> = { ...INTESTAZIONI };
   risposta.headers.forEach((v, k) => { if (k !== "content-encoding" && k !== "content-length") fuori[k] = v; });
+  let dati = Buffer.from(await risposta.arrayBuffer());
+  if (dati.length > 1024 && accetta(req, "gzip") && !/event-stream/.test(fuori["content-type"] || "")) {
+    dati = await gzip(dati, { level: 6 });
+    fuori["content-encoding"] = "gzip";
+    fuori["vary"] = "Accept-Encoding";
+  }
   res.writeHead(risposta.status, fuori);
-  res.end(Buffer.from(await risposta.arrayBuffer()));
+  res.end(dati);
 }
 
-function statico(req: http.IncomingMessage, res: http.ServerResponse, percorso: string) {
+async function statico(req: http.IncomingMessage, res: http.ServerResponse, percorso: string) {
   let file = path.join(DIST, decodeURIComponent(percorso));
   if (!file.startsWith(DIST)) file = path.join(DIST, "index.html");
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -89,7 +120,12 @@ function statico(req: http.IncomingMessage, res: http.ServerResponse, percorso: 
   }
   const tipo = TIPI[path.extname(file).toLowerCase()] || "application/octet-stream";
   const cache = file.includes(`${path.sep}_expo${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache";
-  res.writeHead(200, { ...INTESTAZIONI, "Content-Type": tipo, "Cache-Control": cache });
+  if (COMPRIMIBILI.test(file) && accetta(req, "br")) {
+    const dati = await fileCompresso(file);
+    res.writeHead(200, { ...INTESTAZIONI, "Content-Type": tipo, "Cache-Control": cache, "Content-Encoding": "br", "Vary": "Accept-Encoding" });
+    return res.end(req.method === "HEAD" ? undefined : dati);
+  }
+  res.writeHead(200, { ...INTESTAZIONI, "Content-Type": tipo, "Cache-Control": cache, "Vary": "Accept-Encoding" });
   if (req.method === "HEAD") return res.end();
   fs.createReadStream(file).pipe(res);
 }
@@ -100,7 +136,7 @@ http.createServer(async (req, res) => {
   const eFunzione = percorso.startsWith("/api/") || FUNZIONI.has(percorso.replace(/^\//, ""));
   try {
     if (eFunzione) await funzione(req, res, nome);
-    else statico(req, res, percorso);
+    else await statico(req, res, percorso);
   } catch (e: any) {
     console.error(new Date().toISOString(), req.method, percorso, e);
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
