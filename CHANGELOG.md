@@ -155,6 +155,21 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (11) — Il consigliato si salva e riaprendo la partita c'e' subito
+
+Rossi (Inghilterra-Danimarca U19): "appena entro non c'e' il pronostico, poi lo
+calcola; se esco e rientro fa questo gioco. Una volta calcolato deve salvarlo;
+se variano le quote puo' cambiare".
+- consigliatoDi salva anche `numeri.programma` (la lettura del programma, con
+  le quote).
+- /lettura: strada veloce: programma e consigliato salvati con le quote di
+  adesso -> risposta subito (0,25 s invece di ~6 s), niente ricalcolo; si
+  ricalcola solo se le quote sono cambiate o manca qualcosa. Restituisce anche
+  `consigliato` (quello salvato).
+- Scheda: il riquadro usa il consigliato SALVATO (lo stesso di schedina e
+  multipla), non uno ricalcolato a ogni apertura; lettura e tabella scenari
+  restano in memoria per la sessione (rientrando: subito).
+
 ### 2026-10-07 (10) — Altro pronostico che scorre, notizie mirate, dossier senza spazzatura
 
 - Multipla, "Altro pronostico": scorre tutte le alternative (stato `provati`),

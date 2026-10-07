@@ -3008,6 +3008,8 @@ export type RispostaLettura = {
   } | null;
   ai: LetturaAI | null; pro?: LetturaAI | null; dossier?: boolean; error?: string;
   ai_vecchia?: boolean; pro_vecchia?: boolean;
+  /** Il consigliato SALVATO (lo stesso di schedina e multipla). */
+  consigliato?: { market: string | null; daLasciare: string | null; ai: string | null } | null;
 };
 
 /**

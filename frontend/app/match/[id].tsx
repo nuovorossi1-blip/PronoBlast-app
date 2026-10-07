@@ -71,6 +71,11 @@ const nonGiocato = (m: string) => {
   return MAI_GIOCATI.some((x) => x.replace(/\s+/g, "").toUpperCase() === n);
 };
 
+// Memoria della sessione (07/10/2026, Rossi: "se esco e rientro deve esserci
+// gia'"): lettura e consigliato per partita, e la tabella scenari.
+const memLettura = new Map<string, RispostaLettura>();
+let memTabella: TabellaScenari | null = null;
+
 export default function MatchDetail() {
   const { id, gen } = useLocalSearchParams<{ id: string; gen?: string }>();
   const router = useRouter();
@@ -123,7 +128,7 @@ export default function MatchDetail() {
   // Tutto il resto della scheda sta in "Approfondisci", chiuso (07/10/2026, Rossi:
   // "all'utente serve la lettura, se vuole approfondire lo fa a parte").
   const [approfondisci, setApprofondisci] = useState(false);
-  const [tabella, setTabella] = useState<TabellaScenari | null>(null);
+  const [tabella, setTabella] = useState<TabellaScenari | null>(memTabella);
   // La lettura (07/10/2026): frasi del programma + lettura dell'AI gratis.
   const [lettura, setLettura] = useState<RispostaLettura | null>(null);
   const [letturaInCorso, setLetturaInCorso] = useState(false);
@@ -134,11 +139,12 @@ export default function MatchDetail() {
   useEffect(() => {
     if (!id) return;
     let vivo = true;
-    setLettura(null);
-    api.lettura(id).then((r) => { if (vivo) setLettura(r); }).catch(() => {});
+    // Rientrando nella stessa partita: subito quello che si era caricato.
+    setLettura(memLettura.get(id) ?? null);
+    api.lettura(id).then((r) => { if (vivo) { memLettura.set(id, r); setLettura(r); } }).catch(() => {});
     setLetturaInCorso(true);
     api.lettura(id, { auto: true })
-      .then((r) => { if (vivo) setLettura(r); })
+      .then((r) => { if (vivo) { memLettura.set(id, r); setLettura(r); } })
       .catch(() => {})
       .finally(() => { if (vivo) setLetturaInCorso(false); });
     return () => { vivo = false; };
@@ -149,13 +155,14 @@ export default function MatchDetail() {
     if (!id || proInCorso) return;
     setProInCorso(true);
     api.lettura(id, { genera: true, pro: true })
-      .then((r) => setLettura(r))
+      .then((r) => { memLettura.set(id, r); setLettura(r); })
       .catch((e) => notify("Pronostico AI non fatto", String(e?.message || e).replace(/^\d{3}\s+/, "")))
       .finally(() => setProInCorso(false));
   };
   useEffect(() => {
     let vivo = true;
-    api.tabellaScenari().then((t) => { if (vivo && t?.scenari) setTabella(t); }).catch(() => {});
+    if (memTabella) return;
+    api.tabellaScenari().then((t) => { if (vivo && t?.scenari) { memTabella = t; setTabella(t); } }).catch(() => {});
     return () => { vivo = false; };
   }, []);
   useEffect(() => {
@@ -601,7 +608,11 @@ export default function MatchDetail() {
             (sempre da 1,40 in su). Il Pronostico AI lo conferma o lo cambia
             solo con una notizia verificata. */}
         {analisi && lettura ? (() => {
-          const c = analisi.consigliato;
+          // Il consigliato SALVATO vince su quello ricalcolato qui: deve essere
+          // lo stesso di schedina e multipla, e non cambiare a ogni apertura.
+          const salvato = lettura.consigliato;
+          const rigaSalvata = salvato?.market ? analisi.righe.find((r) => normalizeMarket(r.market) === normalizeMarket(salvato.market!)) : undefined;
+          const c = salvato ? (rigaSalvata ?? (salvato.daLasciare ? null : analisi.consigliato)) : analisi.consigliato;
           const pc = (x: number) => `${Math.round(x * 100)}%`;
           const pro = lettura.pro && !lettura.pro_vecchia ? lettura.pro : null;
           const cambiato = !!pro?.notizia_verificata && !!pro.mercato && (!c || normalizeMarket(pro.mercato) !== normalizeMarket(c.market));
@@ -630,7 +641,7 @@ export default function MatchDetail() {
                 <>
                   <Text style={styles.consVal}>{c.nome}</Text>
                   <Text style={styles.consMeta}>
-                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)} · ${pc(c.misurata!.pA)} / ${pc(c.misurata!.pB)} in archivio (${c.misurata!.n} partite)`}
+                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)} · ${c.misurata ? `${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? `~${pc(c.stima)} stima` : ""}`}
                   </Text>
                   <Text style={styles.consTesto}>{`Tutti i dati d'accordo. ${frase}`}</Text>
                   {analisi.avvisi.map((v) => <Text key={v} style={styles.consAvviso}>{`⚠ ${v.charAt(0).toUpperCase()}${v.slice(1)}.`}</Text>)}
@@ -639,10 +650,10 @@ export default function MatchDetail() {
                   ) : null}
                   {pro ? <Text style={styles.consOk}>{`✓ Confermato dal Pronostico AI (${pro.modello.replace(" (OpenRouter)", "")})`}</Text> : null}
                 </>
-              ) : analisi.daLasciare ? (
+              ) : (salvato?.daLasciare ?? analisi.daLasciare) ? (
                 <>
                   <Text style={styles.consVal}>Da lasciare</Text>
-                  <Text style={styles.consAvviso}>{`Motivo: ${analisi.daLasciare}. Se vuoi giocarla lo stesso, guarda "Punta su questo" più sotto o il Pronostico AI.`}</Text>
+                  <Text style={styles.consAvviso}>{`Motivo: ${salvato?.daLasciare ?? analisi.daLasciare}. Se vuoi giocarla lo stesso, guarda "Punta su questo" più sotto o il Pronostico AI.`}</Text>
                 </>
               ) : (
                 <>

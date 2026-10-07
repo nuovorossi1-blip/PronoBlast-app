@@ -1,4 +1,4 @@
-import { jsonResponse } from "./lib/supabaseRest";
+import { jsonResponse, pgGet } from "./lib/supabaseRest";
 import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
@@ -16,6 +16,31 @@ export default async (req: Request): Promise<Response> => {
   const id = url.searchParams.get("matchId");
   if (!id) return jsonResponse({ error: "Parametro 'matchId' mancante" }, 400);
   try {
+    // STRADA VELOCE (07/10/2026): lettura del programma e consigliato gia'
+    // salvati e quote invariate -> si risponde subito, senza ricalcolare
+    // (prima ogni apertura rifaceva forma FotMob e calcoli: qualche secondo
+    // senza consigliato). Se le quote sono cambiate si passa al calcolo.
+    if (req.method === "GET") {
+      try {
+        const [m] = await pgGet(`matches?id=eq.${encodeURIComponent(id)}&select=id,day,time,result,odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`);
+        const [d] = m ? await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(id)}&select=numeri`) : [];
+        const n = d?.numeri;
+        const ora = m ? firmaQuote(m) : null;
+        const auto = url.searchParams.get("auto") === "1";
+        const inizio = m ? inizioPartitaMs(m.day, m.time) : null;
+        const daGiocareV = !!m && !m.result && (inizio === null || inizio > Date.now());
+        const pronta = !!n?.programma && !!ora && !quoteCambiate(n.programma.quote, ora) && !!consigliatoValido(n, m);
+        const manca = auto && daGiocareV && letturaDaRifare(n, m);
+        if (pronta && !manca) {
+          const ai = n.lettura_ai ?? null, pro = n.lettura_pro ?? null;
+          return jsonResponse({
+            programma: n.programma, ai, pro, consigliato: n.consigliato, dossier: true, salvata: true,
+            ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora!),
+            pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora!),
+          });
+        }
+      } catch { /* si va al calcolo completo */ }
+    }
     const dati = await datiLettura(id);
     if (!dati) return jsonResponse({ programma: null, ai: null, pro: null });
     let ai = dati.numeri?.lettura_ai ?? null;
@@ -25,9 +50,11 @@ export default async (req: Request): Promise<Response> => {
     if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && letturaDaRifare(dati.numeri, dati.match)) {
       ai = (await generaLetturaAI(id, dati)) ?? ai;
     }
-    // Il consigliato salvato (per schedina e multipla), se manca o e' vecchio.
-    if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && !consigliatoValido(dati.numeri, dati.match)) {
-      try { await consigliatoDi(id, dati); } catch { /* lo rifa' il giro */ }
+    // Il consigliato e la lettura del programma si salvano (anche per partite
+    // gia' iniziate: si salvano con le quote della partita, che non cambiano piu').
+    let consigliato = dati.numeri ? consigliatoValido(dati.numeri, dati.match) : null;
+    if (dati.numeri && (!consigliato || !dati.numeri.programma)) {
+      try { consigliato = await consigliatoDi(id, dati); } catch { /* lo rifa' il giro */ }
     }
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
       if (url.searchParams.get("pro") === "1") {
@@ -46,7 +73,7 @@ export default async (req: Request): Promise<Response> => {
     const { testo: _t, ...programma } = dati.programma;
     const ora = firmaQuote(dati.match);
     return jsonResponse({
-      programma, ai, pro, dossier: !!dati.numeri,
+      programma, ai, pro, consigliato, dossier: !!dati.numeri,
       // Le letture fatte prima del 07/10 non hanno le quote salvate: non si sa.
       ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora),
       pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora),

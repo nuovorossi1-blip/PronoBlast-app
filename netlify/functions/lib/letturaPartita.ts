@@ -269,7 +269,13 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   if (salva) {
     try {
       const numeri = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=numeri`))[0]?.numeri;
-      if (numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, { numeri: { ...numeri, consigliato: out } });
+      // Anche la lettura del programma, per mostrarla subito alla prossima
+      // apertura senza ricalcolare (Rossi 07/10/2026: "una volta calcolato
+      // deve salvarlo; se variano le quote puo' cambiare").
+      const { testo: _t, ...programma } = pr;
+      if (numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, {
+        numeri: { ...numeri, consigliato: out, programma: { ...programma, quote: out.quote } },
+      });
     } catch (e) {
       console.error("[consigliato] salvataggio", e);
     }
