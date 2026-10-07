@@ -502,6 +502,9 @@ export const api = {
       "/results-import", { method: "POST", body: JSON.stringify({ items, overwrite }) },
     ),
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
+  tabellaScenari: () => netlifyReq<TabellaScenari>(`/tabella-scenari`),
+  lettura: (id: string, genera = false) =>
+    netlifyReq<RispostaLettura>(`/lettura?matchId=${encodeURIComponent(id)}${genera ? "&genera=1" : ""}`, genera ? { method: "POST" } : undefined),
   formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),
@@ -2843,7 +2846,7 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
 export type PartitaForma = { data: string; avversario: string; in_casa: boolean; fatti: number; subiti: number; torneo: string };
 export type FinestraForma = { n: number; fatti: number | null; subiti: number | null; partite: PartitaForma[] };
 export type FormaSquadra = { nome: string; totale: FinestraForma; sede: FinestraForma };
-export type FormaGol = { fotmob_id: string; casa: FormaSquadra; ospite: FormaSquadra };
+export type FormaGol = { fotmob_id: string; casa: FormaSquadra; ospite: FormaSquadra; id_casa?: number; id_ospite?: number; inizio_ms?: number };
 
 export type LetturaSquadra = {
   attesi: number;            // gol attesi dalle quote
@@ -2974,3 +2977,18 @@ export function letturaGol(lambdaCasa: number, lambdaOspite: number, forma?: For
     totale, totaleForma, p00, gg: segnaC * segnaO, under25, bloccata, tipo, tipoSpiegazione, avvisi,
   };
 }
+
+// ============================================================================
+// TABELLA SCENARI (07/10/2026): per scenario e fascia, i mercati che la
+// prendono piu' spesso in modo STABILE (partite vecchie e recenti). Calcolata
+// dal server (lib/tabellaScenari.ts), usata da "Punta su questo".
+// ============================================================================
+export type VoceTabella = { market: string; manuale: boolean; pA: number; nA: number; pB: number; nB: number; p: number };
+export type TabellaScenari = { aggiornata: string; divisione: string; partite: number; scenari: Record<string, Record<string, VoceTabella[]>> };
+
+// LETTURA DELLA PARTITA (07/10/2026): del programma (frasi) e dell'AI gratis.
+export type LetturaAI = {
+  modello: string; quando: string; direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
+  forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
+};
+export type RispostaLettura = { programma: { frasi: string[]; accordo: boolean | null } | null; ai: LetturaAI | null; dossier?: boolean; error?: string };

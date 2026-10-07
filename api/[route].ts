@@ -67,6 +67,8 @@ import stats_scores from "../netlify/functions/stats-scores";
 import upload_skipped from "../netlify/functions/upload-skipped";
 import dossier_giornata from "../netlify/functions/dossier-giornata";
 import forma_gol from "../netlify/functions/forma-gol";
+import tabella_scenari from "../netlify/functions/tabella-scenari";
+import lettura from "../netlify/functions/lettura";
 
 type Handler = (req: Request) => Promise<Response>;
 
@@ -117,6 +119,8 @@ const ROUTES: Record<string, Handler> = {
   "upload-skipped": upload_skipped,
   "dossier-giornata": dossier_giornata,
   "forma-gol": forma_gol,
+  "tabella-scenari": tabella_scenari,
+  "lettura": lettura,
 };
 
 async function dispatch(req: Request): Promise<Response> {

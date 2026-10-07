@@ -1,5 +1,6 @@
 import { pgGet, pgGetAll, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import { contestoPartitaSalvato, DOSSIER_VALIDO_ORE } from "./lib/webSearch";
+import { generaLetturaAI } from "./lib/letturaPartita";
 import { impostaAlias } from "./lib/teamMatch";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
@@ -64,11 +65,18 @@ async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<str
       },
       "", { tavily: false, nuovo },
     );
-    if (ctx.da_archivio) { conteggi.gia_pronto++; return "gia' pronto"; }
     if (!ctx.disponibile) { conteggi.nessun_dato++; return ctx.motivo || "nessun dato"; }
+    // LETTURA AI GRATIS (07/10/2026): con il dossier pronto, se manca, la fa
+    // Nemotron (gratis). Chi apre la partita la trova gia' scritta.
+    let lettura = "";
+    try {
+      const r = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(m.id)}&select=numeri`);
+      if (r[0]?.numeri && !r[0].numeri.lettura_ai) lettura = (await generaLetturaAI(m.id)) ? " + lettura AI" : " (lettura AI non riuscita)";
+    } catch { lettura = " (lettura AI non riuscita)"; }
+    if (ctx.da_archivio) { conteggi.gia_pronto++; return "gia' pronto" + lettura; }
     if (ctx.fonti_dati?.includes("FotMob")) conteggi.fotmob++;
     if (ctx.fonti_dati?.includes("SearXNG")) conteggi.notizie++;
-    return `${ctx.fonti_dati?.join(" + ")}: ${ctx.blocchi.map((b) => `${b.etichetta} (${b.righe.length})`).join(", ")}`;
+    return `${ctx.fonti_dati?.join(" + ")}: ${ctx.blocchi.map((b) => `${b.etichetta} (${b.righe.length})`).join(", ")}${lettura}`;
   } catch (e: any) {
     conteggi.errori++;
     return `errore: ${String(e?.message || e).slice(0, 120)}`;

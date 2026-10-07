@@ -37,10 +37,23 @@ function finestra(partite: PartitaForma[]): Finestra {
   return { n: partite.length, fatti: media(partite.map((p) => p.fatti)), subiti: media(partite.map((p) => p.subiti)), partite };
 }
 
-async function formaSquadra(id: number, nome: string, primaMs: number, inCasa: boolean): Promise<FormaSquadra> {
+/** Le partite di una squadra (stagione in corso FotMob), in memoria 6 ore. */
+const squadre = new Map<number, { quando: number; fx: any[] }>();
+async function fixtures(id: number): Promise<any[]> {
+  const c = squadre.get(id);
+  if (c && Date.now() - c.quando < 6 * 3600_000) return c.fx;
   const t = await getJson(`https://www.fotmob.com/api/data/teams?id=${id}&ccode3=ITA`);
-  const tutte: PartitaForma[] = [];
-  for (const f of t?.fixtures?.allFixtures?.fixtures || []) {
+  const fx = t?.fixtures?.allFixtures?.fixtures || [];
+  squadre.set(id, { quando: Date.now(), fx });
+  return fx;
+}
+
+export type PartitaConAvversario = PartitaForma & { id_avversario: number };
+
+/** Partite finite nei 90 minuti prima di `primaMs`, dalla piu' vecchia. */
+export async function partiteFinite(id: number, primaMs: number): Promise<PartitaConAvversario[]> {
+  const tutte: PartitaConAvversario[] = [];
+  for (const f of await fixtures(id)) {
     const st = f?.status || {};
     const quando = Date.parse(st.utcTime);
     if (!st.finished || st.cancelled || st.awarded || st.reason?.short !== "FT") continue;
@@ -51,10 +64,15 @@ async function formaSquadra(id: number, nome: string, primaMs: number, inCasa: b
     if (typeof fatti !== "number" || typeof subiti !== "number") continue;
     tutte.push({
       data: String(st.utcTime).slice(0, 10), avversario: casa ? f.away?.name : f.home?.name,
+      id_avversario: Number(casa ? f.away?.id : f.home?.id),
       in_casa: casa, fatti, subiti, torneo: f.tournament?.name || "",
     });
   }
-  tutte.sort((a, b) => a.data.localeCompare(b.data));
+  return tutte.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+async function formaSquadra(id: number, nome: string, primaMs: number, inCasa: boolean): Promise<FormaSquadra> {
+  const tutte: PartitaForma[] = (await partiteFinite(id, primaMs)).map(({ id_avversario, ...p }) => p);
   return {
     nome,
     totale: finestra(tutte.slice(-5)),
@@ -87,7 +105,7 @@ export async function formaGol(
           formaSquadra(Number(tc.id), tc.name, inizio, true),
           formaSquadra(Number(to.id), to.name, inizio, false),
         ]);
-        dati = { fotmob_id: String(id), casa, ospite };
+        dati = { fotmob_id: String(id), casa, ospite, id_casa: Number(tc.id), id_ospite: Number(to.id), inizio_ms: inizio } as FormaGol;
       }
     }
   } catch (e) {

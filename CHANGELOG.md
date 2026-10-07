@@ -155,6 +155,47 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (3) — Pagina partita "da leggere": scenario, lettura, giocata per fascia
+
+Rossi: "all'utente serve la lettura come quella fatta sulla Moldova, non n
+mila dati; se vuole approfondire lo fa a parte". Prima tre test, poi il codice.
+
+**Test 1 (9 partite del 06/10, 5 modelli gratis OpenRouter):** Nemotron 3
+Super risponde sempre (2-8 s) e scrive bene, ma ha detto "forma e quote
+d'accordo" 9 volte su 9: ripete le quote. Ultra spesso "sovraccarico",
+Gemma bloccato dalla privacy dell'account, Inkling non disponibile.
+**Test 2 (stesse partite, con i calcoli del programma nel testo):** legge
+Bielorussia-Finlandia ("nessun netto favorito", fini' 1-0) ed
+Estonia-Islanda ("partita chiusa, Under 2.5", fini' 0-0).
+**Misura 3 (archivio, 9.325 partite):** per scenario e fascia, ogni mercato
+del catalogo e del manuale; prova di STABILITA' (partite vecchie / recenti,
+divise al 01/09): il "migliore" delle vecchie passava dal 64,6% al 58,4%
+nelle recenti (6 punti di fortuna). Si tiene il peggiore dei due.
+
+Cosa cambia:
+- Pagina: intestazione -> SCENARIO (intoccato, subito sotto) -> Cosa
+  aspettarsi dai gol + LA LETTURA -> PUNTA SU QUESTO con il selettore di
+  fascia -> "Approfondisci" chiuso (verdetto, struttura, cluster, ranking,
+  pronostico AI; si apre da solo se si genera il pronostico AI).
+- `lib/tabellaScenari.ts` + rotta `tabella-scenari`: tabella stabile
+  scenario x fascia (min 50 partite per meta'), in `settings.tabella_scenari`,
+  ricalcolata in sottofondo ogni 7 giorni. "Punta su questo" la usa per prima
+  (fascia scelta, poi le altre), poi il motore.
+- `lib/letturaProgramma.ts`: forza = differenza reti media ultime 10; forma
+  pesata per somiglianza dell'avversario a quello di oggi e per recenza (0,9
+  a partita); d'accordo / non d'accordo (0,7 gol o direzione); assenze >= 3.
+  Frasi per la scheda + testo per l'AI.
+- `lib/letturaPartita.ts` + rotta `lettura`: lettura AI GRATIS (Nemotron 3
+  Super, riserva 3.5 Lightning), salvata in `dossier_web.numeri.lettura_ai`;
+  fatta in automatico dal dossier delle 6/13 (dossier-giornata) o col tasto
+  "Fai la lettura AI (gratis)". I modelli a pagamento solo sul tasto
+  "Genera pronostico AI".
+- `formaGol.ts`: partite con l'id dell'avversario, cache per squadra 6 ore.
+- Tabella del pronostico AI: tolti xG/xGA e "xG (web)" scritti dall'AI
+  (erano totali del girone o copie del Poisson).
+- "Chi ne fa di piu'" diventa "Favorita per le quote" (la lettura dice chi
+  segna di piu' contro avversari simili).
+
 ### 2026-10-07 (2) — Server bloccato dopo il riavvio; Punta su questo fuori soglia
 
 - Rossi: "non si apre l'app". Dopo ogni riavvio il server del PC non

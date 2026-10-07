@@ -153,6 +153,14 @@
       "destination": "/api/forma-gol"
     },
     {
+      "source": "/tabella-scenari",
+      "destination": "/api/tabella-scenari"
+    },
+    {
+      "source": "/lettura",
+      "destination": "/api/lettura"
+    },
+    {
       "source": "/lavori",
       "destination": "/api/lavori"
     },
