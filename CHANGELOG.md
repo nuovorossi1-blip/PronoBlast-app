@@ -149,6 +149,20 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-08 — Apertura scheda senza attendere lo storico
+
+- La scheda mostra squadre, quote e dati salvati appena arriva `match-detail`;
+  statistiche, motore e storico completano il pacchetto successivamente.
+  La cache conserva il pacchetto completo e il calcolo del verdetto resta invariato.
+- La lettura salvata arriva prima della richiesta `auto=1`, che ora parte solo
+  se il dossier esiste e l'AI manca o ha quote vecchie. Nessuna generazione AI
+  parallela alla lettura iniziale. FotMob continua a caricarsi separatamente.
+- Le risposte di una scheda precedente non sovrascrivono una nuova navigazione.
+- Verifica: TypeScript e build web passati. Test browser con API simulate e
+  storico ritardato di 2,5 s: squadre visibili in 0,7–1,0 s anziché 3,4–3,5 s;
+  una sola richiesta lettura con AI aggiornata, due sequenziali se manca.
+  Script ripetibile: `python frontend/scripts/verify-match-loading.py` (Edge CDP 9222).
+
 > Dal 2026-10-04 il repo si chiama `nuovorossi1-blip/PronoBlast-app` (prima
 > `emergent-app`). Le PR del 30/09 sono sul repo `nuovorossi1-blip/emergent-app` (produzione:
 > Vercel, deploy automatico dal merge su `main`). Il dettaglio di ogni ticket e'

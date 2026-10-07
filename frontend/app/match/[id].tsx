@@ -141,10 +141,19 @@ export default function MatchDetail() {
     let vivo = true;
     // Rientrando nella stessa partita: subito quello che si era caricato.
     setLettura(memLettura.get(id) ?? null);
-    api.lettura(id).then((r) => { if (vivo) { memLettura.set(id, r); setLettura(r); } }).catch(() => {});
     setLetturaInCorso(true);
-    api.lettura(id, { auto: true })
-      .then((r) => { if (vivo) { memLettura.set(id, r); setLettura(r); } })
+    api.lettura(id)
+      .then(async (r) => {
+        if (!vivo) return;
+        memLettura.set(id, r);
+        setLettura(r);
+        // La lettura salvata compare prima di qualunque generazione AI.
+        // Non rifacciamo il lavoro quando l'AI e' gia' aggiornata.
+        if (r.dossier && (!r.ai || r.ai_vecchia)) {
+          const aggiornata = await api.lettura(id, { auto: true });
+          if (vivo) { memLettura.set(id, aggiornata); setLettura(aggiornata); }
+        }
+      })
       .catch(() => {})
       .finally(() => { if (vivo) setLetturaInCorso(false); });
     return () => { vivo = false; };
@@ -184,6 +193,7 @@ export default function MatchDetail() {
   const [oddReady, setOddReady] = useState<boolean>(!!oddCached);
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
+  const loadVersion = useRef(0);
 
   /** Riversa nello stato un pacchetto gia' pronto (dalla cache o dalla rete). */
   const applyBundle = useCallback((b: { match: any; cands: any; struct: any; hist: any }) => {
@@ -200,6 +210,8 @@ export default function MatchDetail() {
   //  - se e' vecchio aggiorno in sottofondo, con i dati vecchi gia' a schermo.
   const load = useCallback(async (force = false) => {
     if (!id) return;
+    const version = ++loadVersion.current;
+    const current = () => loadVersion.current === version;
     const cached = matchDetailCache.get(id, minOdd);
     if (cached) {
       applyBundle(cached);
@@ -212,11 +224,23 @@ export default function MatchDetail() {
       // (round 2, TICKET 1): erano costanti di famiglia, non numeri di questa
       // partita. L'endpoint resta in piedi, la scheda non lo chiama.
       const [m, stats, struct, hist] = await Promise.all([
-        api.match(id),
+        api.match(id).then((m) => {
+          // La scheda si apre appena arrivano squadre, quote e dati salvati.
+          // Statistiche, motore e storico completano il pacchetto in seguito.
+          if (current()) {
+            setMatch(m);
+            setPrediction(m.prediction ?? null);
+            setResult(m.result || "");
+            if (!cached) { setStructural(null); setHistory(null); }
+            setLoading(false);
+          }
+          return m;
+        }),
         getMarketStatsCached(),
         api.matchStructural(id, minOdd).catch(() => null),
         api.matchHistory(id).catch(() => null),
       ]);
+      if (!current()) return;
       const bundle = { match: m, cands: null, struct, hist };
       matchDetailCache.set(id, minOdd, bundle);
       applyBundle(bundle);
@@ -224,13 +248,17 @@ export default function MatchDetail() {
     } catch (e: any) {
       // Con dati gia' a schermo un errore di rete non deve buttare un alert
       // in faccia: si tiene quello che c'e'.
-      if (!cached) notify("Errore", e?.message || "Caricamento");
+      if (current() && !cached) notify("Errore", e?.message || "Caricamento");
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [id, minOdd, applyBundle]);
 
-  useEffect(() => { if (oddReady) load(); }, [load, oddReady]);
+  useEffect(() => {
+    if (oddReady) load();
+    // Una risposta della partita precedente non deve sovrascrivere quella nuova.
+    return () => { loadVersion.current++; };
+  }, [load, oddReady]);
 
   // Soglia salvata nelle impostazioni: una volta per SESSIONE, non per partita.
   useEffect(() => {
@@ -305,7 +333,7 @@ export default function MatchDetail() {
 
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!match || !structural || match.result) return;
+    if (!match || match.id !== id || !structural || match.result) return;
     try {
       // FASE 5 — se il backend manda la sua classifica PRE la usiamo: è una
       // sola implementazione invece di due copie da tenere allineate a mano.
@@ -331,7 +359,7 @@ export default function MatchDetail() {
     } catch {
       // Nessun impatto sul pronostico mostrato.
     }
-  }, [match, structural, prediction, marketStats, history, minOdd, manualeStats]);
+  }, [id, match, structural, prediction, marketStats, history, minOdd, manualeStats]);
 
   // Subscribe to background prediction queue so the UI reflects in-flight requests
   useEffect(() => {
@@ -500,7 +528,7 @@ export default function MatchDetail() {
     try { await api.updateSelection([match.id], next); } catch {}
   };
 
-  if (loading || !match) {
+  if (loading || !match || match.id !== id) {
     return (
       <SafeAreaView style={styles.safe}>
         <ActivityIndicator color={colors.primary} style={{ marginTop: 60 }} />
