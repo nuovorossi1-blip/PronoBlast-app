@@ -278,6 +278,28 @@ export default function Multipla() {
               </View>
             </View>
 
+            {/* PROPOSTE (07/10/2026, Rossi): poche partite sicure del tipo
+                scelto, quota non raggiunta, oppure tante partite -> scegli tu. */}
+            {(res.proposte || []).length ? (
+              <View style={styles.propBox}>
+                <Text style={styles.propTitolo}>PROPOSTE · SCEGLI TU</Text>
+                {(res.proposte || []).map((p, i) => (
+                  <View key={i} style={styles.propCard}>
+                    <Text style={styles.propNome}>{`${p.titolo} · quota ${fmtNum(p.total_odd)} · prob. ${Math.round(p.total_prob * 100)}%`}</Text>
+                    <Text style={styles.propDesc}>{p.descrizione}</Text>
+                    {p.avviso ? <Text style={styles.propAvviso}>{p.avviso}</Text> : null}
+                    <Text style={styles.propLegs}>{p.legs.map((l) => `${l.squadra1}-${l.squadra2}: ${l.market} @${fmtOdd(l)}`).join(" · ")}</Text>
+                    <TouchableOpacity
+                      onPress={() => setRes({ ...res, legs: p.legs, total_odd: p.total_odd, total_prob: p.total_prob, ok: true, reason: `Hai scelto: ${p.titolo}.`, proposte: [] })}
+                      style={styles.propBtn}
+                    >
+                      <Text style={styles.propBtnTxt}>Usa questa</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             {res.legs.map((leg) => {
               const league = parseLeagueCode(leg.manifestazione);
               return (
@@ -429,6 +451,15 @@ const styles = StyleSheet.create({
   summarySub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   reason: { color: "#FCD34D", fontSize: 12, marginTop: 6, lineHeight: 17 },
   note: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  propBox: { gap: 8, borderWidth: 1, borderColor: colors.primary, borderRadius: 12, padding: 10 },
+  propTitolo: { color: colors.primary, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
+  propCard: { gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
+  propNome: { color: colors.text, fontSize: 13, fontWeight: "900" },
+  propDesc: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  propAvviso: { color: colors.warning, fontSize: 12, fontWeight: "700" },
+  propLegs: { color: colors.text, fontSize: 11, lineHeight: 16 },
+  propBtn: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginTop: 2 },
+  propBtnTxt: { color: "#000", fontSize: 12, fontWeight: "900" },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, gap: 10 },
   cardLeague: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
   cardTeams: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 2 },

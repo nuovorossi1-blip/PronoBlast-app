@@ -214,6 +214,9 @@ export type ConsigliatoSalvato = {
   daLasciare: string | null; avvisi: string[];
   alternative: { market: string; nome: string; quota: number; stimata: boolean; p: number }[];
   ai: "confermato" | "cambiato" | null; notizia: string | null;
+  /** Se l'AI ha cambiato: la giocata dei numeri, per tornare indietro e per
+   *  misurare chi ha ragione (pagella, Rossi 07/10/2026). */
+  numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
   quote: QuoteFirma; quando: string;
 };
 
@@ -244,7 +247,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     market: c?.market ?? null, nome: c?.nome ?? null, quota: c?.quota ?? null, stimata: !!c?.stimata,
     pA: c?.misurata?.pA ?? null, pB: c?.misurata?.pB ?? null, n: c?.misurata?.n ?? null,
     daLasciare: a.daLasciare, avvisi: a.avvisi,
-    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato).slice(0, 3)
+    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato).slice(0, 8)
       .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
     ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
   };
@@ -252,6 +255,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
     if (pro.notizia_verificata && pro.mercato && (!out.market || normalizeMarket(pro.mercato) !== normalizeMarket(out.market))) {
       const q = quoteCatalogo(odds)[pro.mercato];
+      out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
       out.ai = "cambiato"; out.notizia = pro.notizia || null;
       out.market = pro.mercato; out.nome = pro.mercato.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
       out.quota = q?.odd ?? out.quota; out.stimata = q ? q.estimated : true; out.daLasciare = null;
@@ -274,4 +278,19 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 export function consigliatoValido(numeri: any, match: any): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
   return c && !quoteCambiate(c.quote, firmaQuote(match)) ? c : null;
+}
+
+
+/**
+ * Se l'AI ha cambiato il consigliato e la partita e' in Schedina, la giocata
+ * salvata (pick_finale) diventa quella dell'AI (Rossi: "se l'ha cambiata ci
+ * sara' un motivo"). Si torna indietro dalla Schedina.
+ */
+export async function applicaCambioInSchedina(matchId: string, c: ConsigliatoSalvato | null): Promise<void> {
+  if (!c || c.ai !== "cambiato" || !c.market) return;
+  try {
+    await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}&selected=eq.true&result=is.null`, { pick_finale: c.market, pick_finale_prob: null });
+  } catch (e) {
+    console.error("[consigliato] schedina", e);
+  }
 }

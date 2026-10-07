@@ -1,4 +1,4 @@
-import { generaLetturaAI, consigliatoDi } from "./lib/letturaPartita";
+import { generaLetturaAI, consigliatoDi, applicaCambioInSchedina } from "./lib/letturaPartita";
 import { pgGet, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import {
   accumulaBacktest, sommaBacktestVuota,
@@ -196,6 +196,7 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
               if (!pro) esito = "errore: il modello non ha dato una lettura valida";
               else {
                 const c = await consigliatoDi(id);
+                await applicaCambioInSchedina(id, c);
                 esito = c?.market
                   ? `consigliato ${c.nome ?? c.market}${c.ai === "cambiato" ? " (cambiato dal Pronostico AI)" : c.ai === "confermato" ? " (confermato)" : ""}`
                   : c?.daLasciare ? `da lasciare: ${c.daLasciare}` : "nessuna giocata sicura";

@@ -388,7 +388,29 @@ export default function Selected() {
                           {(m as any).consigliato.ai === "confermato" ? " · ✓ AI" : (m as any).consigliato.ai === "cambiato" ? " · cambiato dall'AI" : ""}
                         </Text>
                       </View>
-                    ) : (m as any).consigliato?.daLasciare ? (
+                    ) : null}
+                    {/* Cambio dell'AI applicato da solo (Rossi: "se l'ha cambiata ci
+                        sara' un motivo"); si puo' tornare alla giocata dei numeri. */}
+                    {(m as any).consigliato?.ai === "cambiato" && (m as any).consigliato?.numeri_market && !m.result ? (
+                      <View style={styles.cambioBox}>
+                        <Text style={styles.cambioTxt}>
+                          {`Cambiata dall'AI (era ${(m as any).consigliato.numeri_nome ?? (m as any).consigliato.numeri_market}): ${(m as any).consigliato.notizia ?? ""}`}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            try {
+                              await api.saveVerdict(m.id, (m as any).consigliato.numeri_market);
+                              notify("Fatto", `Torna a ${(m as any).consigliato.numeri_market}.`);
+                              selectedListCache.invalidate();
+                              load(true);
+                            } catch (e: any) { notify("Errore", e?.message || String(e)); }
+                          }}
+                        >
+                          <Text style={styles.cambioBtn}>Torna alla vecchia</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                    {(m as any).consigliato?.daLasciare && !(m as any).consigliato?.market ? (
                       <View style={[styles.predTag, { borderStyle: "dashed" }]}>
                         <Text style={[styles.predTagTxt, { color: colors.warning }]}>da lasciare</Text>
                       </View>
@@ -456,6 +478,9 @@ const styles = StyleSheet.create({
   cardLeague: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
   cardTeams: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 2 },
   cardWhen: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  cambioBox: { marginTop: 4, gap: 2 },
+  cambioTxt: { color: colors.warning, fontSize: 10, lineHeight: 14 },
+  cambioBtn: { color: colors.primary, fontSize: 11, fontWeight: "900" },
   predTag: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: colors.aiBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   predTagTxt: { color: colors.aiText, fontSize: 10, fontWeight: "800" },
   predRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },

@@ -149,7 +149,9 @@ export default async (req: Request): Promise<Response> => {
   // ogni gamba e' il consigliato della partita (o una sua alternativa
   // stabile), le partite "da lasciare" non entrano. consigliati:false =
   // il comportamento di prima (giocata piu' probabile del motore).
-  const soloConsigliati = body?.consigliati !== false && !patternSet.size;
+  // Anche con i filtri ("solo 1", "solo Over 2.5"...): le gambe restano
+  // giocate SICURE, filtrate per tipo (07/10/2026, Rossi).
+  const soloConsigliati = body?.consigliati !== false;
   const apply = !!body?.apply;
   const replaceSelection = body?.replaceSelection !== false;
 
@@ -227,6 +229,8 @@ export default async (req: Request): Promise<Response> => {
   //    quote di adesso; quelli che mancano si calcolano qui, in ordine di
   //    priorita' e fino a un tetto, per non far aspettare troppo.
   let skippedLasciare = 0, skippedSenzaConsigliato = 0;
+  const sicure = new Map<string, Option[]>();   // tutte le giocate sicure della partita (senza filtro)
+  const motore = new Map<string, Option[]>();   // le giocate del motore (per la "gamba meno sicura")
   if (soloConsigliati && candidates.length) {
     const numeri: Record<string, any> = {};
     const tutti = candidates.map((c) => c.match_id);
@@ -264,7 +268,10 @@ export default async (req: Request): Promise<Response> => {
       for (const a of cons.alternative || []) opts.push({ market: a.market, prob: round4(a.p), odd: a.quota, odd_estimated: a.stimata });
       // Il consigliato e' "da 1,40 in su", indipendente dalla fascia scelta
       // (Rossi: "indipendentemente dalla quota, ma non sotto 1,40").
-      c.options = opts.filter((o) => o.odd >= 1.4);
+      sicure.set(c.match_id, opts.filter((o) => o.odd >= 1.4));
+      motore.set(c.match_id, c.options);
+      c.options = opts.filter((o) => o.odd >= 1.4)
+        .filter((o) => !patternSet.size || patternSet.has(nomeTipo(o.market)));
       if (!c.options.length) skippedSenzaConsigliato++;
     }
   }
@@ -399,13 +406,76 @@ export default async (req: Request): Promise<Response> => {
   const ok = legs.length === events && total >= minTotalOdd;
 
   let reason: string | null = null;
-  if (legs.length < events) {
+  if (legs.length < events && soloConsigliati) {
+    reason = `Oggi ci sono solo ${legs.length} partite sicure${patterns.length ? ` con ${patterns.join(" / ")}` : ""} (dati d'accordo, percentuale misurata). Guarda le proposte qui sotto.`;
+  } else if (legs.length < events) {
     reason = `Trovate solo ${legs.length} partite giocabili su ${events}`
       + (patterns.length ? ` con i pattern ${patterns.join(", ")}` : "")
       + ` (probabilita' >= ${Math.round(minProb * 100)}%, quota >= ${minOdd.toFixed(2)}, max ${maxPerLeague} per campionato).`
       + (patterns.length && skippedNoPattern ? ` ${skippedNoPattern} partite scartate perche' nessuno dei pattern scelti regge.` : "");
   } else if (total < minTotalOdd) {
-    reason = `Con ${events} partite arrivo a quota ${total.toFixed(2)}, non a ${minTotalOdd}: abbassa la quota minima o aumenta le partite.`;
+    reason = `Con ${events} partite sicure arrivo a quota ${total.toFixed(2)}, non a ${minTotalOdd}${soloConsigliati ? ": guarda le proposte qui sotto" : ": abbassa la quota minima o aumenta le partite"}.`;
+  }
+
+  // 5-ter) PROPOSTE (07/10/2026, Rossi): con i consigliati la multipla non
+  //    alza la quota con giocate rischiose ne' inventa: propone e decide lui.
+  //    - poche partite sicure del tipo scelto -> completa con altre sicure /
+  //      solo quelle del tipo / un evento in meno;
+  //    - quota non raggiunta -> tieni / un evento in piu' / una gamba meno sicura;
+  //    - tante partite -> 2-3 varianti con partite diverse.
+  const proposte: Proposta[] = [];
+  if (soloConsigliati && !locked.length) {
+    const tutteSicure = candidates.filter((c) => (sicure.get(c.match_id) || []).length);
+    const conTipo = (c: Candidate) => c.options.length > 0;
+    const misto = tutteSicure.map((c) => ({ ...c, options: sicure.get(c.match_id)! }));
+    const nuova = (titolo: string, legsX: Leg[], descrizione: string, avviso?: string): void => {
+      if (!legsX.length) return;
+      const firma = legsX.map((l) => l.match_id + l.market).sort().join("|");
+      if (proposte.some((p) => p.firma === firma) || firma === legs.map((l) => l.match_id + l.market).sort().join("|")) return;
+      proposte.push({ titolo, descrizione, avviso: avviso ?? null, firma, legs: legsX, total_odd: round2(legsX.reduce((p, l) => p * l.odd, 1)), total_prob: round4(legsX.reduce((p, l) => p * l.prob, 1)) });
+    };
+    const quanteTipo = candidates.filter(conTipo).length;
+    if (patternSet.size && quanteTipo < events) {
+      // Completa con altre giocate sicure: prima tutte quelle del tipo, poi le altre.
+      const tipo = candidates.filter(conTipo);
+      const altre = misto.filter((c) => !tipo.some((t) => t.match_id === c.match_id));
+      const legsTipo = componi(tipo, quanteTipo, 1, maxPerLeague, "prob");
+      const resto = componi(altre, events - legsTipo.length, Math.max(1, minTotalOdd / Math.max(1, legsTipo.reduce((p, l) => p * l.odd, 1))), maxPerLeague, "prob", legsTipo);
+      const totC = round2([...legsTipo, ...resto].reduce((p, l) => p * l.odd, 1));
+      nuova(`Completa con altre giocate sicure (${events} eventi)`, [...legsTipo, ...resto], `Ci sono solo ${quanteTipo} partite sicure con ${patterns.join(" / ")}: le altre ${events - legsTipo.length} sono consigliati di altro tipo${totC < minTotalOdd ? ` (quota ${totC}, sotto ${minTotalOdd})` : ""}.`);
+      if (legsTipo.length) nuova(`Solo ${patterns.join(" / ")} (${legsTipo.length} eventi)`, legsTipo, `Tutte le partite sicure di oggi con questo tipo.`);
+      if (events - 1 > legsTipo.length) {
+        const resto1 = componi(altre, events - 1 - legsTipo.length, 1, maxPerLeague, "prob", legsTipo);
+        nuova(`Un evento in meno (${events - 1} eventi)`, [...legsTipo, ...resto1], `${legsTipo.length} con ${patterns.join(" / ")} e il resto con altre giocate sicure.`);
+      }
+    } else if (legs.length && totalOdd() < minTotalOdd) {
+      nuova(`Tieni ${legs.length} eventi a quota ${round2(totalOdd())}`, legs.slice(), "Tutte giocate sicure; quota sotto quella chiesta.");
+      // Le stesse gambe + la partita sicura che paga di piu'.
+      const una = componi(candidates.filter(conTipo), 1, 1, maxPerLeague, "quota", legs);
+      if (una.length) {
+        const piu = [...legs, ...una];
+        const tq = round2(piu.reduce((p, l) => p * l.odd, 1));
+        nuova(`Un evento in più (${events + 1} eventi)`, piu, `Le stesse partite più ${una[0].squadra1} - ${una[0].squadra2} (${una[0].market} @${una[0].odd})${tq < minTotalOdd ? `: quota ${tq}, ancora sotto ${minTotalOdd}` : ""}.`);
+      }
+      // Una gamba meno sicura: la giocata del motore piu' pagata (prob >= 50%).
+      const conRischio = legs.slice();
+      let meglio: { i: number; o: Option } | null = null;
+      conRischio.forEach((l, i) => {
+        for (const o of motore.get(l.match_id) || []) {
+          if (o.odd > l.odd && o.prob >= 0.5 && (!meglio || o.odd / l.odd > meglio.o.odd / conRischio[meglio.i].odd)) meglio = { i, o };
+        }
+      });
+      if (meglio) {
+        const mm = meglio as { i: number; o: Option };
+        const c = candidates.find((x) => x.match_id === conRischio[mm.i].match_id)!;
+        conRischio[mm.i] = toLeg(c, mm.o, false);
+        nuova(`Una gamba meno sicura`, conRischio, `${c.squadra1} - ${c.squadra2}: ${mm.o.market} @${mm.o.odd} invece di ${legs[mm.i].market}.`, `⚠ ${mm.o.market} vince circa il ${Math.round(mm.o.prob * 100)}%: è meno sicura delle altre.`);
+      }
+    } else if (legs.length === events && quanteTipo > events + 1) {
+      const pool2 = candidates.filter(conTipo);
+      nuova("Variante: più quota", componi(pool2, events, minTotalOdd, maxPerLeague, "quota"), "Le partite sicure che pagano di più.");
+      nuova("Variante: altre partite", componi(pool2.filter((c) => !legs.some((l) => l.match_id === c.match_id)), events, minTotalOdd, maxPerLeague, "prob"), "Le stesse regole, senza le partite della prima proposta.");
+    }
   }
 
   // 6) Scrittura della Schedina, solo su richiesta.
@@ -439,10 +509,59 @@ export default async (req: Request): Promise<Response> => {
     total_estimated: legs.some((l) => l.odd_estimated),
     total_prob: probAll,
     legs,
+    proposte: proposte.map(({ firma: _f, ...p }) => p),
     tiers_used: Array.from(new Set(legs.map((l) => l.tier))).sort(),
     pool: { matches: rows.length, candidates: candidates.length, skipped_started: skippedStarted, skipped_excluded: skippedExcluded, skipped_no_play: skippedNoPlay, skipped_no_pattern: skippedNoPattern, solo_consigliati: soloConsigliati, skipped_da_lasciare: skippedLasciare, skipped_senza_consigliato: skippedSenzaConsigliato },
   });
 };
+
+type Proposta = { titolo: string; descrizione: string; avviso: string | null; firma: string; legs: Leg[]; total_odd: number; total_prob: number };
+
+/** "1 fisso" -> "1", "DC 1X" -> "1X": per i filtri della multipla. */
+function nomeTipo(m: string): string {
+  return m.toUpperCase().replace(/\s+FISSO$/, "").replace(/^DC\s+/, "").replace(/\s+/g, "").trim();
+}
+
+/**
+ * Compone n gambe da un elenco di partite, una giocata ciascuna, rispettando
+ * il massimo per campionato; se la quota non basta, alza la gamba che perde
+ * meno probabilita' (fra le opzioni della stessa partita).
+ * ordine: "prob" (la piu' sicura), "quota" (la piu' pagata), "livello" (nazionali e livello 1).
+ */
+function componi(pool: Candidate[], n: number, minTot: number, maxPerLeague: number, ordine: "prob" | "quota" | "livello", gia: Leg[] = []): Leg[] {
+  if (n <= 0) return [];
+  const conta = new Map<string, number>();
+  for (const l of gia) conta.set(l.manifestazione, (conta.get(l.manifestazione) || 0) + 1);
+  const usati = new Set(gia.map((l) => l.match_id));
+  const ordinati = pool.filter((c) => c.options.length && !usati.has(c.match_id)).slice().sort((a, b) =>
+    ordine === "quota" ? b.options[0].odd - a.options[0].odd
+      : ordine === "livello" ? a.tier - b.tier || b.options[0].prob - a.options[0].prob
+        : b.options[0].prob - a.options[0].prob);
+  const out: Leg[] = [];
+  for (const c of ordinati) {
+    if (out.length >= n) break;
+    if ((conta.get(c.manifestazione) || 0) >= maxPerLeague) continue;
+    out.push(toLeg(c, c.options[0], false));
+    conta.set(c.manifestazione, (conta.get(c.manifestazione) || 0) + 1);
+  }
+  const tot = () => out.reduce((p, l) => p * l.odd, 1) * gia.reduce((p, l) => p * l.odd, 1);
+  let giri = 0;
+  while (tot() < minTot && giri++ < 50) {
+    let best: { i: number; o: Option; cost: number } | null = null;
+    out.forEach((l, i) => {
+      const c = pool.find((x) => x.match_id === l.match_id)!;
+      for (const o of c.options) {
+        if (o.odd <= l.odd) continue;
+        const cost = l.prob - o.prob;
+        if (!best || cost < best.cost) best = { i, o, cost };
+      }
+    });
+    if (!best) break;
+    const b = best as { i: number; o: Option; cost: number };
+    out[b.i] = toLeg(pool.find((x) => x.match_id === out[b.i].match_id)!, b.o, false);
+  }
+  return out;
+}
 
 /** Nazionali maggiori (07/10/2026): contano come i campionati di livello 1. */
 function isNazionale(c: string): boolean {

@@ -155,6 +155,28 @@ codice + `.md` insieme -> costruisce.
 > in `ticket/`: `ticket/ticket.md` e' sempre il round attivo, i round chiusi
 > stanno in `ticket/storia/` (indice in `ticket/README.md`).
 
+### 2026-10-07 (7) — Multipla coi filtri sui consigliati, proposte; cambio dell'AI applicato in schedina
+
+Rossi: "6 eventi, quota 14, solo 1: se non ci sono mi dici e mi proponi di
+completare; se ce ne sono tante mi dai varianti di partite; o scali da 6 a 5";
+"se l'AI ha cambiato ci sara' un motivo"; "vediamo nella pagella".
+- build-multipla: i filtri ("1", "O2.5", "GG"...) valgono anche coi
+  consigliati (giocate sicure filtrate per tipo, `nomeTipo`). Nuovo campo
+  `proposte`: poche partite del tipo -> "Completa con altre giocate sicure",
+  "Solo quelle del tipo", "Un evento in meno"; quota non raggiunta -> "Un
+  evento in piu'" (stesse gambe + la sicura che paga di piu'), "Una gamba meno
+  sicura" (giocata del motore >= 50%, con avviso); tante partite -> varianti
+  ("piu' quota", "altre partite"). `componi()` compone le alternative.
+  Prova 08/10: solo 1 -> 2 partite sicure, completa a 6 (quota 11); 4 eventi
+  quota 30 -> 9,66 e "un evento in piu'" 15,65.
+- Pagina multipla: riquadro PROPOSTE con "Usa questa".
+- Consigliato: tutte le alternative sicure (fino a 8); se l'AI lo cambia
+  restano `numeri_market/nome/quota` (giocata dei numeri) per tornare indietro
+  e per la pagella. `applicaCambioInSchedina`: se la partita e' in Schedina,
+  pick_finale diventa la giocata dell'AI (dal tasto della scheda e dai
+  Pronostici AI della schedina). Schedina: "Cambiata dall'AI (era X): motivo
+  [Torna alla vecchia]".
+
 ### 2026-10-07 (6) — IL CONSIGLIATO, tabella "perche' si', perche' no", schedina e multipla allineate
 
 Rossi: "punterei dove tutti i dati sono d'accordo e la percentuale e' misurata,

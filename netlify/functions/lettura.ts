@@ -1,5 +1,5 @@
 import { jsonResponse } from "./lib/supabaseRest";
-import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido } from "./lib/letturaPartita";
+import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
 /**
@@ -34,7 +34,10 @@ export default async (req: Request): Promise<Response> => {
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
         // Il consigliato salvato (schedina, multipla) segue il Pronostico AI.
-        try { await consigliatoDi(id, { ...dati, numeri: { ...(dati.numeri || {}), lettura_pro: pro } }); } catch { /* si rifa' col giro */ }
+        try {
+          const c = await consigliatoDi(id, { ...dati, numeri: { ...(dati.numeri || {}), lettura_pro: pro } });
+          await applicaCambioInSchedina(id, c);
+        } catch { /* si rifa' col giro */ }
       } else {
         ai = (await generaLetturaAI(id, dati)) ?? ai;
         if (!ai) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);

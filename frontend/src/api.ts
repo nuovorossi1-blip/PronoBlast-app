@@ -65,6 +65,8 @@ export type MultiplaResponse = {
   total_estimated: boolean;
   total_prob: number;
   legs: MultiplaLeg[];
+  /** Con i consigliati (07/10/2026): completamenti, varianti, un evento in piu'... */
+  proposte?: { titolo: string; descrizione: string; avviso: string | null; legs: MultiplaLeg[]; total_odd: number; total_prob: number }[];
   tiers_used: number[];
   pool: { matches: number; candidates: number; skipped_started: number; skipped_excluded: number; skipped_no_play: number };
 };
