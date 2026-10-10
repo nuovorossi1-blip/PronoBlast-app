@@ -149,6 +149,15 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-10 — Verdetti calcolati in anticipo dal server
+
+- Prima li faceva calcolare l'apertura della home: dopo un riavvio del server
+  la prima apertura aspettava 150-185 s di calcoli. Ora il server li calcola
+  da solo (all'avvio, ogni 30 minuti, dopo quote ed Excel) per oggi e i due
+  giorni dopo; /verdetto?day= avvia il giro in sottofondo e risponde subito
+  (attendi=1, dry=1 o Vercel: come prima). Calcolo identico, cambia il quando.
+- La home non aspetta piu' i verdetti per mostrare le partite.
+
 ### 2026-10-10 — Mercati: vietate solo le combo 1/2 + Over
 
 - Correzione di oggi: il divieto si limita alle combo segno secco 1/2 + Over

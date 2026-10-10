@@ -22,6 +22,7 @@ import { POST as dispatch } from "../api/[route]";
 import uploadExcel from "../netlify/functions/upload-excel.mjs";
 import { ricalcolaConsigliatiQuoteCambiate } from "../netlify/functions/lib/letturaPartita";
 import { svuotaServerCache } from "../netlify/functions/lib/serverCache";
+import { precalcolaVerdetti } from "../netlify/functions/lib/verdettiGiornata";
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const RADICE = path.resolve(QUI, "..");
@@ -103,6 +104,7 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
     svuotaServerCache("upload-excel");
     fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
     ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[server] ricalcolo quote cambiate", e));
+    void precalcolaVerdetti("excel");
   }
   const fuori: Record<string, string> = { ...INTESTAZIONI };
   risposta.headers.forEach((v, k) => { if (k !== "content-encoding" && k !== "content-length") fuori[k] = v; });
@@ -151,3 +153,8 @@ http.createServer(async (req, res) => {
 }).listen(PORTA, "127.0.0.1", () => {
   console.log(new Date().toISOString(), `PronoBlast locale su http://127.0.0.1:${PORTA}`);
 });
+// VERDETTI PRONTI PRIMA DELL'APERTURA (10/10/2026): oggi e i due giorni dopo,
+// poco dopo l'avvio (il server intanto risponde) e poi ogni 30 minuti per le
+// partite e le quote nuove. Le partite gia' calcolate costano un millisecondo.
+setTimeout(() => void precalcolaVerdetti("avvio"), 15_000);
+setInterval(() => void precalcolaVerdetti("ogni 30 minuti"), 30 * 60_000);

@@ -1,6 +1,7 @@
 import { pgGet, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import type { QuotePcRichiesta, QuotePcStato } from "../../frontend/src/api";
 import { ricalcolaConsigliatiQuoteCambiate } from "./lib/letturaPartita";
+import { precalcolaVerdetti } from "./lib/verdettiGiornata";
 
 /**
  * AGGIORNA QUOTE DAL PC DI CASA (05/10/2026) — /quote-pc
@@ -142,6 +143,7 @@ export default async (req: Request): Promise<Response> => {
           if (typeof setImmediate !== "undefined") {
             setImmediate(() => {
               ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[quote-pc] ricalcolo quote cambiate", e));
+              void precalcolaVerdetti("quote aggiornate");
             });
           }
         }

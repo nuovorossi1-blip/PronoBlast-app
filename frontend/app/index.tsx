@@ -300,8 +300,10 @@ export default function Home() {
         requestMatches(day, force),
         requestDays(force).catch(() => daysCache.get() || []),
         requestMarketStats(force).catch(() => marketStatsCache.get() || []),
-        requestVerdetti(day).catch(() => null),
       ]);
+      // I verdetti li calcola il server in anticipo: qui solo un promemoria in
+      // sottofondo, la lista non li aspetta (10/10/2026).
+      requestVerdetti(day).catch(() => null);
 
       setMatches(ms);
       if (ds && ds.length) setDays(ds);
