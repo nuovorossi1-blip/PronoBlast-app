@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, ActivityIndicator,
   TextInput, RefreshControl, Modal, FlatList, useWindowDimensions, Platform, BackHandler,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,10 +14,11 @@ import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
-import { matchesCache, daysCache, marketStatsCache, selectedListCache, oddSettingsCache } from "@/src/utils/cache";
+import { matchesCache, daysCache, marketStatsCache, selectedListCache, oddSettingsCache, pulisciCacheDispositivo } from "@/src/utils/cache";
 import { confirmAction } from "@/src/utils/platform";
 import { parseLeagueCode, isMainLeague, isFirstDivision } from "@/src/utils/leagues";
 import { predictionQueue } from "@/src/utils/predictionQueue";
+import { observeMatchCards, preloadMatch } from "@/src/utils/matchPreload";
 
 function todayISO() {
   const d = new Date();
@@ -279,6 +280,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    pulisciCacheDispositivo();
     if (didInit) return;
     (async () => {
       setLoading(true);
@@ -388,6 +390,12 @@ export default function Home() {
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered, sortByTime, sortDir]);
+
+  const preloadIds = useMemo(() => grouped.flatMap(([, items]) => items.map((m) => m.id)), [grouped]);
+  useFocusEffect(useCallback(() => {
+    if (loading) return;
+    return observeMatchCards(preloadIds);
+  }, [loading, preloadIds]));
 
   const selectedCount = matches.filter((m) => m.selected).length;
   const toggleSelect = async (m: Match) => {
@@ -626,7 +634,7 @@ export default function Home() {
                     const resParts = (m.result || "").split("-");
                     const hasRes = resParts.length === 2 && !isNaN(+resParts[0]) && !isNaN(+resParts[1]);
                     return (
-                      <TouchableOpacity key={m.id} testID={`match-${m.id}`} onPress={() => router.push(`/match/${m.id}`)} onLongPress={() => toggleSelect(m)} activeOpacity={0.85} style={[styles.card, m.selected && styles.cardSelected, isDesktop && { width: `${100 / numCols - 1}%` }]}>
+                      <Pressable key={m.id} testID={`match-${m.id}`} accessibilityRole="button" onPressIn={() => { void preloadMatch(m.id); }} onHoverIn={() => { void preloadMatch(m.id); }} onPress={() => router.push(`/match/${m.id}`)} onLongPress={() => toggleSelect(m)} style={({ pressed }) => [styles.card, m.selected && styles.cardSelected, isDesktop && { width: `${100 / numCols - 1}%` }, pressed && { opacity: 0.85 }]}>
                         <TouchableOpacity onPress={() => toggleSelect(m)} style={[styles.check, m.selected && styles.checkOn]} hitSlop={10} testID={`select-${m.id}`}>
                           {m.selected && <Ionicons name="checkmark" size={14} color="#FFF" />}
                         </TouchableOpacity>
@@ -690,7 +698,7 @@ export default function Home() {
                             </View>
                           ) : null}
                         </View>
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
                 </View>

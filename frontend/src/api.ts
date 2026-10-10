@@ -964,7 +964,7 @@ export function pickFinal(ranked: RankedPick[], aiMarkets: string[] = []): {
  * multigol, il segno secco, U1.5 / U2.5 / O3.5.
  * Deve restare allineata a VERDICT_WHITELIST in netlify/functions/lib/clusterEngine.ts.
  */
-const VERDICT_WHITELIST = new Set([
+export const VERDICT_WHITELIST = new Set([
   "1", "2",
   "1x", "x2",
   // NG tolto il 18/09/2026 su decisione di Rossi: non lo gioca. Resta nel
@@ -972,6 +972,7 @@ const VERDICT_WHITELIST = new Set([
   "gg",
   "o2.5",
   "mg 2-4 totali", "mg 3-6 totali",
+  "mg 2-4 casa", "mg 2-4 ospite",
   "gg + o2.5",
   "dc 1x + o1.5", "dc x2 + o1.5",
   "dc 1x + o2.5", "dc x2 + o2.5",
@@ -1056,6 +1057,256 @@ function isVetoOnly(market: string): boolean {
 
 export function isVerdictMarket(market: string): boolean {
   return VERDICT_WHITELIST.has(market.trim().toLowerCase().replace(/\s{2,}/g, " "));
+}
+
+export const CANONICAL_VERDICT: Record<string, string> = {
+  "1": "1",
+  "2": "2",
+  "1x": "1X",
+  "x2": "X2",
+  "gg": "GG",
+  "o2.5": "O2.5",
+  "mg 2-4 totali": "MG 2-4 totali",
+  "mg 3-6 totali": "MG 3-6 totali",
+  "mg 2-4 casa": "MG 2-4 casa",
+  "mg 2-4 ospite": "MG 2-4 ospite",
+  "gg + o2.5": "GG + O2.5",
+  "dc 1x + o1.5": "DC 1X + O1.5",
+  "dc x2 + o1.5": "DC X2 + O1.5",
+  "dc 1x + o2.5": "DC 1X + O2.5",
+  "dc x2 + o2.5": "DC X2 + O2.5",
+  "dc 1x + u3.5": "DC 1X + U3.5",
+  "dc x2 + u3.5": "DC X2 + U3.5",
+  "dc 1x + gg": "DC 1X + GG",
+  "dc x2 + gg": "DC X2 + GG",
+  "1 + u4.5": "1 + U4.5",
+};
+
+/**
+ * Mercati vietati SEMPRE (per numeri, AI e alternative).
+ * Decisione dell'utente (10/10/2026):
+ * - combo segno secco 1/2 + Over (es. 1 + O1.5, 2 + O2.5, ecc.)
+ * - qualunque combo con DC 12 (es. DC 12 + O1.5, DC 12 + O2.5, ecc.)
+ * - U1.5, U2.5, O3.5
+ */
+export const MERCATI_VIETATI = new Set([
+  "u1.5", "under 1.5", "under 1,5",
+  "u2.5", "under 2.5", "under 2,5",
+  "o3.5", "over 3.5", "over 3,5",
+]);
+
+export function isMercatoVietato(market: string | null | undefined): boolean {
+  if (!market || !market.trim()) return true;
+  const m = market.trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (MERCATI_VIETATI.has(m)) return true;
+  if (/^u(?:nder)?\s*(?:1[.,]5|2[.,]5)$/i.test(m)) return true;
+  if (/^o(?:ver)?\s*3[.,]5$/i.test(m)) return true;
+
+  // Qualunque combo con DC 12 o 12 (es. "DC 12 + O2.5", "12 + O1.5")
+  if (/^(?:dc\s+)?12\s*\+/i.test(m) || /\+\s*(?:dc\s+)?12\b/i.test(m)) {
+    return true;
+  }
+
+  // Combo segno secco 1 o 2 + Over (es. "1 + O1.5", "2 + Over 2.5", ecc.)
+  if (/^(?:1|2)\s*\+\s*(?:over|ov|o)\s*(?:1[.,]5|2[.,]5|3[.,]5)(?:\s*totali)?$/i.test(m)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Un mercato puo' essere consigliato (numeri) o alternativa se:
+ * - e' nella whitelist OPPURE e' tra i mercati del manuale di quello scenario (manuali / nota.markets),
+ * - MA MAI se e' vietato (isMercatoVietato).
+ */
+export function isMercatoAmmesso(
+  market: string | null | undefined,
+  manuali?: string[] | null
+): boolean {
+  if (!market || isMercatoVietato(market)) return false;
+  if (isVerdictMarket(market)) return true;
+  if (manuali && manuali.some((m) => normalizeMarket(m) === normalizeMarket(market))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Traduzione delle combo vietate proposte dall'AI PRIMA della validazione (decisione utente):
+ * - "1 + O1.5", "1 + O2.5", "1 + O3.5" (in qualunque scrittura Over/Ov/O) -> "MG 2-4 casa"
+ * - "2 + O1.5/O2.5/O3.5" -> "MG 2-4 ospite"
+ * Se il primo mercato è una combo 1/2+Over traducibile e il resto è solo un'alternativa tra parentesi
+ * (es. "1 + Over 1.5 (o GG)"), usa la traduzione del primo.
+ * Registra da cosa è stata tradotta (tradottoDa).
+ */
+export function traduciMercatoAI(raw: string | null | undefined): { mercato: string; tradottoDa?: string } | null {
+  if (!raw || !raw.trim()) return null;
+  const t = raw.trim();
+
+  // Se c'è un'alternativa tra parentesi tipo "(o GG)", "(o ...)", "(oppure ...)"
+  let primo = t;
+  const mParen = t.match(/^([^(]+?)\s*\(\s*(?:o|oppure)\b[^)]*\)$/i);
+  if (mParen) {
+    primo = mParen[1].trim();
+  }
+
+  // Combo 1 / 2 + Over 1.5 / 2.5 / 3.5 (supporta Over, Ov, O, spaziature, virgola o punto)
+  if (/^1\s*\+\s*(?:Over|Ov|O)\s*(?:1[.,]5|2[.,]5|3[.,]5)(?:\s*totali)?$/i.test(primo)) {
+    return { mercato: "MG 2-4 casa", tradottoDa: t };
+  }
+  if (/^2\s*\+\s*(?:Over|Ov|O)\s*(?:1[.,]5|2[.,]5|3[.,]5)(?:\s*totali)?$/i.test(primo)) {
+    return { mercato: "MG 2-4 ospite", tradottoDa: t };
+  }
+
+  return { mercato: t };
+}
+
+/**
+ * Normalizza varianti di testo dei mercati AI prima del confronto:
+ * "Over 1.5" -> "O1.5", "1X + Over 1.5" -> "DC 1X + O1.5", ecc.
+ */
+export function normalizzaMercatoAI(mercato: string | null | undefined): string {
+  if (!mercato) return "";
+  let m = mercato.trim()
+    .replace(/Over\s*/gi, "O")
+    .replace(/Under\s*/gi, "U")
+    .replace(/Ov(\d)/gi, "O$1")
+    .replace(/Un(\d)/gi, "U$1")
+    .replace(/\bGoal\b/gi, "GG")
+    .replace(/\bNo\s?Goal\b/gi, "NG")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^(1X|X2|12)\s*\+/i.test(m) && !/^DC\s+/i.test(m)) {
+    m = `DC ${m}`;
+  }
+  return m;
+}
+
+export type EsitoMercatoAI = {
+  ok: boolean;
+  market: string | null;
+  quota: number | null;
+  stimata: boolean;
+  motivo: "non ammesso" | "senza quota" | "fuori scala" | null;
+  tradotto_da?: string | null;
+};
+
+/**
+ * Validazione rigida della proposta del Pronostico AI per il Consigliato.
+ * L'AI puo' cambiare il consigliato SOLO se il suo mercato:
+ *  1. e' un mercato singolo (senza "oppure", "(o ...)", doppi mercati,
+ *     oppure combo 1/2+Over traducibile con alternativa tra parentesi);
+ *  2. e' presente nella VERDICT_WHITELIST (o tradotto in un mercato in whitelist)
+ *     OPPURE e' tra i mercati del manuale di quello scenario, MA MAI se vietato;
+ *  3. ha una quota vera reperibile nel catalogo o nell'analisi (anche quota stimata se prevista);
+ *  4. e' dentro la scala ammessa (quota >= 1.40 e fasciaDellaQuota(quota) != null).
+ * Altrimenti viene scartata col motivo appropriato ("non ammesso", "senza quota", "fuori scala").
+ */
+export function mercatoAIValido(
+  mercato: string | null | undefined,
+  analisiOrCatalogo: AnalisiGiocate | Record<string, { odd: number; estimated?: boolean; stimata?: boolean }> | RigaGiocata[] | null | undefined,
+  manuali?: string[] | null
+): EsitoMercatoAI {
+  if (!mercato || !mercato.trim()) {
+    return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
+  }
+  const raw = mercato.trim();
+  const trad = traduciMercatoAI(raw);
+  if (!trad) {
+    return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
+  }
+
+  // Testo con "oppure", "(o ...)", o combinazioni disgiuntive/multiple:
+  // Se non e' una combo traducibile con alternativa tra parentesi e non e' il mercato "X oppure GG", resta scartato
+  const eMercatoXoGG = /^x\s+(?:oppure|o)\s+gg$/i.test(trad.mercato);
+  if (!trad.tradottoDa && !eMercatoXoGG) {
+    if (/\boppure\b/i.test(raw) || /\(\s*o\b/i.test(raw) || /\(\s*oppure\b/i.test(raw) || /\s+o\s+/i.test(raw) || /[\/;]/.test(raw)) {
+      return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
+    }
+  }
+
+  const norm = normalizzaMercatoAI(trad.mercato);
+  const key = norm.toLowerCase().replace(/\s{2,}/g, " ");
+
+  // Controllo mercati vietati sempre (sia su norm che su trad.mercato)
+  if (isMercatoVietato(norm) || isMercatoVietato(trad.mercato)) {
+    return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
+  }
+
+  // Manuali dello scenario ricavati da parametro o da analisiOrCatalogo.manuali
+  const manualiLista = manuali ?? (analisiOrCatalogo && "manuali" in analisiOrCatalogo ? (analisiOrCatalogo as any).manuali : undefined);
+
+  // Ammissibilita': in whitelist OPPURE nel manuale dello scenario, MA MAI se vietato
+  if (!isMercatoAmmesso(norm, manualiLista) && !isMercatoAmmesso(trad.mercato, manualiLista)) {
+    return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
+  }
+
+  const canonico = CANONICAL_VERDICT[key] || norm || trad.mercato;
+
+  // Ricerca della quota nel catalogo o nell'analisi
+  let quota: number | null = null;
+  let stimata = false;
+  let marketTrovato: string | null = null;
+
+  if (analisiOrCatalogo) {
+    const cercaInRiga = (x: { market: string; quota?: number; odd?: number; stimata?: boolean; estimated?: boolean }) => {
+      const nm = normalizeMarket(x.market);
+      return nm === normalizeMarket(canonico) || nm === normalizeMarket(norm) || nm === normalizeMarket(trad.mercato);
+    };
+
+    if ("righe" in analisiOrCatalogo && Array.isArray((analisiOrCatalogo as AnalisiGiocate).righe)) {
+      const r = (analisiOrCatalogo as AnalisiGiocate).righe.find(cercaInRiga);
+      if (r && r.quota != null && r.quota > 0) {
+        quota = r.quota;
+        stimata = !!r.stimata;
+        marketTrovato = r.market;
+      }
+    } else if (Array.isArray(analisiOrCatalogo)) {
+      const r = (analisiOrCatalogo as any[]).find(cercaInRiga);
+      if (r && (r.quota ?? r.odd) != null && (r.quota ?? r.odd) > 0) {
+        quota = r.quota ?? r.odd;
+        stimata = !!(r.stimata ?? r.estimated);
+        marketTrovato = r.market;
+      }
+    } else if (typeof analisiOrCatalogo === "object") {
+      const direct = (analisiOrCatalogo as Record<string, any>)[canonico]
+        || (analisiOrCatalogo as Record<string, any>)[norm]
+        || (analisiOrCatalogo as Record<string, any>)[trad.mercato];
+      if (direct && (direct.odd ?? direct.quota) != null && (direct.odd ?? direct.quota) > 0) {
+        quota = direct.odd ?? direct.quota;
+        stimata = !!(direct.estimated ?? direct.stimata);
+        marketTrovato = canonico;
+      } else {
+        for (const [k, v] of Object.entries(analisiOrCatalogo as Record<string, any>)) {
+          if (
+            normalizeMarket(k) === normalizeMarket(canonico) ||
+            normalizeMarket(k) === normalizeMarket(norm) ||
+            normalizeMarket(k) === normalizeMarket(trad.mercato)
+          ) {
+            if (v && (v.odd ?? v.quota) != null && (v.odd ?? v.quota) > 0) {
+              quota = v.odd ?? v.quota;
+              stimata = !!(v.estimated ?? v.stimata);
+              marketTrovato = k;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (quota === null || quota === undefined || !isFinite(quota) || quota <= 1.0) {
+    return { ok: false, market: null, quota: null, stimata: false, motivo: "senza quota", tradotto_da: trad.tradottoDa || null };
+  }
+
+  // Scala: quota >= 1.40 e fasciaDellaQuota(quota) != null
+  if (quota < 1.40 || fasciaDellaQuota(quota) === null) {
+    return { ok: false, market: null, quota, stimata, motivo: "fuori scala", tradotto_da: trad.tradottoDa || null };
+  }
+
+  return { ok: true, market: marketTrovato || canonico, quota, stimata, motivo: null, tradotto_da: trad.tradottoDa || null };
 }
 
 export type VerdictSource = "structural" | "ai" | "pre";
@@ -2152,12 +2403,14 @@ export function quotaManuale(
   const m = market.trim();
   const numero = (v: any) => (typeof v === "number" && v > 1 ? v : null);
   if (/^X\s+(oppure|o)\s+GG$/i.test(m)) {
-    const gg = numero((odds as any)?.odd_GG);
+    const gg = numero((odds as any)?.odd_GG ?? (odds as any)?.odd_gg ?? (odds as any)?.GG);
     return gg ? { odd: Math.round(gg * 0.9 * 100) / 100, stimata: true } : null;
   }
   const ah = m.match(/^([12])\s+AH\s+-0[.,]75$/i);
   if (ah) {
-    const dc = numero((odds as any)?.[ah[1] === "1" ? "odd_1X" : "odd_X2"]);
+    const k1 = ah[1] === "1" ? "odd_1X" : "odd_X2";
+    const k2 = ah[1] === "1" ? "odd_1x" : "odd_x2";
+    const dc = numero((odds as any)?.[k1] ?? (odds as any)?.[k2]);
     return dc ? { odd: dc, stimata: true } : null;
   }
   const nome = nomeCatalogoManuale(m);
@@ -2555,10 +2808,15 @@ export function alternativeDelConsiglio(
   const ranking = ctx.structural?.ranking || [];
   const pre = ctx.structural?.pre_ranking || [];
   const out: AlternativaConsiglio[] = [];
+  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
+  const manuali = [
+    ...(ctx.manuale || []).map((c) => c.market),
+    ...(nota?.markets || []),
+  ];
   const presente = (m: string) =>
     (consigliato && normalizeMarket(m) === normalizeMarket(consigliato)) || out.some((a) => normalizeMarket(a.market) === normalizeMarket(m));
   const aggiungi = (market: string, motivo: string) => {
-    if (presente(market)) return;
+    if (!isMercatoAmmesso(market, manuali) || presente(market)) return;
     const { odd, stimata } = quotaMercato(market, ctx);
     const i = ranking.findIndex((r) => normalizeMarket(r.market) === normalizeMarket(market));
     const man = (ctx.manuale || []).find((c) => normalizeMarket(c.market) === normalizeMarket(market));
@@ -2579,7 +2837,6 @@ export function alternativeDelConsiglio(
   for (const c of ctx.manuale || []) aggiungi(c.market, "dal manuale dello scenario");
   // Anche senza la misura dell'archivio (non ancora caricata): i mercati del
   // manuale dello scenario che il motore conosce, con la sua quota e la sua %.
-  const nota = getScenarioNote(ctx.odds, ctx.structural?.structure);
   for (const m of nota?.markets || []) {
     const nome = nomeCatalogoManuale(m);
     if (ranking.some((r) => normalizeMarket(r.market) === normalizeMarket(nome))) aggiungi(nome, "dal manuale dello scenario");
@@ -2999,6 +3256,56 @@ export type LetturaAI = {
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
   mercato?: string; notizia_verificata?: boolean; pro?: boolean;
 };
+export type QuoteFirma = Record<string, number | null>;
+
+/**
+ * Le quote che contano per la lettura e per la firma.
+ * Supporta sia il formato DB piatto (odd_1, odd_x...) sia il formato annidato odds.
+ */
+export function firmaQuote(m: any): QuoteFirma {
+  if (!m) return {};
+  const odds = m.odds || m;
+  const q = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
+  return {
+    "1": q(odds["1"] ?? odds.odd_1 ?? m.odd_1),
+    X: q(odds.X ?? odds.x ?? odds.odd_x ?? odds.odd_X ?? m.odd_x ?? m.odd_X),
+    "2": q(odds["2"] ?? odds.odd_2 ?? m.odd_2),
+    O25: q(odds.O25 ?? odds.odd_o25 ?? m.odd_o25),
+    U25: q(odds.U25 ?? odds.odd_u25 ?? m.odd_u25),
+    GG: q(odds.GG ?? odds.odd_gg ?? m.odd_gg),
+    NG: q(odds.NG ?? odds.odd_ng ?? m.odd_ng),
+  };
+}
+
+/**
+ * Le quote sono cambiate abbastanza da rifare la lettura o invalidare la cache?
+ * (>= 5% su una quota principale o inversione favorita 1/2).
+ */
+export function quoteCambiate(prima: QuoteFirma | undefined | null, ora: QuoteFirma): boolean {
+  if (!prima) return true;
+  for (const k of Object.keys(ora)) {
+    const a = prima[k], b = ora[k];
+    if (a == null || b == null) continue;
+    if (Math.abs(b - a) / a >= 0.05) return true;
+  }
+  const fav = (q: QuoteFirma) => ((q["1"] ?? 99) < (q["2"] ?? 99) ? "1" : "2");
+  return fav(prima) !== fav(ora);
+}
+
+export type ConsigliatoSalvato = {
+  market: string | null; nome?: string | null; quota?: number | null; stimata?: boolean;
+  pA?: number | null; pB?: number | null; n?: number | null;
+  daLasciare?: string | null; avvisi?: string[];
+  alternative?: { market: string; nome: string; quota: number; stimata: boolean; p: number }[];
+  ai?: "confermato" | "cambiato" | null; notizia?: string | null;
+  numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
+  lasciata_market?: string | null; lasciata_quota?: number | null;
+  proposta_scartata?: { mercato: string; motivo: string } | null;
+  quote?: QuoteFirma | any; quando?: string;
+  tabella_versione?: string | null;
+  tradotto_da?: string | null;
+};
+
 export type RispostaLettura = {
   programma: {
     frasi: string[]; accordo: boolean | null; motivi: string[];
@@ -3009,7 +3316,7 @@ export type RispostaLettura = {
   ai: LetturaAI | null; pro?: LetturaAI | null; dossier?: boolean; error?: string;
   ai_vecchia?: boolean; pro_vecchia?: boolean;
   /** Il consigliato SALVATO (lo stesso di schedina e multipla). */
-  consigliato?: { market: string | null; daLasciare: string | null; ai: string | null } | null;
+  consigliato?: ConsigliatoSalvato | null;
 };
 
 /**
@@ -3081,6 +3388,7 @@ export type AnalisiGiocate = {
   consigliato: RigaGiocata | null; daLasciare: string | null; avvisi: string[]; righe: RigaGiocata[];
   /** La giocata che sarebbe stata consigliata se la partita non fosse "da lasciare" (per la pagella). */
   seNonLasciata: RigaGiocata | null;
+  manuali?: string[];
 };
 
 const segnoBase = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
@@ -3146,6 +3454,7 @@ export function analizzaGiocate(x: {
 
   // Candidati e punteggio
   for (const r of righe) {
+    if (!isMercatoAmmesso(r.market, x.manuali)) continue;
     if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
     const pm = Math.min(r.misurata.pA, r.misurata.pB);
     if (pm < 0.58) continue;
@@ -3178,7 +3487,7 @@ export function analizzaGiocate(x: {
   righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
-  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? candidati[0] ?? null : null };
+  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? candidati[0] ?? null : null, manuali: x.manuali };
 }
 
 // PAGELLA DEL CONSIGLIATO (07/10/2026), vedi pagella-consigliato.ts.

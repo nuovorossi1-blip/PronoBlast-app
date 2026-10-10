@@ -14,19 +14,19 @@
  * Estonia-Islanda ("partita chiusa, Under 2.5 e NoGol plausibili", fini' 0-0).
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
-import { pgGet, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
+import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo } from "./clusterEngine";
-import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket } from "../../../frontend/src/api";
+import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
-import { tabellaScenari } from "./tabellaScenari";
+import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
 import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
 
-export const MODELLI_GRATIS = ["nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3.5-lightning:free"];
+export { QuoteFirma, firmaQuote, quoteCambiate };
 
-export type QuoteFirma = Record<string, number | null>;
+export const MODELLI_GRATIS = ["nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3.5-lightning:free"];
 export type LetturaAI = {
   modello: string; quando: string;
   /** Le quote con cui e' stata fatta: se cambiano, si rifa' (07/10/2026). */
@@ -48,36 +48,16 @@ Regole:
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
 
+const MERCATI_AMMESSI_PRO = "1, 2, 1X, X2, GG, O2.5, MG 2-4 totali, MG 3-6 totali, MG 2-4 casa, MG 2-4 ospite, GG + O2.5, DC 1X + O1.5, DC X2 + O1.5, DC 1X + O2.5, DC X2 + O2.5, DC 1X + U3.5, DC X2 + U3.5, DC 1X + GG, DC X2 + GG, 1 + U4.5";
+
 const SISTEMA_PRO = SISTEMA.replace(
   `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`,
-  `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi","mercato":"SOLO se la notizia cambia la giocata dei numeri: il mercato che giocheresti (es. 'X2', 'U2.5', 'MG 1-3 totali'); altrimenti stringa vuota"}
+  `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi","mercato":"SOLO se la notizia cambia la giocata dei numeri: UN solo mercato scelto ESCLUSIVAMENTE da questo elenco (${MERCATI_AMMESSI_PRO}), scritto esattamente così; altrimenti stringa vuota"}
+Regola sul mercato: se indicato, deve essere UN solo mercato di questo elenco, scritto esattamente così: mai due mercati insieme, mai varianti, mai mercati fuori elenco.
 La "notizia" e' UNA frase con il fatto che conta (al massimo 3 giocatori, con i nomi copiati dai dati): non l'elenco intero degli assenti. Il codice controlla che ci sia davvero.`,
 );
 
 const n1 = (x: any) => (x == null ? "n/d" : Number(x).toFixed(1));
-
-/** Le quote che contano per la lettura. */
-export function firmaQuote(m: any): QuoteFirma {
-  const q = (v: any) => (v == null || v === "" ? null : Number(v));
-  return { "1": q(m.odd_1), X: q(m.odd_x), "2": q(m.odd_2), O25: q(m.odd_o25), U25: q(m.odd_u25), GG: q(m.odd_gg), NG: q(m.odd_ng) };
-}
-
-/**
- * Le quote sono cambiate abbastanza da rifare la lettura? (07/10/2026, Rossi:
- * "se scarico le quote alle 15 o alle 18 e cambiano, rifai solo quelle che
- * variano"). Si' se una quota principale si e' mossa del 5% o piu', o se e'
- * cambiata la favorita; i ritocchi (1,85 -> 1,83) no.
- */
-export function quoteCambiate(prima: QuoteFirma | undefined | null, ora: QuoteFirma): boolean {
-  if (!prima) return true;
-  for (const k of Object.keys(ora)) {
-    const a = prima[k], b = ora[k];
-    if (a == null || b == null) continue;
-    if (Math.abs(b - a) / a >= 0.05) return true;
-  }
-  const fav = (q: QuoteFirma) => ((q["1"] ?? 99) < (q["2"] ?? 99) ? "1" : "2");
-  return fav(prima) !== fav(ora);
-}
 
 /** La lettura gratis va fatta (o rifatta)? */
 export function letturaDaRifare(numeri: any, match: any): boolean {
@@ -114,14 +94,22 @@ export async function datiLettura(matchId: string): Promise<{
   if (!odds.odd_1 || !odds.odd_X || !odds.odd_2) return null;
   const st: any = structuralAnalysis(odds, 1.4).structure;
   const d = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=contesto,numeri`))[0];
-  const forma = await formaGol(
-    { giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizioPartitaMs(m.day, m.time) },
-    d?.numeri?.fotmob_id,
-  );
-  const programma = await letturaProgramma(
-    forma, { casa: m.squadra1, ospite: m.squadra2 }, { casa: st.lambda_home, ospite: st.lambda_away },
-    { casa: d?.numeri?.assenti_casa ?? 0, ospite: d?.numeri?.assenti_ospite ?? 0 },
-  );
+  let forma: FormaGol | null = null;
+  const qAtt = firmaQuote(m);
+  const prSalvato = d?.numeri?.programma;
+  let programma: LetturaProgramma;
+  if (prSalvato && !quoteCambiate(prSalvato.quote, qAtt)) {
+    programma = prSalvato;
+  } else {
+    forma = await formaGol(
+      { giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizioPartitaMs(m.day, m.time) },
+      d?.numeri?.fotmob_id,
+    );
+    programma = await letturaProgramma(
+      forma, { casa: m.squadra1, ospite: m.squadra2 }, { casa: st.lambda_home, ospite: st.lambda_away },
+      { casa: d?.numeri?.assenti_casa ?? 0, ospite: d?.numeri?.assenti_ospite ?? 0 },
+    );
+  }
   const nota = getScenarioNote(odds, st);
   let scenario = nota?.scenario || "n/d";
   try {
@@ -219,6 +207,8 @@ export type ConsigliatoSalvato = {
   numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
   /** Se "da lasciare": cosa si sarebbe giocato (pagella: lasciarle e' giusto?). */
   lasciata_market?: string | null; lasciata_quota?: number | null;
+  /** Se proposta AI scartata: motivo e mercato */
+  proposta_scartata?: { mercato: string; motivo: string } | null;
   quote: QuoteFirma; quando: string;
 };
 
@@ -231,8 +221,10 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const st = s.structure;
   const pr = x.programma;
   const nota = getScenarioNote(odds, st);
+  const tab = await tabellaScenari().catch(() => null);
+  const tabVersione = tab ? `${tab.aggiornata}|${tab.partite}` : null;
   let voci: any = null;
-  try { voci = nota ? (await tabellaScenari()).scenari[chiaveScenario(nota)] ?? null : null; } catch { /* senza tabella niente consigliato */ }
+  try { voci = (nota && tab) ? tab.scenari[chiaveScenario(nota)] ?? null : null; } catch { /* senza tabella niente consigliato */ }
   const totAtteso = (pr.forma_casa != null ? (st.lambda_home + pr.forma_casa) / 2 : st.lambda_home)
     + (pr.forma_ospite != null ? (st.lambda_away + pr.forma_ospite) / 2 : st.lambda_away);
   const a = analizzaGiocate({
@@ -249,19 +241,36 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     market: c?.market ?? null, nome: c?.nome ?? null, quota: c?.quota ?? null, stimata: !!c?.stimata,
     pA: c?.misurata?.pA ?? null, pB: c?.misurata?.pB ?? null, n: c?.misurata?.n ?? null,
     daLasciare: a.daLasciare, avvisi: a.avvisi,
-    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato).slice(0, 8)
+    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato && isMercatoAmmesso(r.market, nota?.markets)).slice(0, 8)
       .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
     ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
     lasciata_market: a.seNonLasciata?.market ?? null, lasciata_quota: a.seNonLasciata?.quota ?? null,
+    tabella_versione: tabVersione,
+    tradotto_da: null,
   };
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
-    if (pro.notizia_verificata && pro.mercato && (!out.market || normalizeMarket(pro.mercato) !== normalizeMarket(out.market))) {
-      const q = quoteCatalogo(odds)[pro.mercato];
-      out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
-      out.ai = "cambiato"; out.notizia = pro.notizia || null;
-      out.market = pro.mercato; out.nome = pro.mercato.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
-      out.quota = q?.odd ?? out.quota; out.stimata = q ? q.estimated : true; out.daLasciare = null;
+    if (pro.notizia_verificata && pro.mercato) {
+      const v = mercatoAIValido(pro.mercato, a, nota?.markets);
+      if (v.ok && v.market && v.quota != null) {
+        if (!out.market || normalizeMarket(v.market) !== normalizeMarket(out.market)) {
+          out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
+          out.ai = "cambiato"; out.notizia = pro.notizia || null;
+          out.market = v.market; out.nome = v.market.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
+          out.quota = v.quota; out.stimata = v.stimata; out.daLasciare = null;
+          out.tradotto_da = v.tradotto_da || null;
+          out.proposta_scartata = null;
+        } else if (out.market) {
+          out.ai = "confermato";
+          out.tradotto_da = v.tradotto_da || null;
+          out.proposta_scartata = null;
+        }
+      } else {
+        // Proposta AI scartata: non ammessa, senza quota o fuori scala
+        out.ai = null;
+        out.proposta_scartata = { mercato: pro.mercato, motivo: v.motivo ?? "non ammesso" };
+        out.tradotto_da = null;
+      }
     } else if (out.market) {
       out.ai = "confermato";
     }
@@ -283,10 +292,14 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   return out;
 }
 
-/** Il consigliato salvato, se c'e' ed e' fatto con le quote di adesso. */
-export function consigliatoValido(numeri: any, match: any): ConsigliatoSalvato | null {
+/** Il consigliato salvato, se c'e' ed e' fatto con le quote di adesso e la versione corrente della tabella scenari. */
+export function consigliatoValido(numeri: any, match: any, versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
-  return c && !quoteCambiate(c.quote, firmaQuote(match)) ? c : null;
+  if (!c) return null;
+  if (quoteCambiate(c.quote, firmaQuote(match))) return null;
+  const currentV = versioneAttesa !== undefined ? versioneAttesa : versioneTabellaCorrente();
+  if (currentV && (!c.tabella_versione || c.tabella_versione !== currentV)) return null;
+  return c;
 }
 
 
@@ -302,4 +315,95 @@ export async function applicaCambioInSchedina(matchId: string, c: ConsigliatoSal
   } catch (e) {
     console.error("[consigliato] schedina", e);
   }
+}
+
+/**
+ * Ricalcola in sequenza e salva consigliatoDi per tutte le partite future / non concluse
+ * le cui quote sono cambiate (quoteCambiate(c.quote, firmaQuote(match)) === true o c assente).
+ * Eseguito in background senza bloccare la risposta HTTP.
+ */
+export async function ricalcolaConsigliatiQuoteCambiate(giornoDa?: string): Promise<{
+  esaminate: number;
+  ricalcolate: number;
+  invariate: number;
+  errori: number;
+}> {
+  const da = giornoDa || oggi();
+  let esaminate = 0, ricalcolate = 0, invariate = 0, errori = 0;
+  try {
+    const matches: any[] = await pgGetAll(
+      `matches?result=is.null&day=gte.${da}&select=id,day,time,squadra1,squadra2,odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`,
+      "day.asc,time.asc"
+    ).catch(() => []);
+    if (!matches.length) return { esaminate: 0, ricalcolate: 0, invariate: 0, errori: 0 };
+    esaminate = matches.length;
+
+    const ids = matches.map((m) => m.id);
+    const dossierMap = new Map<string, any>();
+    const BLOCCO = 50;
+    for (let i = 0; i < ids.length; i += BLOCCO) {
+      const fetta = ids.slice(i, i + BLOCCO);
+      const lista = fetta.map((id) => `"${id}"`).join(",");
+      const dRows = await pgGet(`dossier_web?match_id=in.(${lista})&select=match_id,numeri`).catch(() => []);
+      for (const d of dRows) dossierMap.set(d.match_id, d.numeri);
+    }
+
+    for (const m of matches) {
+      const numeri = dossierMap.get(m.id);
+      const c = numeri?.consigliato;
+      const ora = firmaQuote(m);
+      const cambiate = !c || quoteCambiate(c.quote, ora);
+      if (!cambiate) {
+        invariate++;
+        continue;
+      }
+      try {
+        await consigliatoDi(m.id, undefined, true);
+        ricalcolate++;
+      } catch (e) {
+        errori++;
+        console.error(`[consigliato] ricalcolo quote ${m.id}`, e);
+      }
+    }
+  } catch (e) {
+    console.error("[ricalcolaConsigliatiQuoteCambiate] errore generale", e);
+  }
+  return { esaminate, ricalcolate, invariate, errori };
+}
+
+/**
+ * Ricalcola in sequenza e salva il consigliato per tutte le partite non ancora giocate
+ * (result is null e orario d'inizio non passato), ad esempio dopo l'aggiornamento della tabella scenari.
+ */
+export async function ricalcolaConsigliatiNonGiocate(giornoDa?: string): Promise<{
+  esaminate: number;
+  ricalcolate: number;
+  errori: number;
+}> {
+  const da = giornoDa || oggi();
+  let esaminate = 0, ricalcolate = 0, errori = 0;
+  try {
+    const matches: any[] = await pgGetAll(
+      `matches?result=is.null&day=gte.${da}&select=id,day,time,squadra1,squadra2,odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`,
+      "day.asc,time.asc"
+    ).catch(() => []);
+    const now = Date.now();
+    const nonGiocate = matches.filter((m) => {
+      const inizio = inizioPartitaMs(m.day, m.time);
+      return inizio === null || inizio > now;
+    });
+    esaminate = nonGiocate.length;
+    for (const m of nonGiocate) {
+      try {
+        await consigliatoDi(m.id, undefined, true);
+        ricalcolate++;
+      } catch (e) {
+        errori++;
+        console.error(`[consigliato] ricalcolo non giocata ${m.id}`, e);
+      }
+    }
+  } catch (e) {
+    console.error("[ricalcolaConsigliatiNonGiocate] errore generale", e);
+  }
+  return { esaminate, ricalcolate, errori };
 }

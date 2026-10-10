@@ -4,6 +4,7 @@ import { generaLetturaAI, letturaDaRifare, consigliatoDi, consigliatoValido } fr
 import { leagueTier } from "./lib/leagueTier";
 import { impostaAlias } from "./lib/teamMatch";
 import { inizioPartitaMs } from "../../frontend/src/api";
+import { legaCopertaDaFotmob } from "./lib/fotmobLeghe";
 
 /**
  * DOSSIER AUTOMATICO DI TUTTE LE PARTITE DEL GIORNO (06/10/2026, passo 4).
@@ -18,7 +19,7 @@ import { inizioPartitaMs } from "../../frontend/src/api";
  *  - alle 6 per tutte le partite del giorno;
  *  - alle 13, dopo l'aggiornamento quote automatico delle 12, per quelle
  *    caricate nel frattempo (le altre hanno gia' un dossier fresco e si saltano);
- *  - ogni minuto, SOLO mentre il lavoro e' in corso e nessun passo sta
+ *  - ogni minuto, SOLO mentre il dossier e' in corso e nessun passo sta
  *    lavorando, per farlo avanzare.
  *
  *   GET  /dossier-giornata                -> stato del lavoro
@@ -36,10 +37,16 @@ const TEMPO_PASSO_MS = 240_000;
 const DURATA_LUCCHETTO_MS = 300_000;
 const PAUSA_MS = 2_000;
 
+export type ResocontoDossier = {
+  coppie_nuove: number;
+  non_abbinate_fotmob: { partita: string; campionato: string; ora?: string }[];
+};
+
 type Conteggi = { fotmob: number; notizie: number; nessun_dato: number; gia_pronto: number; errori: number };
 type Stato = {
   giorno: string; stato: "in_corso" | "finito"; ids: string[]; pos: number; totale: number;
   conteggi: Conteggi; avviato: string; aggiornato: string; lucchetto_fino?: string | null;
+  resoconto?: ResocontoDossier;
 };
 
 function oggiRoma(): string {
@@ -57,7 +64,7 @@ async function scrivi(s: Stato) {
 const vuoti = (): Conteggi => ({ fotmob: 0, notizie: 0, nessun_dato: 0, gia_pronto: 0, errori: 0 });
 
 /** Il dossier di una partita. Ritorna una riga di esito leggibile. */
-async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<string> {
+async function dossierDi(m: any, conteggi: Conteggi, resoconto?: ResocontoDossier, nuovo = false): Promise<string> {
   try {
     const ctx = await contestoPartitaSalvato(
       {
@@ -66,7 +73,51 @@ async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<str
       },
       "", { tavily: false, nuovo },
     );
-    if (!ctx.disponibile) { conteggi.nessun_dato++; return ctx.motivo || "nessun dato"; }
+
+    // Se trovata con regola di riserva, salva l'alias in team_alias con fonte 'auto' e conferme+1
+    if (ctx.aliasScoperto) {
+      try {
+        const da = ctx.aliasScoperto.da;
+        const a = ctx.aliasScoperto.a;
+        const r = await pgGet(`team_alias?da=eq.${encodeURIComponent(da)}&select=conferme,creato`);
+        const esistente = Array.isArray(r) && r.length > 0;
+        const conf = (esistente ? Number(r[0]?.conferme) || 1 : 0) + 1;
+        const creato = esistente ? r[0]?.creato : new Date().toISOString();
+        await pgPost(
+          "team_alias",
+          { da, a, fonte: "auto", conferme: conf, creato },
+          "resolution=merge-duplicates,return=minimal"
+        );
+        if (!esistente && resoconto) {
+          resoconto.coppie_nuove = (resoconto.coppie_nuove || 0) + 1;
+        }
+        impostaAlias([{ da, a }]);
+      } catch (e) {
+        console.error("[dossier-giornata] salvataggio alias auto", e);
+      }
+    }
+
+    if (!ctx.disponibile) {
+      conteggi.nessun_dato++;
+      if (legaCopertaDaFotmob(m.manifestazione) && resoconto) {
+        resoconto.non_abbinate_fotmob.push({
+          partita: `${m.squadra1} - ${m.squadra2}`,
+          campionato: m.manifestazione,
+          ora: m.time,
+        });
+      }
+      return ctx.motivo || "nessun dato";
+    }
+
+    // Se disponibile ma senza FotMob in un campionato coperto da FotMob
+    if (!ctx.fonti_dati?.includes("FotMob") && legaCopertaDaFotmob(m.manifestazione) && resoconto) {
+      resoconto.non_abbinate_fotmob.push({
+        partita: `${m.squadra1} - ${m.squadra2}`,
+        campionato: m.manifestazione,
+        ora: m.time,
+      });
+    }
+
     // LETTURA AI GRATIS (07/10/2026): con il dossier pronto, se manca, la fa
     // Nemotron (gratis). Chi apre la partita la trova gia' scritta.
     let lettura = "";
@@ -92,7 +143,7 @@ async function dossierDi(m: any, conteggi: Conteggi, nuovo = false): Promise<str
 }
 
 async function caricaAlias() {
-  const alias = await pgGetAll("team_alias?select=da,a").catch(() => []);
+  const alias = await pgGetAll("team_alias?select=da,a", "da.asc").catch(() => []);
   impostaAlias(alias as { da: string; a: string }[]);
 }
 
@@ -108,13 +159,14 @@ export default async (req: Request): Promise<Response> => {
       await caricaAlias();
       const righe: any[] = await pgGetAll(`matches?id=in.(${ids.map((i) => `"${i}"`).join(",")})&select=id,day,time,manifestazione,squadra1,squadra2`);
       const conteggi = vuoti();
+      const resoconto: ResocontoDossier = { coppie_nuove: 0, non_abbinate_fotmob: [] };
       const esiti = [];
       for (const m of righe) {
         const t0 = Date.now();
-        const esito = await dossierDi(m, conteggi, url.searchParams.get("nuovo") === "1");
+        const esito = await dossierDi(m, conteggi, resoconto, url.searchParams.get("nuovo") === "1");
         esiti.push({ partita: `${m.squadra1} - ${m.squadra2}`, campionato: m.manifestazione, giorno: m.day, ms: Date.now() - t0, esito });
       }
-      return jsonResponse({ ok: true, conteggi, esiti });
+      return jsonResponse({ ok: true, conteggi, esiti, resoconto });
     }
 
     // --- avvio del lavoro del giorno ---
@@ -134,6 +186,7 @@ export default async (req: Request): Promise<Response> => {
       const s: Stato = {
         giorno, stato: daFare.length ? "in_corso" : "finito", ids: daFare.map((m) => m.id), pos: 0, totale: daFare.length,
         conteggi: vuoti(), avviato: adesso, aggiornato: adesso, lucchetto_fino: null,
+        resoconto: { coppie_nuove: 0, non_abbinate_fotmob: [] },
       };
       await scrivi(s);
       // Spazio: il testo dei dossier si tiene 60 giorni, i numeri (`numeri`)
@@ -153,6 +206,7 @@ export default async (req: Request): Promise<Response> => {
       if (!s || s.stato !== "in_corso") return jsonResponse({ ok: true, niente_da_fare: true });
       if (s.lucchetto_fino && Date.parse(s.lucchetto_fino) > Date.now()) return jsonResponse({ ok: false, motivo: "un passo sta gia' lavorando" });
       s.lucchetto_fino = new Date(Date.now() + DURATA_LUCCHETTO_MS).toISOString();
+      s.resoconto ||= { coppie_nuove: 0, non_abbinate_fotmob: [] };
       await scrivi(s);
       await caricaAlias();
 
@@ -163,7 +217,7 @@ export default async (req: Request): Promise<Response> => {
         const m = righe?.[0];
         const inizio = m ? inizioPartitaMs(m.day, m.time) : null;
         // partita cancellata o gia' iniziata nel frattempo: si salta
-        if (m && !m.result && (inizio === null || inizio > Date.now())) await dossierDi(m, s.conteggi);
+        if (m && !m.result && (inizio === null || inizio > Date.now())) await dossierDi(m, s.conteggi, s.resoconto);
         s.pos++;
         s.aggiornato = new Date().toISOString();
         await scrivi(s);
@@ -173,7 +227,7 @@ export default async (req: Request): Promise<Response> => {
       s.lucchetto_fino = null;
       s.aggiornato = new Date().toISOString();
       await scrivi(s);
-      return jsonResponse({ ok: true, stato: s.stato, pos: s.pos, totale: s.totale, conteggi: s.conteggi });
+      return jsonResponse({ ok: true, stato: s.stato, pos: s.pos, totale: s.totale, conteggi: s.conteggi, resoconto: s.resoconto });
     }
 
     return jsonResponse({ error: "Usa ?avvia=1, ?passo=1 oppure ?ids=..." }, 400);

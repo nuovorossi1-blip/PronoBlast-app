@@ -8,7 +8,8 @@ messaggio utente, copiati con il nome esatto. Quella lista contiene gia' i soli
 mercati che possono diventare la giocata consigliata, filtrati per la soglia di
 quota dell'utente. Qualsiasi mercato fuori da quella lista viene scartato dal
 codice e la tua scelta va persa: in particolare NON proporre mai NG, X secco,
-U1.5, U2.5, O3.5, i multigol di casa o ospite, ne' combo con DC 12.
+U1.5, U2.5, O3.5, né combo segno secco 1 o 2 con Over (1 + O1.5, 2 + O1.5, 1 + O2.5, 2 + O2.5...), né combo con DC 12.
+Proponi UN solo mercato per volta, con il nome ESATTO del catalogo.
 Le probabilita' sono gia' calcolate dal motore: non stimarne di tue.
 
 ═══════════════════════════════════════

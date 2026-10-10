@@ -7,8 +7,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate } from "@/src/api";
-import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache } from "@/src/utils/cache";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI } from "@/src/api";
+import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
@@ -84,12 +84,18 @@ export default function MatchDetail() {
   // stimata a mano qui e i due numeri non coincidevano, lasciando una
   // striscia di sfondo fra le due barre.
   const { height: navHeight } = useNavMetrics();
-  const [match, setMatch] = useState<Match | null>(null);
-  const [prediction, setPrediction] = useState<Prediction | null>(null);
-  const [loading, setLoading] = useState(true);
+  const oddCached = oddSettingsCache.get();
+  const [minOdd, setMinOdd] = useState<number>(oddCached?.min_odd ?? ODD_FALLBACK.min_odd);
+  const [minOddOptions, setMinOddOptions] = useState<number[]>(oddCached?.options ?? ODD_FALLBACK.options);
+  const [oddReady, setOddReady] = useState<boolean>(!!oddCached);
+
+  const initialBundle = id ? matchDetailCache.get(id, minOdd) : null;
+  const [match, setMatch] = useState<Match | null>(initialBundle?.match ?? null);
+  const [prediction, setPrediction] = useState<Prediction | null>(initialBundle?.match?.prediction ?? null);
+  const [loading, setLoading] = useState(!initialBundle);
   const [aiPending, setAiPending] = useState(false);
-  const [result, setResult] = useState("");
-  const [marketStats, setMarketStats] = useState<{ market: string; win_rate: number; total: number; family: string }[]>([]);
+  const [result, setResult] = useState(initialBundle?.match?.result || "");
+  const [marketStats, setMarketStats] = useState<{ market: string; win_rate: number; total: number; family: string }[]>(() => marketStatsCache.get() || []);
   const [mostraPerche, setMostraPerche] = useState(false);
   const [rankingTutto, setRankingTutto] = useState(false);
   // Fascia mostrata nella scheda AI: parte dalla Quota minima, si puo' sfogliare.
@@ -118,9 +124,9 @@ export default function MatchDetail() {
     prova(0);
     return () => { alive = false; if (timer) clearTimeout(timer); };
   }, []);
-  const [structural, setStructural] = useState<StructuralAnalysis | null>(null);
+  const [structural, setStructural] = useState<StructuralAnalysis | null>(initialBundle?.struct as StructuralAnalysis | null);
   const [showClusterAll, setShowClusterAll] = useState(false);
-  const [history, setHistory] = useState<MatchHistory | null>(null);
+  const [history, setHistory] = useState<MatchHistory | null>(initialBundle?.hist as MatchHistory | null);
   // Forma gol delle due squadre da FotMob (07/10/2026): a parte, non blocca la scheda.
   const [forma, setForma] = useState<FormaGol | null>(null);
   // Parere dell'AI chiuso in una riga quando non decide (07/10/2026, Rossi).
@@ -128,9 +134,12 @@ export default function MatchDetail() {
   // Tutto il resto della scheda sta in "Approfondisci", chiuso (07/10/2026, Rossi:
   // "all'utente serve la lettura, se vuole approfondire lo fa a parte").
   const [approfondisci, setApprofondisci] = useState(false);
-  const [tabella, setTabella] = useState<TabellaScenari | null>(memTabella);
+  const [tabella, setTabella] = useState<TabellaScenari | null>(() => memTabella ?? persistentTabellaCache.get());
   // La lettura (07/10/2026): frasi del programma + lettura dell'AI gratis.
-  const [lettura, setLettura] = useState<RispostaLettura | null>(null);
+  const [lettura, setLettura] = useState<RispostaLettura | null>(() => {
+    if (!id) return null;
+    return memLettura.get(id) ?? persistentLetturaCache.get(id, initialBundle?.match?.odds);
+  });
   const [letturaInCorso, setLetturaInCorso] = useState(false);
   const [proInCorso, setProInCorso] = useState(false);
   // Rossi (07/10/2026): "se e' automatica falla e basta, senza cliccarci".
@@ -139,39 +148,62 @@ export default function MatchDetail() {
   useEffect(() => {
     if (!id) return;
     let vivo = true;
-    // Rientrando nella stessa partita: subito quello che si era caricato.
-    setLettura(memLettura.get(id) ?? null);
+    const cachedL = memLettura.get(id) ?? persistentLetturaCache.get(id, match?.odds);
+    if (cachedL) {
+      memLettura.set(id, cachedL);
+      setLettura(cachedL);
+    }
     setLetturaInCorso(true);
     api.lettura(id)
       .then(async (r) => {
         if (!vivo) return;
         memLettura.set(id, r);
+        persistentLetturaCache.set(id, r, match?.odds);
         setLettura(r);
         // La lettura salvata compare prima di qualunque generazione AI.
         // Non rifacciamo il lavoro quando l'AI e' gia' aggiornata.
         if (r.dossier && (!r.ai || r.ai_vecchia)) {
           const aggiornata = await api.lettura(id, { auto: true });
-          if (vivo) { memLettura.set(id, aggiornata); setLettura(aggiornata); }
+          if (vivo) {
+            memLettura.set(id, aggiornata);
+            persistentLetturaCache.set(id, aggiornata, match?.odds);
+            setLettura(aggiornata);
+          }
         }
       })
       .catch(() => {})
       .finally(() => { if (vivo) setLetturaInCorso(false); });
     return () => { vivo = false; };
-  }, [id]);
+  }, [id, match?.odds]);
   // "Pronostico AI": la stessa lettura col modello scelto in LLM & Budget,
   // con il controllo della notizia che puo' cambiare "Punta su questo".
   const faiPro = () => {
     if (!id || proInCorso) return;
     setProInCorso(true);
     api.lettura(id, { genera: true, pro: true })
-      .then((r) => { memLettura.set(id, r); setLettura(r); })
+      .then((r) => {
+        memLettura.set(id, r);
+        persistentLetturaCache.set(id, r, match?.odds);
+        setLettura(r);
+      })
       .catch((e) => notify("Pronostico AI non fatto", String(e?.message || e).replace(/^\d{3}\s+/, "")))
       .finally(() => setProInCorso(false));
   };
   useEffect(() => {
     let vivo = true;
-    if (memTabella) return;
-    api.tabellaScenari().then((t) => { if (vivo && t?.scenari) { memTabella = t; setTabella(t); } }).catch(() => {});
+    const t = memTabella ?? persistentTabellaCache.get();
+    if (t?.scenari) {
+      memTabella = t;
+      setTabella(t);
+      return;
+    }
+    api.tabellaScenari().then((res) => {
+      if (vivo && res?.scenari) {
+        memTabella = res;
+        persistentTabellaCache.set(res);
+        setTabella(res);
+      }
+    }).catch(() => {});
     return () => { vivo = false; };
   }, []);
   useEffect(() => {
@@ -181,16 +213,6 @@ export default function MatchDetail() {
     api.formaGol(id).then((r) => { if (vivo) setForma(r?.forma ?? null); }).catch(() => {});
     return () => { vivo = false; };
   }, [id]);
-  // FASE 2 — soglia di quota minima scelta dall'utente. Alzandola si compra
-  // quota pagandola in precisione: misurato su 583 partite storiche,
-  // 1,40 -> 62,3% | 1,50 -> 61,6% | 1,60 -> 54,0% | 1,75 -> 49,7%.
-  const oddCached = oddSettingsCache.get();
-  const [minOdd, setMinOdd] = useState<number>(oddCached?.min_odd ?? ODD_FALLBACK.min_odd);
-  const [minOddOptions, setMinOddOptions] = useState<number[]>(oddCached?.options ?? ODD_FALLBACK.options);
-  // Finche' non sappiamo la soglia vera non ha senso caricare: caricare col
-  // default e poi rifare tutto e' esattamente il doppio caricamento che
-  // rendeva lenta l'apertura di ogni partita.
-  const [oddReady, setOddReady] = useState<boolean>(!!oddCached);
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);
@@ -635,58 +657,122 @@ export default function MatchDetail() {
             misurata, e lascerei le partite incerte." Indipendente dalla fascia
             (sempre da 1,40 in su). Il Pronostico AI lo conferma o lo cambia
             solo con una notizia verificata. */}
-        {analisi && lettura ? (() => {
+        {(lettura?.consigliato || (analisi && lettura)) ? (() => {
           // Il consigliato SALVATO vince su quello ricalcolato qui: deve essere
           // lo stesso di schedina e multipla, e non cambiare a ogni apertura.
-          const salvato = lettura.consigliato;
-          const rigaSalvata = salvato?.market ? analisi.righe.find((r) => normalizeMarket(r.market) === normalizeMarket(salvato.market!)) : undefined;
-          const c = salvato ? (rigaSalvata ?? (salvato.daLasciare ? null : analisi.consigliato)) : analisi.consigliato;
+          const salvato = lettura?.consigliato;
+          const rigaSalvata = (salvato?.market && analisi)
+            ? analisi.righe.find((r) => normalizeMarket(r.market) === normalizeMarket(salvato.market!))
+            : undefined;
+          const c = salvato
+            ? (rigaSalvata ?? (salvato.daLasciare ? null : (salvato.market ? {
+                nome: salvato.nome || salvato.market,
+                market: salvato.market,
+                quota: salvato.quota ?? 0,
+                stimata: salvato.stimata ?? false,
+                misurata: (salvato.pA != null && salvato.pB != null && salvato.n != null)
+                  ? { pA: salvato.pA, pB: salvato.pB, n: salvato.n }
+                  : null,
+                stima: null,
+              } : (analisi?.consigliato ?? null))))
+            : (analisi?.consigliato ?? null);
           const pc = (x: number) => `${Math.round(x * 100)}%`;
-          const pro = lettura.pro && !lettura.pro_vecchia ? lettura.pro : null;
-          const cambiato = !!pro?.notizia_verificata && !!pro.mercato && (!c || normalizeMarket(pro.mercato) !== normalizeMarket(c.market));
-          const perche = [
+          const pro = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : null;
+
+          // Valutazione proposta AI con mercatoAIValido (Incarico 2)
+          let cambiato = false;
+          let mercatoCambiato: string | null = null;
+          let quotaCambiato: number | null = null;
+          let stimataCambiato = false;
+          let notiziaCambiato: string | null = null;
+          let tradottoDaCambiato: string | null = null;
+          let scartata: { mercato: string; motivo: string } | null = (salvato as any)?.proposta_scartata ?? null;
+
+          if (pro?.notizia_verificata && pro.mercato) {
+            const val = mercatoAIValido(pro.mercato, analisi || structural?.market_odds, analisi?.manuali);
+            if (val.ok && val.market && val.quota != null) {
+              if (!c || normalizeMarket(val.market) !== normalizeMarket(c.market)) {
+                cambiato = true;
+                mercatoCambiato = val.market;
+                quotaCambiato = val.quota;
+                stimataCambiato = val.stimata;
+                notiziaCambiato = pro.notizia || null;
+                tradottoDaCambiato = val.tradotto_da || null;
+                scartata = null;
+              }
+            } else {
+              scartata = { mercato: pro.mercato, motivo: val.motivo || "non ammesso" };
+            }
+          } else if (salvato?.ai === "cambiato" && salvato.market) {
+            cambiato = true;
+            mercatoCambiato = salvato.market;
+            quotaCambiato = salvato.quota ?? null;
+            stimataCambiato = !!salvato.stimata;
+            notiziaCambiato = salvato.notizia || null;
+            tradottoDaCambiato = (salvato as any)?.tradotto_da || null;
+          }
+
+          const perche = analisi ? [
             ...analisi.righe.filter((r) => !r.consigliato && r.quota >= 1.4 && (r.misurata || /GG/.test(r.market))).slice(0, 2),
             ...analisi.righe.filter((r) => !r.consigliato && r.quota < 1.4 && r.quota >= 1.15).slice(-1),
-          ];
+          ] : [];
           const frase = (() => {
-            const pr = lettura.programma;
+            const pr = lettura?.programma;
             if (!pr?.pesata_casa || !pr?.pesata_ospite) return "";
             const forte = pr.pesata_casa.fatti >= pr.pesata_ospite.fatti
               ? { n: match.squadra1, a: match.squadra2, f: pr.pesata_casa.fatti, s: pr.pesata_ospite.subiti }
-              : { n: match.squadra2, a: match.squadra1, f: pr.pesata_ospite.fatti, s: pr.pesata_casa.subiti };
+              : { n: match.squadra2, a: match.squadra1, f: pr.pesata_ospite.fatti, s: pr.pesata_ospite.subiti };
             const n1 = (v: number) => v.toFixed(1).replace(".", ",");
             return `${forte.n} fa ${n1(forte.f)} gol contro squadre come ${forte.a}, ${forte.a} ne prende ${n1(forte.s)}.`;
           })();
+          const avvisiList = analisi?.avvisi ?? salvato?.avvisi ?? [];
           return (
             <View style={styles.consBox}>
               <Text style={styles.consLbl}>IL CONSIGLIATO</Text>
-              {cambiato && pro ? (
+              {cambiato && mercatoCambiato ? (
                 <>
-                  <Text style={styles.consVal}>{pro.mercato!.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}</Text>
-                  <Text style={styles.consAvviso}>{`Cambiato dal Pronostico AI per: ${pro.notizia}`}</Text>
+                  <Text style={styles.consVal}>{mercatoCambiato.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}</Text>
+                  {quotaCambiato != null && (
+                    <Text style={styles.consMeta}>
+                      {`${stimataCambiato ? "≈" : "@"} ${quotaCambiato.toFixed(2)} · proposta AI`}
+                    </Text>
+                  )}
+                  <Text style={styles.consAvviso}>{`Cambiato dal Pronostico AI per: ${notiziaCambiato || "notizia verificata"}`}</Text>
+                  {tradottoDaCambiato ? (
+                    <Text style={styles.consMeta}>{`Tradotto da proposta AI: «${tradottoDaCambiato}»`}</Text>
+                  ) : null}
                 </>
               ) : c ? (
                 <>
                   <Text style={styles.consVal}>{c.nome}</Text>
                   <Text style={styles.consMeta}>
-                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)} · ${c.misurata ? `${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? `~${pc(c.stima)} stima` : ""}`}
+                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)}${c.misurata ? ` · ${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? ` · ~${pc(c.stima)} stima` : ""}`}
                   </Text>
-                  <Text style={styles.consTesto}>{`Tutti i dati d'accordo. ${frase}`}</Text>
-                  {analisi.avvisi.map((v) => <Text key={v} style={styles.consAvviso}>{`⚠ ${v.charAt(0).toUpperCase()}${v.slice(1)}.`}</Text>)}
+                  {frase ? <Text style={styles.consTesto}>{`Tutti i dati d'accordo. ${frase}`}</Text> : null}
+                  {scartata ? (
+                    <Text style={styles.consAvviso}>{`⚠ Proposta AI scartata: ${scartata.motivo} («${scartata.mercato}»)`}</Text>
+                  ) : null}
+                  {avvisiList.map((v: string) => <Text key={v} style={styles.consAvviso}>{`⚠ ${v.charAt(0).toUpperCase()}${v.slice(1)}.`}</Text>)}
                   {perche.length ? (
                     <Text style={styles.consPic}>{"Perché non: " + perche.map((r) => `${r.nome} (${r.perche.replace(/\.$/, "")})`).join(" · ")}</Text>
                   ) : null}
-                  {pro ? <Text style={styles.consOk}>{`✓ Confermato dal Pronostico AI (${pro.modello.replace(" (OpenRouter)", "")})`}</Text> : null}
+                  {pro && !scartata ? <Text style={styles.consOk}>{`✓ Confermato dal Pronostico AI (${pro.modello.replace(" (OpenRouter)", "")})`}</Text> : null}
                 </>
-              ) : (salvato?.daLasciare ?? analisi.daLasciare) ? (
+              ) : (salvato?.daLasciare ?? analisi?.daLasciare) ? (
                 <>
                   <Text style={styles.consVal}>Da lasciare</Text>
-                  <Text style={styles.consAvviso}>{`Motivo: ${salvato?.daLasciare ?? analisi.daLasciare}. Se vuoi giocarla lo stesso, guarda "Punta su questo" più sotto o il Pronostico AI.`}</Text>
+                  <Text style={styles.consAvviso}>{`Motivo: ${salvato?.daLasciare ?? analisi?.daLasciare}. Se vuoi giocarla lo stesso, guarda "Punta su questo" più sotto o il Pronostico AI.`}</Text>
+                  {scartata ? (
+                    <Text style={styles.consAvviso}>{`⚠ Proposta AI scartata: ${scartata.motivo} («${scartata.mercato}»)`}</Text>
+                  ) : null}
                 </>
               ) : (
                 <>
                   <Text style={styles.consVal}>Nessuna giocata sicura</Text>
                   <Text style={styles.consPic}>{"Nessun mercato da 1,40 in su con percentuale misurata e stabile per questo scenario. Guarda \"Punta su questo\" per scegliere tu la fascia."}</Text>
+                  {scartata ? (
+                    <Text style={styles.consAvviso}>{`⚠ Proposta AI scartata: ${scartata.motivo} («${scartata.mercato}»)`}</Text>
+                  ) : null}
                 </>
               )}
             </View>
@@ -829,7 +915,7 @@ export default function MatchDetail() {
                   <Text style={styles.golTesto}>
                     {`Gol: ${match.squadra1} ${lettura.pro.gol_casa} · ${match.squadra2} ${lettura.pro.gol_ospite} · totale ${lettura.pro.gol_totali}`}
                   </Text>
-                  {lettura.pro.risultati_probabili.length ? (
+                  {lettura.pro.risultati_probabili?.length ? (
                     <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.pro.risultati_probabili.join(" · ")}`}</Text>
                   ) : null}
                   {lettura.pro.notizia ? (
@@ -846,7 +932,7 @@ export default function MatchDetail() {
                   <Text style={styles.golTesto}>
                     {`Gol: ${match.squadra1} ${lettura.ai.gol_casa} · ${match.squadra2} ${lettura.ai.gol_ospite} · totale ${lettura.ai.gol_totali}`}
                   </Text>
-                  {lettura.ai.risultati_probabili.length ? (
+                  {lettura.ai.risultati_probabili?.length ? (
                     <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.ai.risultati_probabili.join(" · ")}`}</Text>
                   ) : null}
                   {lettura.ai_vecchia ? <Text style={styles.golPic}>{"Fatta con le quote di prima: si rifà da sola."}</Text> : null}
@@ -924,9 +1010,11 @@ export default function MatchDetail() {
           const nomeM = (m: string) => m.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
           const pcT = (x: number) => `${Math.round(x * 100)}%`;
           if (proDecide && lettura?.pro?.mercato) {
-            const vp = valutaPuntaSu(lettura.pro.mercato, ctxC);
-            const qm = vp?.odd != null ? { odd: vp.odd, stimata: vp.stimata } : quotaManuale(lettura.pro.mercato, match.odds, structural?.market_odds);
-            mot = { market: lettura.pro.mercato, odd: qm?.odd ?? null, stimata: qm?.stimata ?? true, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };
+            const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds);
+            if (v.ok && v.market && v.quota != null) {
+              const vp = valutaPuntaSu(v.market, ctxC);
+              mot = { market: v.market, odd: v.quota, stimata: v.stimata, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };
+            }
           }
           if (!decideAI && !mot) {
             mot = daTabella(minOdd);
@@ -937,7 +1025,7 @@ export default function MatchDetail() {
                 .sort((x, y) => (y.tab?.p ?? 0) - (x.tab?.p ?? 0))[0] ?? null;
             }
           }
-          if (!decideAI && structural && !mot) {
+          if (!decideAI && structural?.structure && !mot) {
             const famM = structural.pre_ranking?.length
               ? structural.pre_ranking.map((x) => ({ market: x.market, odd: x.odd, family: "" }))
               : quickPredictionFamily(match.odds);

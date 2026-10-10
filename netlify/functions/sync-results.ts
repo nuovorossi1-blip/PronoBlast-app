@@ -4,6 +4,7 @@ import { simil, impostaAlias } from "./lib/teamMatch";
 import { MARK } from "./lib/teamTables";
 import { fotmob, espn, sofascore, apifootball, PAESI, type PartitaFonte } from "./lib/resultSources";
 import { inizioPartitaMs } from "../../frontend/src/api";
+import { aggiornaTabellaERicalcolaConsigliati } from "./lib/tabellaScenari";
 
 /**
  * GET|POST /sync-results
@@ -180,7 +181,7 @@ export default async (req: Request): Promise<Response> => {
       );
     }
 
-    const alias = await pgGetAll("team_alias?select=da,a").catch(() => []);
+    const alias = await pgGetAll("team_alias?select=da,a", "da.asc").catch(() => []);
     impostaAlias(alias as { da: string; a: string }[]);
 
     const conteggi = { scritte: 0, da_verificare: 0, ambigue: 0, non_trovate: 0, non_finite: 0, supplementari: 0, incerte: 0 };
@@ -250,6 +251,14 @@ export default async (req: Request): Promise<Response> => {
             });
           }
         }
+      }
+    }
+
+    if (!dry && conteggi.scritte > 0) {
+      if (typeof setImmediate !== "undefined") {
+        setImmediate(() => {
+          aggiornaTabellaERicalcolaConsigliati().catch((e) => console.error("[sync-results] ricalcolo tabella", e));
+        });
       }
     }
 

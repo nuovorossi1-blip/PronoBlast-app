@@ -1,4 +1,5 @@
 import { pgGet, pgPost, pgPatch, jsonResponse, rowToOdds } from "./lib/supabaseRest";
+import { consigliatoDi } from "./lib/letturaPartita";
 import {
   structuralAnalysis, CANDIDATE_MARKETS, fullDistribution, coverageForMarket,
   comboOdd, estimateMarketOdd, isVerdictMarket, quoteCatalogo, type Odds,
@@ -379,6 +380,9 @@ REGOLE OBBLIGATORIE basate sul PIN:
     main_prediction: prediction.main_prediction,
     updated_at: new Date().toISOString(),
   });
+
+  // Ricalcola e salva il consigliato dopo la nuova predizione AI (B1)
+  consigliatoDi(matchId).catch(() => {});
 
   const uscita = Array.isArray(saved) ? saved[0] : saved;
   return jsonResponse({

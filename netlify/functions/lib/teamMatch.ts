@@ -103,8 +103,8 @@ function corrispondenze(a: string, b: string): number {
 }
 
 const MARKER = /\bu\d\d\b|\bii\b|\bb\b|\bwomen\b|\bw\b|\breserves?\b/g;
-function marker(x: string): string {
-  return (x.match(MARKER) || []).slice().sort().join("|");
+export function marker(x: string): string {
+  return (String(x).toLowerCase().match(MARKER) || []).slice().sort().join("|");
 }
 
 function iniziali(x: string): string {
@@ -183,3 +183,33 @@ export function simil(aIn: string, bIn: string, senzaMarker = false): number {
   }
   return Math.max(r * (tok ? 1 : 0.85), tok * 0.95, contiene, forte);
 }
+
+/**
+ * Verifica se due squadre sono incompatibili (es. marker giovanili/femminili
+ * diversi, parole distintive opposte come North/South, oppure parole generiche
+ * in conflitto come Manchester United vs Manchester City).
+ */
+export function squadreIncompatibili(aIn: string, bIn: string): boolean {
+  let a = norm(aIn);
+  let b = norm(bIn);
+  if (marker(a) !== marker(b)) return true;
+
+  a = traduci(a);
+  b = traduci(b);
+  a = SIGLE[a] ?? a;
+  b = SIGLE[b] ?? b;
+  if (!a || !b) return true;
+  if (a === b) return false;
+
+  const ta0 = new Set(a.split(" ").filter(Boolean));
+  const tb0 = new Set(b.split(" ").filter(Boolean));
+
+  if (inter(simmetrica(ta0, tb0), DISTINTIVE).size > 0) return true;
+
+  const ga = meno(inter(ta0, GENERICHE), new Set(["fc", "b"]));
+  const gb = meno(inter(tb0, GENERICHE), new Set(["fc", "b"]));
+  if (ga.size > 0 && gb.size > 0 && inter(ga, gb).size === 0) return true;
+
+  return false;
+}
+

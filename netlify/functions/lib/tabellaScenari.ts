@@ -90,7 +90,19 @@ export async function calcolaTabellaScenari(): Promise<TabellaScenari> {
 let ultima: TabellaScenari | null = null;
 let inCorso: Promise<TabellaScenari> | null = null;
 
-function ricalcola(): Promise<TabellaScenari> {
+export function firmaTabella(t?: TabellaScenari | null): string | null {
+  return t?.aggiornata ? `${t.aggiornata}|${t.partite}` : null;
+}
+
+export function versioneTabellaCorrente(): string | null {
+  return firmaTabella(ultima);
+}
+
+export function impostaTabellaCorrente(t: TabellaScenari | null) {
+  ultima = t;
+}
+
+export function ricalcola(): Promise<TabellaScenari> {
   if (!inCorso) {
     inCorso = calcolaTabellaScenari()
       .then(async (t) => {
@@ -100,11 +112,27 @@ function ricalcola(): Promise<TabellaScenari> {
         } catch (e) {
           console.error("[tabellaScenari] salvataggio", e);
         }
+        // Quando la tabella scenari cambia, ricalcola in sequenza i consigliati delle partite non ancora giocate
+        if (typeof setImmediate !== "undefined") {
+          setImmediate(async () => {
+            try {
+              const { ricalcolaConsigliatiNonGiocate } = await import("./letturaPartita");
+              await ricalcolaConsigliatiNonGiocate();
+            } catch (e) {
+              console.error("[tabellaScenari] ricalcolo non giocate", e);
+            }
+          });
+        }
         return t;
       })
       .finally(() => { inCorso = null; });
   }
   return inCorso;
+}
+
+/** Aggiorna la tabella scenari e ricalcola i consigliati delle partite non ancora giocate. */
+export async function aggiornaTabellaERicalcolaConsigliati(): Promise<TabellaScenari> {
+  return ricalcola();
 }
 
 /** L'ultima tabella (memoria o database); oltre i 7 giorni si ricalcola in sottofondo. */

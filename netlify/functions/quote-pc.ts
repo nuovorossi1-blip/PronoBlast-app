@@ -1,5 +1,6 @@
 import { pgGet, pgPatch, pgPost, jsonResponse } from "./lib/supabaseRest";
 import type { QuotePcRichiesta, QuotePcStato } from "../../frontend/src/api";
+import { ricalcolaConsigliatiQuoteCambiate } from "./lib/letturaPartita";
 
 /**
  * AGGIORNA QUOTE DAL PC DI CASA (05/10/2026) — /quote-pc
@@ -137,7 +138,24 @@ export default async (req: Request): Promise<Response> => {
             errore: body.errore != null ? String(body.errore) : r.errore,
           },
         });
+        if (body.stato === "fatto") {
+          if (typeof setImmediate !== "undefined") {
+            setImmediate(() => {
+              ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[quote-pc] ricalcolo quote cambiate", e));
+            });
+          }
+        }
         return jsonResponse({ ok: true });
+      }
+
+      case "ricalcola_quote":
+      case "ricalcola": {
+        if (typeof setImmediate !== "undefined") {
+          setImmediate(() => {
+            ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[quote-pc] ricalcolo quote cambiate", e));
+          });
+        }
+        return jsonResponse({ ok: true, messaggio: "Ricalcolo quote cambiate avviato" });
       }
 
       default:

@@ -8,7 +8,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const file = path.join(__dirname, "..", "dist", "index.html");
+const outputDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(__dirname, "..", "dist");
+const file = path.join(outputDir, "index.html");
 if (!fs.existsSync(file)) {
   console.error("inject-pwa-head: dist/index.html non trovato — export fallito?");
   process.exit(1);

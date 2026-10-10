@@ -76,7 +76,39 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS post_partita boolean;
 
 
 -- -----------------------------------------------------------------------------
--- 3. Altre tabelle usate dal codice (esistono gia', nessuna modifica)
+-- 3. team_alias — nomi squadra alternativi (creata 2026-10-10)
+-- -----------------------------------------------------------------------------
+-- Usata da fotmobDossier.ts, dossier-giornata.ts e sync-results.ts per
+-- abbinare nomi diversi (es. 'Sporting Lisbona' -> 'Sporting CP').
+CREATE TABLE IF NOT EXISTS public.team_alias (
+  da text PRIMARY KEY,
+  a text NOT NULL,
+  fonte text,
+  conferme integer DEFAULT 1,
+  creato timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.team_alias ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'team_alias' AND policyname = 'single_user_phase_all'
+  ) THEN
+    CREATE POLICY "single_user_phase_all" ON public.team_alias
+      AS PERMISSIVE FOR ALL
+      TO anon, authenticated, service_role
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END $$;
+
+GRANT ALL ON public.team_alias TO anon, authenticated, service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- 3b. Altre tabelle usate dal codice (esistono gia', nessuna modifica)
 -- -----------------------------------------------------------------------------
 --   settings                 chiave/valore: impostazioni, stato del ricalcolo
 --                            (chiave 'ricalcolo_stato'), memo varie
@@ -84,9 +116,9 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS post_partita boolean;
 --   family_counters          contatori partite per famiglia
 --   scenario_market_scores   apprendimento per scenario 1X2 + mercato
 --   system_scorecard         pagella dei sistemi (STRUTT / AI / PRE)
---   team_alias               nomi squadra alternativi (sync-results.ts)
 --   upload_skipped           righe Excel scartate all'import
 --   match_results_training   storico grezzo ScoreBlast (match-history.ts)
+
 
 
 -- -----------------------------------------------------------------------------

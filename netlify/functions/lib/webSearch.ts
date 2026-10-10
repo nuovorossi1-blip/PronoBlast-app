@@ -96,6 +96,8 @@ export type ContestoWeb = {
   cercato_il?: string;
   /** Da dove vengono i dati: "FotMob", "SearXNG", "Tavily". */
   fonti_dati?: string[];
+  /** Alias scoperto con regola di riserva in fotmobDossier. */
+  aliasScoperto?: { da: string; a: string };
 };
 
 /**
@@ -260,7 +262,7 @@ export async function contestoPartitaSalvato(
 
   if (!iniziata) {
     const [fm, news] = await Promise.all([
-      datiFotmob(p.giorno, p.casa, p.ospite, p.inizioMs),
+      datiFotmob(p.giorno, p.casa, p.ospite, p.inizioMs, p.campionato),
       notiziePartita(p.casa, p.ospite),
     ]);
     const blocchi = [...(fm?.blocchi || [])];
@@ -272,7 +274,7 @@ export async function contestoPartitaSalvato(
       fonti.push(...news.fonti);
       fontiDati.push("SearXNG");
     }
-    if (blocchi.length) ctx = { disponibile: true, blocchi, fonti: fonti.slice(0, 10), ricerche: 0, fonti_dati: fontiDati };
+    if (blocchi.length) ctx = { disponibile: true, blocchi, fonti: fonti.slice(0, 10), ricerche: 0, fonti_dati: fontiDati, aliasScoperto: fm?.aliasScoperto };
   }
   if (!ctx && opzioni.tavily === false) {
     // Dossier automatico di tutte le partite: Tavily non si usa (100 partite di

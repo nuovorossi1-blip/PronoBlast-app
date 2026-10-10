@@ -547,7 +547,6 @@ export const CANDIDATE_MARKETS: string[] = [
   "MG 1-2 casa + MG 0-3 ospite",
   "MG 0-3 casa + MG 1-2 ospite",
   "MG 1-2 casa + MG 0-2 ospite",
-  "1 + O1.5", "2 + O1.5", "1 + O2.5", "2 + O2.5",
   "1 + U4.5", "2 + U4.5",
   "GG + O2.5",
   // Manuale EQUILIBRIO (01/10/2026, decisione di Rossi): giocabile, quota
@@ -663,6 +662,7 @@ export const VERDICT_WHITELIST = [
   "GG",
   "O2.5",
   "MG 2-4 totali", "MG 3-6 totali",
+  "MG 2-4 casa", "MG 2-4 ospite",
   "GG + O2.5",
   "DC 1X + O1.5", "DC X2 + O1.5",
   "DC 1X + O2.5", "DC X2 + O2.5",
@@ -821,8 +821,6 @@ export function structuralAnalysis(
     if (m === "1X" && (num(odds, "odd_1X") || 99) > 1.85) continue;
     if (m === "X2" && (num(odds, "odd_X2") || 99) > 1.85) continue;
     if (m === "12" && (num(odds, "odd_12") || 99) > 1.85) continue;
-    if (m === "1 + O1.5" && (num(odds, "odd_1") || 99) > 1.85) continue;
-    if (m === "2 + O1.5" && (num(odds, "odd_2") || 99) > 1.85) continue;
     // Fino a prima di questa modifica i mercati senza quota nota (tutti i
     // multigol) saltavano il filtro e restavano in gara "per forfait": erano
     // il 70-90% dei pick proposti. Ora, se il bookmaker non ci dà un prezzo,
@@ -864,7 +862,6 @@ export function structuralAnalysis(
     if (floor >= 2) {
       if (mu === "O1.5") continue;
       if (mu.includes("+ O1.5")) continue;
-      if (mu === "1 + O1.5" || mu === "2 + O1.5") continue;
     }
     if (floor >= 3) {
       if (mu === "O2.5") continue;
@@ -915,7 +912,6 @@ export function structuralAnalysis(
       if (mu.includes("+ O3.5") && ceiling <= 3) continue;
       if (mu.includes("+ O2.5") && ceiling <= 3) continue;
       if (mu.includes("+ O1.5") && ceiling <= 2) continue;
-      if ((mu === "1 + O1.5" || mu === "2 + O1.5") && ceiling <= 2) continue;
     }
 
     filtered.push(m);
@@ -1009,10 +1005,10 @@ export function structuralAnalysis(
     if (isExtreme) {
       mu = m.toUpperCase().replace(/ {2}/g, " ");
       if (mu === "NG") score *= 1.05;
-      if (lamA >= lamH && (mu === "2 + O1.5" || mu === "DC X2 + O1.5")) score *= 1.25;
-      if (lamH >= lamA && (mu === "1 + O1.5" || mu === "DC 1X + O1.5")) score *= 1.25;
-      if (lamA >= lamH && (mu === "2 + O2.5" || mu === "DC X2 + O2.5")) score *= 1.3;
-      if (lamH >= lamA && (mu === "1 + O2.5" || mu === "DC 1X + O2.5")) score *= 1.3;
+      if (lamA >= lamH && mu === "DC X2 + O1.5") score *= 1.25;
+      if (lamH >= lamA && mu === "DC 1X + O1.5") score *= 1.25;
+      if (lamA >= lamH && (mu === "DC X2 + O2.5" || mu === "MG 2-4 OSPITE")) score *= 1.3;
+      if (lamH >= lamA && (mu === "DC 1X + O2.5" || mu === "MG 2-4 CASA")) score *= 1.3;
       const lamTot2 = lamH + lamA;
       if (mu === "O2.5" && lamTot2 >= 2.8) score *= 1.2;
       if (lamH >= lamA && mu === "1 + U4.5") score *= 1.3;

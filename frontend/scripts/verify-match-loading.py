@@ -12,6 +12,7 @@ from playwright.async_api import async_playwright
 
 
 MATCH_ID = "0765ad72-ee0f-4cb5-8520-862b757b5e44"
+BASE = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--base=")), "http://127.0.0.1:3000")
 MATCH = {
     "id": MATCH_ID, "squadra1": "TEST CASA", "squadra2": "TEST OSPITE",
     "manifestazione": "TEST", "day": "2099-10-08", "time": "18:00",
@@ -65,7 +66,7 @@ async def verify(browser, refresh):
     page = await context.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
-        await page.goto(f"http://127.0.0.1:3000/match/{MATCH_ID}", wait_until="domcontentloaded")
+        await page.goto(f"{BASE}/match/{MATCH_ID}", wait_until="domcontentloaded")
         await page.get_by_text("TEST CASA", exact=True).first.wait_for(state="visible", timeout=15000)
         visible_after = time.monotonic() - start
         await page.wait_for_timeout(3000)
@@ -85,11 +86,84 @@ async def verify(browser, refresh):
         await context.close()
 
 
+async def verify_preload(browser, click_early=False, save_data=False):
+    context = await browser.new_context(viewport={"width": 390, "height": 844},
+                                        is_mobile=True, has_touch=True, service_workers="block")
+    if save_data:
+        await context.add_init_script("Object.defineProperty(navigator, 'connection', {value: {saveData: true}})")
+    requests = []
+    errors = []
+    home_matches = [dict(MATCH, id=MATCH_ID if i == 0 else f"00000000-0000-0000-0000-{i:012d}",
+                         squadra1=f"TEST CASA {i}", squadra2=f"TEST OSPITE {i}") for i in range(20)]
+    target = home_matches[0]
+
+    async def route_api(route):
+        request = route.request
+        if request.resource_type not in ("fetch", "xhr"):
+            await route.continue_()
+            return
+        path = urlparse(request.url).path
+        query = parse_qs(urlparse(request.url).query)
+        requests.append((path, query))
+        response, delay = {}, 0
+        if path == "/matches-days": response = [MATCH["day"]]
+        elif path == "/matches-list": response = home_matches
+        elif path == "/ml-stats": response = {"markets": []}
+        elif path == "/odd-settings": response = {"min_odd": 1.4, "options": [1.4, 1.5]}
+        elif path == "/selected-list": response = []
+        elif path == "/match-detail":
+            mid = query["id"][0]
+            response, delay = next(m for m in home_matches if m["id"] == mid), 1.5
+        elif path == "/predict": response, delay = None, 1
+        elif path == "/match-history": response, delay = None, 1.5
+        elif path == "/lettura": response, delay = READING, 1
+        elif path == "/forma-gol": response = {"forma": None}
+        await asyncio.sleep(delay)
+        await route.fulfill(status=200, content_type="application/json", body=json.dumps(response))
+
+    await context.route("**/*", route_api)
+    page = await context.new_page()
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        await page.goto(BASE, wait_until="domcontentloaded")
+        card = page.get_by_test_id(f"match-{MATCH_ID}")
+        await card.wait_for(state="visible", timeout=15000)
+        if not click_early:
+            await page.wait_for_timeout(3500)
+        preloaded = [query["id"][0] for path, query in requests if path == "/match-detail"]
+        if save_data:
+            assert not preloaded, "Prefetch ignored save-data"
+        elif not click_early:
+            assert MATCH_ID in preloaded, "Visible match was not prefetched"
+            assert len(preloaded) <= 8, "Prefetch exceeded the budget"
+        assert not any("auto" in query for path, query in requests if path == "/lettura"), "Speculative AI generation"
+        start = time.monotonic()
+        await card.tap()
+        await page.wait_for_url(f"**/match/{MATCH_ID}")
+        await page.get_by_text(target["squadra1"], exact=True).last.wait_for(state="visible")
+        visible = time.monotonic() - start
+        await page.wait_for_timeout(2500)
+        detail_calls = sum(path == "/match-detail" and query.get("id") == [MATCH_ID] for path, query in requests)
+        reading_calls = sum(path == "/lettura" and query.get("matchId") == [MATCH_ID] for path, query in requests)
+        print(json.dumps({"mobile_preload": True, "early_click": click_early, "save_data": save_data,
+                          "visible_after_tap": round(visible, 3), "prefetched": len(preloaded),
+                          "detail_calls": detail_calls, "reading_calls": reading_calls, "errors": errors}))
+        assert not errors, errors
+        assert visible < 1, "Match preview still waits for network"
+        assert detail_calls == 1, "Tap duplicated prefetch request"
+        assert reading_calls == 1, "Reading was downloaded twice"
+    finally:
+        await context.close()
+
+
 async def main():
     async with async_playwright() as p:
         browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
         await verify(browser, refresh=False)
         await verify(browser, refresh=True)
+        await verify_preload(browser)
+        await verify_preload(browser, click_early=True)
+        await verify_preload(browser, save_data=True)
         await browser.close()
 
 

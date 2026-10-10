@@ -20,6 +20,7 @@ import zlib from "node:zlib";
 import { promisify } from "node:util";
 import { POST as dispatch } from "../api/[route]";
 import uploadExcel from "../netlify/functions/upload-excel.mjs";
+import { ricalcolaConsigliatiQuoteCambiate } from "../netlify/functions/lib/letturaPartita";
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const RADICE = path.resolve(QUI, "..");
@@ -98,6 +99,7 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
   // lettura AI gratis solo delle partite con le quote cambiate o nuove.
   if (nome === "upload-excel" && risposta.ok) {
     fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
+    ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[server] ricalcolo quote cambiate", e));
   }
   const fuori: Record<string, string> = { ...INTESTAZIONI };
   risposta.headers.forEach((v, k) => { if (k !== "content-encoding" && k !== "content-length") fuori[k] = v; });

@@ -1,6 +1,7 @@
 import { pgGetAll, pgGet, pgDelete, pgRpc, jsonResponse } from "./lib/supabaseRest";
 import { parseResult } from "./lib/marketEval";
 import { updateSystemScorecard, updateScenarioScores } from "./lib/applyResult";
+import { aggiornaTabellaERicalcolaConsigliati } from "./lib/tabellaScenari";
 
 /**
  * POST /rebuild-learning
@@ -97,6 +98,13 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const prossimo = from + fetta.length;
+    if (prossimo >= totale) {
+      if (typeof setImmediate !== "undefined") {
+        setImmediate(() => {
+          aggiornaTabellaERicalcolaConsigliati().catch((e) => console.error("[rebuild-learning] ricalcolo tabella", e));
+        });
+      }
+    }
     return jsonResponse({
       ok: true,
       totale_concluse: totale,

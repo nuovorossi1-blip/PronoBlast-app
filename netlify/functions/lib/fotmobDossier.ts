@@ -19,7 +19,8 @@
  * uguali = non si sceglie: meglio niente dati che i dati di un'altra partita.
  */
 import { fotmob, type PartitaFonte } from "./resultSources";
-import { simil } from "./teamMatch";
+import { simil, squadreIncompatibili } from "./teamMatch";
+import { legaIdPerManifestazione } from "./fotmobLeghe";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const SOGLIA = 0.72;
@@ -61,11 +62,29 @@ async function classifica(legaId: number): Promise<any | null> {
   }
 }
 
+export type OpzioniTrovaPartita = {
+  manifestazione?: string;
+  legaIdAtteso?: number | null;
+};
+
 /** Trova la partita del database nell'elenco FotMob del giorno. */
-export function trovaPartita(elenco: PartitaFonte[], casa: string, ospite: string, oraMs: number | null): PartitaFonte | null {
+export function trovaPartita(
+  elenco: PartitaFonte[],
+  casa: string,
+  ospite: string,
+  oraMs: number | null,
+  opt?: string | OpzioniTrovaPartita,
+): (PartitaFonte & { aliasScoperto?: { da: string; a: string } }) | null {
+  const manifestazione = typeof opt === "string" ? opt : opt?.manifestazione;
+  const legaIdAtteso = typeof opt === "object" && opt?.legaIdAtteso !== undefined
+    ? opt.legaIdAtteso
+    : (manifestazione ? legaIdPerManifestazione(manifestazione) : null);
+
+  // 1. Abbinamento ordinario
   const cand: { punt: number; m: PartitaFonte }[] = [];
   for (const m of elenco) {
     if (!m.id) continue;
+    if (squadreIncompatibili(casa, m.casa) || squadreIncompatibili(ospite, m.ospite)) continue;
     const sh = simil(casa, m.casa), sa = simil(ospite, m.ospite);
     if (Math.min(sh, sa) < 0.45) continue;
     let punt = (sh + sa) / 2;
@@ -75,10 +94,52 @@ export function trovaPartita(elenco: PartitaFonte[], casa: string, ospite: strin
     }
     if (punt >= SOGLIA) cand.push({ punt, m });
   }
-  if (!cand.length) return null;
-  cand.sort((a, b) => b.punt - a.punt);
-  if (cand.length > 1 && cand[0].punt - cand[1].punt < 0.05 && cand[0].m.id !== cand[1].m.id) return null;
-  return cand[0].m;
+
+  if (cand.length) {
+    cand.sort((a, b) => b.punt - a.punt);
+    if (cand.length > 1 && cand[0].punt - cand[1].punt < 0.05 && cand[0].m.id !== cand[1].m.id) return null;
+    return cand[0].m;
+  }
+
+  // 2. Abbinamento di riserva:
+  // Se nessun candidato supera la soglia, accetta una partita FotMob se e' l'UNICA nella stessa
+  // fascia oraria (+-30 min) che ha una squadra con simil >= 0.9, e quella partita e' nella lega FotMob
+  // attesa per la manifestazione (quando la corrispondenza e' nota) oppure l'altra squadra ha simil >= 0.45.
+  // Se due candidati: niente. Restituisce anche la coppia scoperta per registrazione.
+  if (!oraMs) return null;
+
+  const nellaFascia = elenco.filter((m) => {
+    if (!m.id || !m.ora) return false;
+    return Math.abs(m.ora - oraMs) <= 30 * 60_000;
+  });
+
+  const conSquadraSimile = nellaFascia.filter((m) => {
+    const sh = simil(casa, m.casa);
+    const sa = simil(ospite, m.ospite);
+    return sh >= 0.9 || sa >= 0.9;
+  });
+
+  // Deve essere l'UNICA partita nella fascia che ha una squadra con simil >= 0.9. Se due (o zero): niente.
+  if (conSquadraSimile.length !== 1) return null;
+
+  const m = conSquadraSimile[0];
+  const sh = simil(casa, m.casa);
+  const sa = simil(ospite, m.ospite);
+  const legaCoincide = legaIdAtteso != null && m.legaId != null && m.legaId === legaIdAtteso;
+
+  if (sh >= 0.9) {
+    if (squadreIncompatibili(ospite, m.ospite)) return null;
+    if (!legaCoincide && sa < 0.45) return null;
+    return { ...m, aliasScoperto: { da: ospite, a: m.ospite } };
+  }
+
+  if (sa >= 0.9) {
+    if (squadreIncompatibili(casa, m.casa)) return null;
+    if (!legaCoincide && sh < 0.45) return null;
+    return { ...m, aliasScoperto: { da: casa, a: m.casa } };
+  }
+
+  return null;
 }
 
 export type NumeriFotmob = {
@@ -104,6 +165,7 @@ export type DatiFotmob = {
   blocchi: { etichetta: string; righe: string[] }[];
   fonti: { titolo: string; url: string }[];
   numeri: NumeriFotmob;
+  aliasScoperto?: { da: string; a: string };
 };
 
 const tondo = (x: unknown) => (typeof x === "number" ? Math.round(x * 100) / 100 : null);
@@ -154,9 +216,9 @@ function assenti(lista: any[] | undefined): string[] {
  * I fatti FotMob di una partita, oppure null se FotMob non la trova o non
  * risponde. Non lancia mai: e' una fonte, non un requisito.
  */
-export async function datiFotmob(giorno: string, casa: string, ospite: string, oraMs: number | null): Promise<DatiFotmob | null> {
+export async function datiFotmob(giorno: string, casa: string, ospite: string, oraMs: number | null, campionato?: string): Promise<DatiFotmob | null> {
   try {
-    const m = trovaPartita(await elencoDelGiorno(giorno), casa, ospite, oraMs);
+    const m = trovaPartita(await elencoDelGiorno(giorno), casa, ospite, oraMs, campionato);
     if (!m?.id) return null;
     const d = await getJson(`https://www.fotmob.com/api/data/matchDetails?matchId=${m.id}`);
     const c = d?.content || {};
@@ -253,6 +315,7 @@ export async function datiFotmob(giorno: string, casa: string, ospite: string, o
         forma_casa: formaC, forma_ospite: formaO,
         precedenti: prec, formazioni,
       },
+      aliasScoperto: m.aliasScoperto,
     };
   } catch (e) {
     console.error("[fotmobDossier]", casa, ospite, e);

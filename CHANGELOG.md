@@ -149,6 +149,50 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-10 — Consigliato salvato nel database, mercati vietati, nomi FotMob
+
+- Il Consigliato si calcola e si salva nel database (dossier, dopo le quote,
+  dopo il Pronostico AI, quando i nuovi risultati cambiano la tabella
+  scenari) e la scheda lo mostra subito; cache sul dispositivo (ultime 40
+  schede, 3 giorni) con la stessa firma quote del server: niente rotellina
+  ne' riquadro vuoto al rientro (misurato 0,25-0,30 s).
+- Mercati vietati sempre (numeri, AI, alternative): 1/2 + Over 1.5/2.5/3.5,
+  qualunque combo con DC 12, U1.5, U2.5, O3.5. Al posto di 1/2 + Over:
+  MG 2-4 casa / MG 2-4 ospite (quota stimata). Ammessi: elenco del verdetto
+  piu' i mercati del manuale di quello scenario.
+- Pronostico AI: cambia il Consigliato solo con UN mercato ammesso, con
+  quota e in scala; "1 + Over..." viene tradotto in MG 2-4 casa, "2 + Over..."
+  in MG 2-4 ospite; altrimenti "Proposta AI scartata: motivo". Caso reale
+  Dortmund - Werder 09/10: "1 + Over 1.5 (o GG)" -> MG 2-4 casa ≈1,53.
+- FotMob: abbinamento di riserva (stessa lega e orario, una squadra uguale,
+  un solo candidato), mappa campionati -> leghe FotMob, tabella team_alias,
+  script scripts/trova-alias-fotmob.mts (solo stampa). Caso reale Braga -
+  Sporting Lisbona ("Sporting CP" su FotMob).
+- Contiene anche il precaricamento schede dell'08/10, finora solo locale.
+
+### 2026-10-08 — Precaricamento delle schede sul telefono
+
+- Le card visibili preparano dettaglio, motore, storico e lettura salvata dopo
+  una pausa di 700 ms: due schede alla volta, massimo otto per visita alla home.
+  Il risparmio dati e le connessioni 2G disabilitano il caricamento automatico.
+  Tocco/hover anticipano esplicitamente il caricamento; nessuna AI con `auto=1`
+  viene generata prima dell'apertura della scheda.
+- Home, dettaglio e prossima partita in Schedina condividono le richieste in
+  corso e la soglia quote. I dati dell'elenco permettono di mostrare subito le
+  squadre anche se il precaricamento non ha ancora finito.
+- Cache limitata a 32 pacchetti/letture; le quote o il risultato aggiornati
+  nell'elenco invalidano il pacchetto precedente. La lettura si rivalida dopo
+  30 secondi o quando cambiano le quote. La coda AI aggiorna il dettaglio solo
+  al completamento di un lavoro, evitando un secondo fetch all'ingresso.
+- TypeScript, build e cinque test browser passati. Su viewport mobile, con
+  API simulate da 1–1,5 s, le squadre compaiono in 0,11–0,15 s dopo il tocco;
+  una richiesta dettaglio/lettura per scheda, nessuna generazione speculativa.
+  Questo misura la comparsa della scheda, non il completamento dell'AI.
+- La build può essere preparata separatamente e testata con
+  `serve-test-build.cjs <cartella> 3100` e
+  `verify-match-loading.py --base=http://127.0.0.1:3100`; l'iniezione PWA
+  accetta la cartella di output come argomento opzionale.
+
 ### 2026-10-08 — Apertura scheda senza attendere lo storico
 
 - La scheda mostra squadre, quote e dati salvati appena arriva `match-detail`;
