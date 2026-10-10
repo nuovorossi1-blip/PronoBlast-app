@@ -212,10 +212,23 @@ export type ConsigliatoSalvato = {
   quote: QuoteFirma; quando: string;
 };
 
+/** Partita con risultato o con l'orario d'inizio gia' passato. */
+export function partitaIniziata(m: { result?: string | null; day?: string | null; time?: string | null }): boolean {
+  if (m.result) return true;
+  const inizio = inizioPartitaMs(m.day, m.time);
+  return inizio !== null && inizio <= Date.now();
+}
+
 export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true): Promise<ConsigliatoSalvato | null> {
   const x = dati ?? (await datiLettura(matchId));
   if (!x) return null;
   const m = x.match;
+  // PARTITA INIZIATA O FINITA (10/10/2026, Rossi: niente interferenze): il
+  // consigliato salvato e' quello che si e' giocato e non cambia piu', ne'
+  // per un Excel caricato dopo l'inizio, ne' per i risultati che aggiornano
+  // la tabella scenari, ne' per un Pronostico AI. Si calcola solo se non
+  // c'era (prima volta), con le quote della partita.
+  if (partitaIniziata(m) && x.numeri?.consigliato) return x.numeri.consigliato as ConsigliatoSalvato;
   const odds: any = rowToOdds(m);
   const s: any = structuralAnalysis(odds, 1.4);
   const st = s.structure;
@@ -310,6 +323,8 @@ export function consigliatoValido(numeri: any, match: any, versioneAttesa?: stri
  */
 export async function applicaCambioInSchedina(matchId: string, c: ConsigliatoSalvato | null): Promise<void> {
   if (!c || c.ai !== "cambiato" || !c.market) return;
+  const [m] = await pgGet(`matches?id=eq.${encodeURIComponent(matchId)}&select=day,time,result`).catch(() => []);
+  if (!m || partitaIniziata(m)) return;
   try {
     await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}&selected=eq.true&result=is.null`, { pick_finale: c.market, pick_finale_prob: null });
   } catch (e) {
@@ -349,6 +364,7 @@ export async function ricalcolaConsigliatiQuoteCambiate(giornoDa?: string): Prom
     }
 
     for (const m of matches) {
+      if (partitaIniziata(m)) { invariate++; continue; }
       const numeri = dossierMap.get(m.id);
       const c = numeri?.consigliato;
       const ora = firmaQuote(m);

@@ -62,6 +62,7 @@ export default async (req: Request): Promise<Response> => {
     }
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
       if (url.searchParams.get("pro") === "1") {
+        if (!daGiocare) return jsonResponse({ error: "Partita gia' iniziata: il pronostico e' bloccato e non si cambia piu'." }, 409);
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
         // Il consigliato salvato (schedina, multipla) segue il Pronostico AI.

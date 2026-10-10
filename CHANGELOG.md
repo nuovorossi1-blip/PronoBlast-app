@@ -149,6 +149,18 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-10 — Partite iniziate bloccate, lavori saltati recuperati, selettori con il Pronostico AI
+
+- Partita iniziata o finita: il consigliato salvato non si ricalcola piu'
+  (Excel caricato dopo l'inizio, nuovi risultati, Pronostico AI), il
+  Pronostico AI viene rifiutato e il pick della schedina non cambia; i
+  verdetti in anticipo saltano le partite gia' iniziate.
+- All'avvio del server (dopo 3 e 10 minuti): se oggi il dossier delle 6/13
+  o le quote delle 12 non risultano fatti (es. PC spento), si avviano ora.
+- Scheda: quando decide il Pronostico AI, sotto la sua giocata restano i
+  numeri della fascia scelta ("Dai numeri a 1,50: ..."), con gli avvisi:
+  i selettori 1,40/1,50/1,60/1,75 tornano utili (Rossi, scelta B).
+
 ### 2026-10-10 — Verdetti calcolati in anticipo dal server
 
 - Prima li faceva calcolare l'apertura della home: dopo un riavvio del server

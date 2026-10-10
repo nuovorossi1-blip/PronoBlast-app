@@ -968,6 +968,11 @@ export default function MatchDetail() {
           // piu' probabile.
           type PickMotore = { market: string; odd: number | null; stimata: boolean; prob: number | null; soglia: number; archivio?: number | null; tab?: VoceTabella };
           let mot: PickMotore | null = null;
+          // Giocata del Pronostico AI (notizia verificata). Dal 10/10/2026 (Rossi,
+          // scelta B) non sostituisce piu' il calcolo dei numeri: si mostra
+          // sopra, e sotto restano i numeri della fascia scelta, che cambiano
+          // con i selettori 1,40 / 1,50 / 1,60 / 1,75.
+          let motAI: PickMotore | null = null;
           // PRIMA LA TABELLA SCENARI (07/10/2026, Rossi): il mercato che in
           // QUESTO scenario e in QUESTA fascia la prende piu' spesso in modo
           // stabile (partite vecchie e recenti), se la sua quota qui sta nella
@@ -1013,7 +1018,7 @@ export default function MatchDetail() {
             const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds);
             if (v.ok && v.market && v.quota != null) {
               const vp = valutaPuntaSu(v.market, ctxC);
-              mot = { market: v.market, odd: v.quota, stimata: v.stimata, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };
+              motAI = { market: v.market, odd: v.quota, stimata: v.stimata, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };
             }
           }
           if (!decideAI && !mot) {
@@ -1072,10 +1077,13 @@ export default function MatchDetail() {
               if (r && r.v) mot = { market: r.x.market, odd: r.v.odd, stimata: r.v.stimata, prob: r.x.coverage, soglia: r.v.fascia ?? FASCE_AI[0] };
             }
           }
-          const fuoriSoglia = !!mot && Math.abs(mot.soglia - minOdd) > 0.001;
+          // I numeri della fascia scelta; se decide l'AI, la sua giocata va sopra.
+          const motNumeri = mot;
+          if (motAI) mot = motAI;
+          const fuoriSoglia = !!motNumeri && Math.abs(motNumeri.soglia - minOdd) > 0.001;
           // Le altre giocate buone della stessa fascia (es. a 1,50 anche MG 2-4 Spagna).
-          const alternativeT = mot?.tab
-            ? candidatiTabella(mot.soglia, true).filter((x) => normalizeMarket(x.market) !== normalizeMarket(mot!.market)).slice(0, 2)
+          const alternativeT = motNumeri?.tab
+            ? candidatiTabella(motNumeri.soglia, true).filter((x) => normalizeMarket(x.market) !== normalizeMarket(motNumeri!.market)).slice(0, 2)
             : [];
           // Alla quota scelta non c'e' niente di sicuro: si mostra lo stesso cosa
           // c'e', con l'allarme. Decide Rossi (07/10/2026).
@@ -1087,10 +1095,10 @@ export default function MatchDetail() {
                   {`Anche: ${nomeM(a.market)} ${a.stimata ? "≈" : "@"} ${a.odd?.toFixed(2)} · ${pcT(a.tab!.pA)} / ${pcT(a.tab!.pB)}`}
                 </Text>
               ))}
-              {deboleQui && mot ? (
+              {deboleQui && motNumeri ? (
                 <Text style={styles.puntaAvviso}>
                   {`⚠ Alla tua quota (${minOdd.toFixed(2)}): ${nomeM(deboleQui.market)} ${deboleQui.stimata ? "≈" : "@"} ${deboleQui.odd?.toFixed(2)} vince solo il ${pcT(deboleQui.tab!.pA)} / ${pcT(deboleQui.tab!.pB)}` +
-                    `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Non è sicura: su questa partita non superare ${mot.soglia.toFixed(2)}. Decidi tu.`}
+                    `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Non è sicura: su questa partita non superare ${motNumeri.soglia.toFixed(2)}. Decidi tu.`}
                 </Text>
               ) : null}
             </>
@@ -1110,13 +1118,22 @@ export default function MatchDetail() {
           const probMot = mot ? (mot.tab ? mot.tab.p : mot.archivio != null ? mot.archivio / 100 : mot.prob) : null;
           const debole = probMot !== null && probMot < PROB_AFFIDABILE;
           const pc0 = (x: number) => `${Math.round(x * 100)}%`;
-          const misuraMot = mot
-            ? mot.tab
-              ? ` · ${notaT?.scenario ?? "scenario"}: vince il ${pc0(mot.tab.pA)} (partite vecchie) e il ${pc0(mot.tab.pB)} (recenti) su ${mot.tab.nA + mot.tab.nB}`
-              : (mot.archivio != null ? ` · ${mot.archivio.toFixed(1).replace(".", ",")}% in archivio` : mot.prob !== null ? ` · ${pctProb(mot.prob)} Poisson` : "")
+          const misuraDi = (x: PickMotore | null) => x
+            ? x.tab
+              ? ` · ${notaT?.scenario ?? "scenario"}: vince il ${pc0(x.tab.pA)} (partite vecchie) e il ${pc0(x.tab.pB)} (recenti) su ${x.tab.nA + x.tab.nB}`
+              : (x.archivio != null ? ` · ${x.archivio.toFixed(1).replace(".", ",")}% in archivio` : x.prob !== null ? ` · ${pctProb(x.prob)} Poisson` : "")
             : "";
+          const misuraMot = misuraDi(mot);
+          // Con l'AI che decide: i numeri della fascia scelta, sotto.
+          const numeriSotto = motAI ? (
+            <Text style={styles.puntaMeta}>
+              {motNumeri
+                ? `Dai numeri a ${minOdd.toFixed(2)}: ${nomeM(motNumeri.market)} ${motNumeri.odd !== null ? `${motNumeri.stimata ? "≈" : "@"} ${motNumeri.odd.toFixed(2)}` : "quota n/d"}${misuraDi(motNumeri)}`
+                : `Dai numeri a ${minOdd.toFixed(2)}: nessuna giocata coerente.`}
+            </Text>
+          ) : null;
           const notaFuori = [
-            fuoriSoglia && mot ? `Da ${minOdd.toFixed(2)} i numeri non trovano niente di coerente: questa è la giocata migliore della partita (fascia ${mot.soglia.toFixed(2)}).` : "",
+            fuoriSoglia && motNumeri ? `Da ${minOdd.toFixed(2)} i numeri non trovano niente di coerente: ${motAI ? "per i numeri" : "questa"} è la giocata migliore della partita (fascia ${motNumeri.soglia.toFixed(2)}).` : "",
             debole ? `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: poco affidabile, valuta se lasciare la partita.` : "",
           ].filter(Boolean).join(" ") || null;
           const c = predVerdetto?.main_prediction && predVerdetto.fasce ? valutaPuntaSu(predVerdetto.main_prediction, ctxC) : null;
@@ -1136,6 +1153,7 @@ export default function MatchDetail() {
                     {misuraMot}
                   </Text>
                 ) : null}
+                {numeriSotto}
                 {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                 {extraT}
                 <Text style={styles.puntaNota}>
@@ -1180,6 +1198,7 @@ export default function MatchDetail() {
                   ) : (
                     <Text style={styles.puntaVal}>Nessuna giocata</Text>
                   )}
+                  {numeriSotto}
                   {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                   {extraT}
                   <Text style={styles.puntaPerche}>

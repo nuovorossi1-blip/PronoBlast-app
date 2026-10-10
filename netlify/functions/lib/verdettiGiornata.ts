@@ -3,6 +3,7 @@ import path from "node:path";
 import { pgGetAll } from "./supabaseRest";
 import { verdettoDiPartita } from "./verdettoServer";
 import { readMinOdd } from "../odd-settings";
+import { inizioPartitaMs } from "../../../frontend/src/api";
 
 /**
  * VERDETTI DI UNA GIORNATA, CALCOLATI IN ANTICIPO (10/10/2026).
@@ -57,6 +58,9 @@ export async function calcolaVerdettiGiornata(day: string, dry = false): Promise
   const righe = await pgGetAll(`matches?day=eq.${day}&result=is.null&select=*`, "time.asc");
   const daFare = righe.filter((r: any) => {
     if (r.pick_finale) return false;
+    // Partita iniziata: il pick non nasce piu' a gioco in corso (10/10/2026).
+    const i = inizioPartitaMs(r.day, r.time);
+    if (i !== null && i <= inizio) return false;
     const v = senzaPickRecenti.get(r.id);
     return !(v && v.firma === firma(r, minOdd) && inizio - v.quando < SENZA_PICK_VALIDO_MS);
   });

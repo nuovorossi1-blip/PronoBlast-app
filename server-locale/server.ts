@@ -23,6 +23,7 @@ import uploadExcel from "../netlify/functions/upload-excel.mjs";
 import { ricalcolaConsigliatiQuoteCambiate } from "../netlify/functions/lib/letturaPartita";
 import { svuotaServerCache } from "../netlify/functions/lib/serverCache";
 import { precalcolaVerdetti } from "../netlify/functions/lib/verdettiGiornata";
+import { recuperaLavoriSaltati } from "../netlify/functions/lib/recuperoLavori";
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const RADICE = path.resolve(QUI, "..");
@@ -158,3 +159,13 @@ http.createServer(async (req, res) => {
 // partite e le quote nuove. Le partite gia' calcolate costano un millisecondo.
 setTimeout(() => void precalcolaVerdetti("avvio"), 15_000);
 setInterval(() => void precalcolaVerdetti("ogni 30 minuti"), 30 * 60_000);
+// LAVORI SALTATI A PC SPENTO (10/10/2026): dossier delle 6/13 e quote delle 12
+// non fatti oggi si avviano ora. Dopo 3 minuti (l'agente quote e la rete
+// partono con calma) e di nuovo dopo 10, se la prima volta non rispondevano.
+for (const minuti of [3, 10]) {
+  setTimeout(() => {
+    recuperaLavoriSaltati(`http://127.0.0.1:${PORTA}`)
+      .then((fatti) => { if (fatti.length) console.log(new Date().toISOString(), "[recupero]", fatti.join("; ")); })
+      .catch((e) => console.error("[recupero]", e));
+  }, minuti * 60_000);
+}
