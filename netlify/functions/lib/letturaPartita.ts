@@ -241,7 +241,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     market: c?.market ?? null, nome: c?.nome ?? null, quota: c?.quota ?? null, stimata: !!c?.stimata,
     pA: c?.misurata?.pA ?? null, pB: c?.misurata?.pB ?? null, n: c?.misurata?.n ?? null,
     daLasciare: a.daLasciare, avvisi: a.avvisi,
-    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato && isMercatoAmmesso(r.market, nota?.markets)).slice(0, 8)
+    alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato && !isMercatoVietato(r.market)).slice(0, 8)
       .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
     ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
     lasciata_market: a.seNonLasciata?.market ?? null, lasciata_quota: a.seNonLasciata?.quota ?? null,

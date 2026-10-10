@@ -250,17 +250,17 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.equal(consigliatoValido({ consigliato: consSenzaVersione }, match, "2026-10-10T15:30:00Z|9335"), null);
   });
 
-  it("14. Correzione 5: Mercati dello scenario ('X oppure GG', 'U3.5') ammessi; 'DC 12 + O1.5' e 'U2.5' vietati sempre; Dortmund resta MG 2-4 casa", () => {
+  it("14. Vietate SOLO le combo 1/2 + Over; DC 12, U2.5 ecc. restano come prima per i numeri; l'AI resta limitata a elenco + scenario; Dortmund resta MG 2-4 casa", () => {
     const manualiScenario = ["X oppure GG", "U3.5"];
 
-    // 1. Mercati vietati sempre
-    assert.equal(isMercatoVietato("DC 12 + O1.5"), true);
-    assert.equal(isMercatoVietato("DC 12 + O2.5"), true);
-    assert.equal(isMercatoVietato("12 + O1.5"), true);
-    assert.equal(isMercatoVietato("U2.5"), true);
-    assert.equal(isMercatoVietato("Under 2.5"), true);
-    assert.equal(isMercatoVietato("U1.5"), true);
-    assert.equal(isMercatoVietato("O3.5"), true);
+    // 1. Vietate solo le combo segno secco 1/2 + Over (Rossi 10/10/2026:
+    //    "non doveva cambiare niente del resto")
+    assert.equal(isMercatoVietato("DC 12 + O1.5"), false);
+    assert.equal(isMercatoVietato("DC 12 + O2.5"), false);
+    assert.equal(isMercatoVietato("U2.5"), false);
+    assert.equal(isMercatoVietato("U1.5"), false);
+    assert.equal(isMercatoVietato("O3.5"), false);
+    assert.equal(isMercatoVietato("1 + O3.5"), true);
     assert.equal(isMercatoVietato("1 + O1.5"), true);
     assert.equal(isMercatoVietato("2 + O2.5"), true);
 
@@ -270,9 +270,8 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.equal(isMercatoAmmesso("X oppure GG", manualiScenario), true);
     assert.equal(isMercatoAmmesso("U3.5", manualiScenario), true);
 
-    // 3. Mercati vietati restano non ammessi anche se presenti nel manuale
-    assert.equal(isMercatoAmmesso("U2.5", ["U2.5"]), false);
-    assert.equal(isMercatoAmmesso("DC 12 + O1.5", ["DC 12 + O1.5"]), false);
+    // 3. Le combo 1/2 + Over restano non ammesse anche se presenti nel manuale
+    assert.equal(isMercatoAmmesso("1 + O1.5", ["1 + O1.5"]), false);
 
     // 4. In analizzaGiocate con scenario contenente "X oppure GG":
     const oddsEquilibrio: any = {
@@ -320,11 +319,9 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.notEqual(rXoGG?.punteggio, null, "'X oppure GG' puo' avere punteggio se ammesso");
     assert.notEqual(rU35?.punteggio, null, "'U3.5' puo' avere punteggio se ammesso");
 
-    // I mercati vietati non devono avere punteggio né diventare consigliati
-    const rVietato12 = anEq.righe.find((r) => r.market.includes("12"));
-    const rVietatoU25 = anEq.righe.find((r) => r.market === "U2.5");
-    assert.equal(rVietato12?.punteggio, null, "'DC 12 + O1.5' non deve avere punteggio");
-    assert.equal(rVietatoU25?.punteggio, null, "'U2.5' non deve avere punteggio");
+    // Come prima del 10/10: U2.5 dal catalogo puo' di nuovo essere valutato
+    const rU25 = anEq.righe.find((r) => r.market === "U2.5");
+    assert.ok(rU25, "'U2.5' resta fra le righe valutate");
 
     // 5. In mercatoAIValido:
     // "X oppure GG" ammesso se nel manuale

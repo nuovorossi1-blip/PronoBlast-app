@@ -149,6 +149,14 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-10 — Mercati: vietate solo le combo 1/2 + Over
+
+- Correzione di oggi: il divieto si limita alle combo segno secco 1/2 + Over
+  (al loro posto MG 2-4 casa / ospite). Ripristinati come prima per numeri e
+  alternative DC 12, U1.5, U2.5, O3.5 e i multigol del catalogo, tolti per
+  errore (Rossi: "non doveva cambiare niente del resto"). Il Pronostico AI
+  resta limitato a elenco + mercati dello scenario.
+
 ### 2026-10-10 — Avvio veloce dell'app
 
 - La home mostra subito l'ultimo elenco salvato sul dispositivo (mai un altro

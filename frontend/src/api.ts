@@ -1084,29 +1084,18 @@ export const CANONICAL_VERDICT: Record<string, string> = {
 
 /**
  * Mercati vietati SEMPRE (per numeri, AI e alternative).
- * Decisione dell'utente (10/10/2026):
- * - combo segno secco 1/2 + Over (es. 1 + O1.5, 2 + O2.5, ecc.)
- * - qualunque combo con DC 12 (es. DC 12 + O1.5, DC 12 + O2.5, ecc.)
- * - U1.5, U2.5, O3.5
+ * Decisione dell'utente (10/10/2026): SOLO le combo segno secco 1/2 + Over
+ * (1 + O1.5, 2 + O2.5, 1 + O3.5...), sostituite da MG 2-4 casa / ospite.
+ * Tutto il resto resta come prima (Rossi: "non doveva cambiare niente del
+ * resto, andava bene"): DC 12, U2.5, U3.5, i multigol del catalogo ecc.
  */
-export const MERCATI_VIETATI = new Set([
-  "u1.5", "under 1.5", "under 1,5",
-  "u2.5", "under 2.5", "under 2,5",
-  "o3.5", "over 3.5", "over 3,5",
-]);
+export const MERCATI_VIETATI = new Set<string>([]);
 
 export function isMercatoVietato(market: string | null | undefined): boolean {
   if (!market || !market.trim()) return true;
   const m = market.trim().toLowerCase().replace(/\s+/g, " ");
 
   if (MERCATI_VIETATI.has(m)) return true;
-  if (/^u(?:nder)?\s*(?:1[.,]5|2[.,]5)$/i.test(m)) return true;
-  if (/^o(?:ver)?\s*3[.,]5$/i.test(m)) return true;
-
-  // Qualunque combo con DC 12 o 12 (es. "DC 12 + O2.5", "12 + O1.5")
-  if (/^(?:dc\s+)?12\s*\+/i.test(m) || /\+\s*(?:dc\s+)?12\b/i.test(m)) {
-    return true;
-  }
 
   // Combo segno secco 1 o 2 + Over (es. "1 + O1.5", "2 + Over 2.5", ecc.)
   if (/^(?:1|2)\s*\+\s*(?:over|ov|o)\s*(?:1[.,]5|2[.,]5|3[.,]5)(?:\s*totali)?$/i.test(m)) {
@@ -2816,7 +2805,7 @@ export function alternativeDelConsiglio(
   const presente = (m: string) =>
     (consigliato && normalizeMarket(m) === normalizeMarket(consigliato)) || out.some((a) => normalizeMarket(a.market) === normalizeMarket(m));
   const aggiungi = (market: string, motivo: string) => {
-    if (!isMercatoAmmesso(market, manuali) || presente(market)) return;
+    if (isMercatoVietato(market) || presente(market)) return;
     const { odd, stimata } = quotaMercato(market, ctx);
     const i = ranking.findIndex((r) => normalizeMarket(r.market) === normalizeMarket(market));
     const man = (ctx.manuale || []).find((c) => normalizeMarket(c.market) === normalizeMarket(market));
@@ -3454,7 +3443,7 @@ export function analizzaGiocate(x: {
 
   // Candidati e punteggio
   for (const r of righe) {
-    if (!isMercatoAmmesso(r.market, x.manuali)) continue;
+    if (isMercatoVietato(r.market)) continue;
     if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
     const pm = Math.min(r.misurata.pA, r.misurata.pB);
     if (pm < 0.58) continue;
