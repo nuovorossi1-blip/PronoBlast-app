@@ -18,6 +18,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 import { promisify } from "node:util";
+import { fork } from "node:child_process";
+import os from "node:os";
 import { POST as dispatch } from "../api/[route]";
 import uploadExcel from "../netlify/functions/upload-excel.mjs";
 import { ricalcolaConsigliatiQuoteCambiate } from "../netlify/functions/lib/letturaPartita";
@@ -33,6 +35,22 @@ const PORTA = Number(process.env.PORTA || 3000);
 // quanto serve: i modelli gratuiti di OpenRouter ci mettono minuti. Senza,
 // llmProviders.ts applicherebbe il limite di Netlify (21 s). Il .env vince.
 process.env.LIMITE_PIATTAFORMA_SECONDI ||= "630";
+
+// DUE PROCESSI (10/10/2026, Rossi: "prima era fluida, adesso ogni click carica").
+// Node fa una cosa alla volta: mentre calcolava i verdetti di 186 partite
+// (80-160 s) o il dossier (4 minuti), le richieste del telefono restavano in
+// coda e la scheda partita passava da 0,3 s a 3-5 s. Ora questo processo
+// risponde all'app e ne avvia un secondo, "lavori" (porta 3002, priorita'
+// bassa), con gli stessi file: lì girano dossier, quote, verdetti in anticipo e
+// recupero dei lavori saltati. I calcoli sono gli stessi, cambia solo dove.
+const RUOLO_LAVORI = process.env.PRONOBLAST_RUOLO === "lavori";
+const PORTA_LAVORI = Number(process.env.PORTA_LAVORI || 3002);
+const ETICHETTA = RUOLO_LAVORI ? "[lavori] " : "";
+
+/** Le rotte che fanno partire lavori lunghi vanno al processo "lavori". */
+function eLavoroPesante(nome: string, url: URL): boolean {
+  return nome === "dossier-giornata" || nome === "quote-pc" || (nome === "verdetto" && url.searchParams.has("day"));
+}
 
 // Le rotte delle funzioni sono quelle riscritte da vercel.json verso /api/...
 const vercel = JSON.parse(fs.readFileSync(path.join(RADICE, "vercel.json"), "utf8"));
@@ -86,12 +104,47 @@ function leggiCorpo(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
+/** Dopo un Excel nuovo: dossier delle quote cambiate, consigliati e verdetti. */
+function lavoriDopoExcel() {
+  fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
+  ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[server] ricalcolo quote cambiate", e));
+  void precalcolaVerdetti("excel");
+}
+
+/** Passa la richiesta al processo "lavori". false = non risponde: la fa questo processo. */
+function inoltraAiLavori(req: http.IncomingMessage, res: http.ServerResponse, corpo?: Buffer): Promise<boolean> {
+  return new Promise((ok) => {
+    const t0 = Date.now();
+    const intestazioni = { ...req.headers };
+    if (corpo) intestazioni["content-length"] = String(corpo.length);
+    const avanti = http.request(
+      { host: "127.0.0.1", port: PORTA_LAVORI, method: req.method, path: req.url, headers: intestazioni },
+      (r) => {
+        res.writeHead(r.statusCode || 502, r.headers);
+        r.pipe(res);
+        r.on("end", () => {
+          console.log(`[API ${req.method}] ${req.url} -> ${r.statusCode} in ${Date.now() - t0} ms (processo lavori)`);
+          ok(true);
+        });
+      },
+    );
+    avanti.on("error", () => ok(res.headersSent));
+    avanti.end(corpo);
+  });
+}
+
 async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nome: string) {
   const t0 = Date.now();
   const host = req.headers["x-forwarded-host"] || req.headers.host || `127.0.0.1:${PORTA}`;
   const proto = req.headers["x-forwarded-proto"] || "http";
   const url = `${proto}://${host}${req.url}`;
   const corpo = req.method === "GET" || req.method === "HEAD" ? undefined : await leggiCorpo(req);
+  if (!RUOLO_LAVORI && eLavoroPesante(nome, new URL(url))) {
+    // Le scritture del processo lavori (quote nuove) rendono vecchia la cache breve di qui.
+    if (corpo) svuotaServerCache(nome);
+    if (await inoltraAiLavori(req, res, corpo)) return;
+    console.error(new Date().toISOString(), `[server] processo lavori assente: ${nome} fatto qui`);
+  }
   const intestazioni = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (v != null) intestazioni.set(k, Array.isArray(v) ? v.join(", ") : v);
@@ -103,9 +156,12 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
   // lettura AI gratis solo delle partite con le quote cambiate o nuove.
   if (nome === "upload-excel" && risposta.ok) {
     svuotaServerCache("upload-excel");
-    fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
-    ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[server] ricalcolo quote cambiate", e));
-    void precalcolaVerdetti("excel");
+    if (RUOLO_LAVORI) lavoriDopoExcel();
+    else {
+      fetch(`http://127.0.0.1:${PORTA_LAVORI}/_lavori/dopo-excel`, { method: "POST" })
+        .then((r) => { if (!r.ok) throw new Error(String(r.status)); })
+        .catch(() => { console.error("[server] processo lavori assente: lavori dopo l'Excel fatti qui"); lavoriDopoExcel(); });
+    }
   }
   const fuori: Record<string, string> = { ...INTESTAZIONI };
   risposta.headers.forEach((v, k) => { if (k !== "content-encoding" && k !== "content-length") fuori[k] = v; });
@@ -115,7 +171,7 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
     fuori["content-encoding"] = "gzip";
     fuori["vary"] = "Accept-Encoding";
   }
-  console.log(`[API ${req.method}] ${req.url} -> ${risposta.status} in ${Date.now() - t0} ms (${dati.length} bytes, enc: ${fuori["content-encoding"] || "raw"})`);
+  console.log(`${ETICHETTA}[API ${req.method}] ${req.url} -> ${risposta.status} in ${Date.now() - t0} ms (${dati.length} bytes, enc: ${fuori["content-encoding"] || "raw"})`);
   res.writeHead(risposta.status, fuori);
   res.end(dati);
 }
@@ -144,6 +200,11 @@ http.createServer(async (req, res) => {
   const nome = percorso.split("/").filter(Boolean).pop() || "";
   const eFunzione = percorso.startsWith("/api/") || FUNZIONI.has(percorso.replace(/^\//, ""));
   try {
+    if (RUOLO_LAVORI && percorso === "/_lavori/dopo-excel") {
+      lavoriDopoExcel();
+      res.writeHead(202, { "Content-Type": "application/json" });
+      return res.end('{"ok":true}');
+    }
     if (eFunzione) await funzione(req, res, nome);
     else await statico(req, res, percorso);
   } catch (e: any) {
@@ -152,20 +213,42 @@ http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: e?.message || "Errore del server locale" }));
   }
 }).listen(PORTA, "127.0.0.1", () => {
-  console.log(new Date().toISOString(), `PronoBlast locale su http://127.0.0.1:${PORTA}`);
+  console.log(new Date().toISOString(), `${ETICHETTA}PronoBlast locale su http://127.0.0.1:${PORTA}`);
 });
-// VERDETTI PRONTI PRIMA DELL'APERTURA (10/10/2026): oggi e i due giorni dopo,
-// poco dopo l'avvio (il server intanto risponde) e poi ogni 30 minuti per le
-// partite e le quote nuove. Le partite gia' calcolate costano un millisecondo.
-setTimeout(() => void precalcolaVerdetti("avvio"), 15_000);
-setInterval(() => void precalcolaVerdetti("ogni 30 minuti"), 30 * 60_000);
-// LAVORI SALTATI A PC SPENTO (10/10/2026): dossier delle 6/13 e quote delle 12
-// non fatti oggi si avviano ora. Dopo 3 minuti (l'agente quote e la rete
-// partono con calma) e di nuovo dopo 10, se la prima volta non rispondevano.
-for (const minuti of [3, 10]) {
-  setTimeout(() => {
-    recuperaLavoriSaltati(`http://127.0.0.1:${PORTA}`)
-      .then((fatti) => { if (fatti.length) console.log(new Date().toISOString(), "[recupero]", fatti.join("; ")); })
-      .catch((e) => console.error("[recupero]", e));
-  }, minuti * 60_000);
+
+if (RUOLO_LAVORI) {
+  // Se il processo dell'app si chiude, questo non deve restare orfano sulla porta.
+  process.on("disconnect", () => process.exit(0));
+  // VERDETTI PRONTI PRIMA DELL'APERTURA (10/10/2026): oggi e i due giorni dopo,
+  // poco dopo l'avvio (il server intanto risponde) e poi ogni 30 minuti per le
+  // partite e le quote nuove. Le partite gia' calcolate costano un millisecondo.
+  setTimeout(() => void precalcolaVerdetti("avvio"), 15_000);
+  setInterval(() => void precalcolaVerdetti("ogni 30 minuti"), 30 * 60_000);
+  // LAVORI SALTATI A PC SPENTO (10/10/2026): dossier delle 6/13 e quote delle 12
+  // non fatti oggi si avviano ora. Dopo 3 minuti (l'agente quote e la rete
+  // partono con calma) e di nuovo dopo 10, se la prima volta non rispondevano.
+  for (const minuti of [3, 10]) {
+    setTimeout(() => {
+      recuperaLavoriSaltati(`http://127.0.0.1:${PORTA}`)
+        .then((fatti) => { if (fatti.length) console.log(new Date().toISOString(), "[recupero]", fatti.join("; ")); })
+        .catch((e) => console.error("[recupero]", e));
+    }, minuti * 60_000);
+  }
+} else {
+  // Stesso file, stesse opzioni (tsx, .env), priorita' bassa: il PC da' la
+  // precedenza alle richieste del telefono. Se si chiude, riparte da solo.
+  // L'operazione pianificata di Windows avvia tutto a priorita' bassa: questo
+  // processo, che risponde al telefono, torna normale.
+  try { os.setPriority(0, os.constants.priority.PRIORITY_NORMAL); } catch { /* resta com'e' */ }
+  const avviaLavori = () => {
+    const figlio = fork(fileURLToPath(import.meta.url), [], {
+      env: { ...process.env, PRONOBLAST_RUOLO: "lavori", PORTA: String(PORTA_LAVORI) },
+    });
+    try { os.setPriority(figlio.pid!, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* resta normale */ }
+    figlio.on("exit", (codice) => {
+      console.error(new Date().toISOString(), `[server] processo lavori chiuso (${codice}): riparte fra 10 s`);
+      setTimeout(avviaLavori, 10_000);
+    });
+  };
+  avviaLavori();
 }
