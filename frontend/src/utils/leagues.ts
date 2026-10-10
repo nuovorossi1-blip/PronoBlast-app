@@ -185,6 +185,8 @@ const SPECIAL: { match: RegExp; build: (m: RegExpMatchArray) => string; area: st
   { match: /^EU/, build: () => "Competizione europea", area: "Europa" },
 ];
 
+const leagueCache = new Map<string, any>();
+
 export function parseLeagueCode(code: string): {
   country?: string;
   category?: string;
@@ -196,18 +198,22 @@ export function parseLeagueCode(code: string): {
   if (!code) return { area: "Mondo", label: "—", shortLabel: "—", isTop: false };
   const raw = code.trim();
   const c = raw.toUpperCase();
+  const hit = leagueCache.get(c);
+  if (hit) return hit;
 
   // 1) SPECIAL tournaments
   for (const s of SPECIAL) {
     const mm = c.match(s.match);
     if (mm) {
       const label = s.build(mm);
-      return {
+      const res = {
         area: s.area,
         label,
         shortLabel: `${raw} (${label})`,
         isTop: false,
       };
+      leagueCache.set(c, res);
+      return res;
     }
   }
 
@@ -260,7 +266,9 @@ export function parseLeagueCode(code: string): {
   const shortLabel = country
     ? `${raw} (${parts.join(" ")})`
     : raw;
-  return { country, category, area, label, shortLabel, isTop };
+  const res = { country, category, area, label, shortLabel, isTop };
+  leagueCache.set(c, res);
+  return res;
 }
 
 

@@ -21,6 +21,7 @@ import { promisify } from "node:util";
 import { POST as dispatch } from "../api/[route]";
 import uploadExcel from "../netlify/functions/upload-excel.mjs";
 import { ricalcolaConsigliatiQuoteCambiate } from "../netlify/functions/lib/letturaPartita";
+import { svuotaServerCache } from "../netlify/functions/lib/serverCache";
 
 const QUI = path.dirname(fileURLToPath(import.meta.url));
 const RADICE = path.resolve(QUI, "..");
@@ -84,6 +85,7 @@ function leggiCorpo(req: http.IncomingMessage): Promise<Buffer> {
 }
 
 async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nome: string) {
+  const t0 = Date.now();
   const host = req.headers["x-forwarded-host"] || req.headers.host || `127.0.0.1:${PORTA}`;
   const proto = req.headers["x-forwarded-proto"] || "http";
   const url = `${proto}://${host}${req.url}`;
@@ -98,6 +100,7 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
   // e cambiano"): si riavvia il giro del dossier del giorno, che rifa' la
   // lettura AI gratis solo delle partite con le quote cambiate o nuove.
   if (nome === "upload-excel" && risposta.ok) {
+    svuotaServerCache("upload-excel");
     fetch(`http://127.0.0.1:${PORTA}/dossier-giornata?avvia=1`, { method: "POST" }).catch(() => {});
     ricalcolaConsigliatiQuoteCambiate().catch((e) => console.error("[server] ricalcolo quote cambiate", e));
   }
@@ -109,6 +112,7 @@ async function funzione(req: http.IncomingMessage, res: http.ServerResponse, nom
     fuori["content-encoding"] = "gzip";
     fuori["vary"] = "Accept-Encoding";
   }
+  console.log(`[API ${req.method}] ${req.url} -> ${risposta.status} in ${Date.now() - t0} ms (${dati.length} bytes, enc: ${fuori["content-encoding"] || "raw"})`);
   res.writeHead(risposta.status, fuori);
   res.end(dati);
 }

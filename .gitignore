@@ -95,3 +95,6 @@ credentials.json
 pc-quote-sisal/segreto.txt
 server-locale/server.log
 server-locale/ATTIVO.txt
+
+# memoria locale dei verdetti senza pick (verdetto.ts)
+.cache-senza-pick.json

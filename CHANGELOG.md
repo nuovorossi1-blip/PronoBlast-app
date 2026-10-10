@@ -149,6 +149,17 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-10 — Avvio veloce dell'app
+
+- La home mostra subito l'ultimo elenco salvato sul dispositivo (mai un altro
+  giorno spacciato per oggi) e lo aggiorna in sottofondo; le richieste
+  iniziali partono insieme invece che una dopo l'altra.
+- Cache breve sul server (60 s) solo per matches-days, ml-stats,
+  tabella-scenari, manuale-stats e odd-settings, svuotata da qualunque
+  scrittura. Mai in cache matches-list, verdetto, lettura, match-detail.
+- La memoria delle partite senza pick (verdetto) sopravvive ai riavvii in
+  .cache-senza-pick.json, sempre legata alla firma delle quote (6 ore).
+
 ### 2026-10-10 — Consigliato salvato nel database, mercati vietati, nomi FotMob
 
 - Il Consigliato si calcola e si salva nel database (dossier, dopo le quote,

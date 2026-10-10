@@ -13,6 +13,30 @@ import { readMinOdd } from "./odd-settings";
  */
 const SENZA_PICK_VALIDO_MS = 6 * 3600_000;
 const senzaPickRecenti = new Map<string, { quando: number; firma: string }>();
+
+import fs from "node:fs";
+import path from "node:path";
+
+const CACHE_FILE = path.resolve(process.cwd(), ".cache-senza-pick.json");
+try {
+  if (fs.existsSync(CACHE_FILE)) {
+    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
+    const ora = Date.now();
+    for (const [id, val] of Object.entries(raw)) {
+      if (val && typeof val === "object" && ora - (val as any).quando < SENZA_PICK_VALIDO_MS) {
+        senzaPickRecenti.set(id, val as any);
+      }
+    }
+  }
+} catch {}
+
+function salvaSenzaPickRecenti() {
+  try {
+    const obj = Object.fromEntries(senzaPickRecenti.entries());
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(obj), "utf8");
+  } catch {}
+}
+
 /** Quote + soglia: se cambiano (aggiornamento quote, soglia diversa) si ricalcola. */
 function firma(m: any, minOdd: number): string {
   return [minOdd, m.odd_1, m.odd_x, m.odd_2, m.odd_1x, m.odd_x2, m.odd_12, m.odd_o15, m.odd_u15,
@@ -63,6 +87,8 @@ export default async (req: Request): Promise<Response> => {
         if (errori.length < 5) errori.push(`${m.id}: ${String(err?.message).slice(0, 80)}`);
       }
     }
+    if (senzaPick > 0) salvaSenzaPickRecenti();
+    console.log(`[verdetto] day=${day}: completato calcolati=${calcolati}, salvati=${salvati} in ${Date.now() - ora} ms`);
     return jsonResponse({
       ok: true, giorno: day, minOdd, prova: dry,
       partite_del_giorno: righe.length,

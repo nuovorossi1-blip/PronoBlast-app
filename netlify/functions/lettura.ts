@@ -41,6 +41,10 @@ export default async (req: Request): Promise<Response> => {
         }
       } catch { /* si va al calcolo completo */ }
     }
+    // Se era richiesto solo il salvato in background (preload), non bloccare il server con fonti esterne
+    if (url.searchParams.get("savedOnly") === "1") {
+      return jsonResponse({ programma: null, ai: null, pro: null, salvata: false });
+    }
     const dati = await datiLettura(id);
     if (!dati) return jsonResponse({ programma: null, ai: null, pro: null });
     let ai = dati.numeri?.lettura_ai ?? null;

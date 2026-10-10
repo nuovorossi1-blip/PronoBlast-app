@@ -8,6 +8,7 @@ import { colors } from "@/src/theme";
 import { api } from "@/src/api";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { selectedListCache } from "@/src/utils/cache";
+import { requestSelectedList } from "@/src/utils/matchPreload";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -75,8 +76,8 @@ export default function BottomNav() {
     if (cached) setSelCount(cached.length);
     if (selectedListCache.isStale()) {
       let active = true;
-      api.selectedList().then(list => {
-        if (active) { selectedListCache.set(list); setSelCount(list.length); }
+      requestSelectedList().then(list => {
+        if (active) setSelCount(list.length);
       }).catch(() => {});
       return () => { active = false; };
     }

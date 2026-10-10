@@ -17,6 +17,16 @@ const matchesByDay = new Map<string, { matches: Match[]; ts: number }>();
 let daysSnapshot: { days: string[]; ts: number } | null = null;
 let marketStatsSnapshot: { stats: any[]; ts: number } | null = null;
 
+function loadMatchesLocal(day: string): { matches: Match[]; ts: number } | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(`pb_matches_${day}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const matchesCache = {
   find(id: string): Match | null {
     for (const entry of matchesByDay.values()) {
@@ -26,52 +36,170 @@ export const matchesCache = {
     return null;
   },
   get(day: string): Match[] | null {
-    const entry = matchesByDay.get(day);
+    let entry = matchesByDay.get(day);
+    if (!entry) {
+      const fromLocal = loadMatchesLocal(day);
+      if (fromLocal && Array.isArray(fromLocal.matches)) {
+        entry = fromLocal;
+        matchesByDay.set(day, fromLocal);
+      }
+    }
     return entry ? entry.matches : null;
   },
   isStale(day: string): boolean {
-    const entry = matchesByDay.get(day);
+    const entry = matchesByDay.get(day) ?? loadMatchesLocal(day);
     if (!entry) return true;
     return Date.now() - entry.ts > FRESH_TTL_MS;
   },
   set(day: string, matches: Match[]) {
-    matchesByDay.set(day, { matches, ts: Date.now() });
+    const entry = { matches, ts: Date.now() };
+    matchesByDay.set(day, entry);
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe(`pb_matches_${day}`, JSON.stringify(entry));
+        setItemSafe("pb_last_matches_day", day);
+        pulisciCacheDispositivo();
+      }
+    } catch {}
   },
   invalidate(day?: string) {
-    if (day) matchesByDay.delete(day);
-    else matchesByDay.clear();
+    if (day) {
+      matchesByDay.delete(day);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.removeItem(`pb_matches_${day}`);
+          if (localStorage.getItem("pb_last_matches_day") === day) {
+            localStorage.removeItem("pb_last_matches_day");
+          }
+        }
+      } catch {}
+    } else {
+      matchesByDay.clear();
+      try {
+        if (typeof localStorage !== "undefined") {
+          const toRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith("pb_matches_") || k === "pb_last_matches_day")) toRemove.push(k);
+          }
+          for (const k of toRemove) localStorage.removeItem(k);
+        }
+      } catch {}
+    }
   },
 };
 
+/**
+ * Restituisce l'ultimo elenco di partite salvato sul dispositivo (localStorage),
+ * con la sua data esplicita, senza rotelline o attese.
+ */
+export function getUltimoElencoSalvato(): { day: string; matches: Match[] } | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const lastDay = localStorage.getItem("pb_last_matches_day");
+    if (lastDay) {
+      const ms = matchesCache.get(lastDay);
+      if (ms && ms.length > 0) return { day: lastDay, matches: ms };
+    }
+    // Fallback: scansiona tutte le chiavi pb_matches_ nel localStorage
+    let bestDay: string | null = null;
+    let bestTs = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("pb_matches_")) {
+        const d = k.replace("pb_matches_", "");
+        try {
+          const parsed = JSON.parse(localStorage.getItem(k) || "");
+          if (parsed && parsed.ts > bestTs && Array.isArray(parsed.matches) && parsed.matches.length > 0) {
+            bestTs = parsed.ts;
+            bestDay = d;
+          }
+        } catch {}
+      }
+    }
+    if (bestDay) {
+      const ms = matchesCache.get(bestDay);
+      if (ms && ms.length > 0) return { day: bestDay, matches: ms };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export const daysCache = {
   get(): string[] | null {
-    return daysSnapshot ? daysSnapshot.days : null;
+    if (daysSnapshot) return daysSnapshot.days;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("pb_days");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.days)) {
+            daysSnapshot = parsed;
+            return parsed.days;
+          }
+        }
+      }
+    } catch {}
+    return null;
   },
   isStale(): boolean {
+    if (!daysSnapshot) this.get();
     if (!daysSnapshot) return true;
     return Date.now() - daysSnapshot.ts > FRESH_TTL_MS;
   },
   set(days: string[]) {
     daysSnapshot = { days, ts: Date.now() };
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe("pb_days", JSON.stringify(daysSnapshot));
+      }
+    } catch {}
   },
   invalidate() {
     daysSnapshot = null;
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem("pb_days");
+    } catch {}
   },
 };
 
 export const marketStatsCache = {
   get(): any[] | null {
-    return marketStatsSnapshot ? marketStatsSnapshot.stats : null;
+    if (marketStatsSnapshot) return marketStatsSnapshot.stats;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("pb_market_stats");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.stats)) {
+            marketStatsSnapshot = parsed;
+            return parsed.stats;
+          }
+        }
+      }
+    } catch {}
+    return null;
   },
   isStale(): boolean {
+    if (!marketStatsSnapshot) this.get();
     if (!marketStatsSnapshot) return true;
     return Date.now() - marketStatsSnapshot.ts > FRESH_TTL_MS;
   },
   set(stats: any[]) {
     marketStatsSnapshot = { stats, ts: Date.now() };
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe("pb_market_stats", JSON.stringify(marketStatsSnapshot));
+      }
+    } catch {}
   },
   invalidate() {
     marketStatsSnapshot = null;
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem("pb_market_stats");
+    } catch {}
   },
 };
 
@@ -79,23 +207,79 @@ let mlStatsSnapshot: { data: any; ts: number } | null = null;
 let selectedListSnapshot: { list: any[]; ts: number } | null = null;
 
 export const mlStatsCache = {
-  get(): any | null { return mlStatsSnapshot ? mlStatsSnapshot.data : null; },
+  get(): any | null {
+    if (mlStatsSnapshot) return mlStatsSnapshot.data;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("pb_ml_stats");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.data) {
+            mlStatsSnapshot = parsed;
+            return parsed.data;
+          }
+        }
+      }
+    } catch {}
+    return null;
+  },
   isStale(): boolean {
+    if (!mlStatsSnapshot) this.get();
     if (!mlStatsSnapshot) return true;
     return Date.now() - mlStatsSnapshot.ts > FRESH_TTL_MS;
   },
-  set(data: any) { mlStatsSnapshot = { data, ts: Date.now() }; },
-  invalidate() { mlStatsSnapshot = null; },
+  set(data: any) {
+    mlStatsSnapshot = { data, ts: Date.now() };
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe("pb_ml_stats", JSON.stringify(mlStatsSnapshot));
+      }
+    } catch {}
+  },
+  invalidate() {
+    mlStatsSnapshot = null;
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem("pb_ml_stats");
+    } catch {}
+  },
 };
 
 export const selectedListCache = {
-  get(): any[] | null { return selectedListSnapshot ? selectedListSnapshot.list : null; },
+  get(): any[] | null {
+    if (selectedListSnapshot) return selectedListSnapshot.list;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("pb_selected_list");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.list)) {
+            selectedListSnapshot = parsed;
+            return parsed.list;
+          }
+        }
+      }
+    } catch {}
+    return null;
+  },
   isStale(): boolean {
+    if (!selectedListSnapshot) this.get();
     if (!selectedListSnapshot) return true;
     return Date.now() - selectedListSnapshot.ts > 30_000; // 30s (cambia frequentemente)
   },
-  set(list: any[]) { selectedListSnapshot = { list, ts: Date.now() }; },
-  invalidate() { selectedListSnapshot = null; },
+  set(list: any[]) {
+    selectedListSnapshot = { list, ts: Date.now() };
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe("pb_selected_list", JSON.stringify(selectedListSnapshot));
+      }
+    } catch {}
+  },
+  invalidate() {
+    selectedListSnapshot = null;
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem("pb_selected_list");
+    } catch {}
+  },
 };
 
 // ============================================================
@@ -125,6 +309,7 @@ function bundleKey(id: string, minOdd: number) {
 }
 
 const MAX_LOCAL_SCHEDE = 40;
+const MAX_LOCAL_GIORNI = 7;
 const MAX_LOCAL_ETA_MS = 3 * 24 * 3600_000; // 3 giorni
 
 /**
@@ -132,13 +317,19 @@ const MAX_LOCAL_ETA_MS = 3 * 24 * 3600_000; // 3 giorni
  * - Rimuove voci con età > 3 giorni
  * - Mantiene al massimo le ultime 40 schede (sia per bundle che per lettura),
  *   eliminando le più vecchie in base al timestamp.
+ * - Mantiene al massimo gli ultimi 7 elenchi partite giornalieri.
  */
-export function pulisciCacheDispositivo(maxSchede = MAX_LOCAL_SCHEDE, maxEtaMs = MAX_LOCAL_ETA_MS) {
+export function pulisciCacheDispositivo(
+  maxSchede = MAX_LOCAL_SCHEDE,
+  maxEtaMs = MAX_LOCAL_ETA_MS,
+  maxGiorni = MAX_LOCAL_GIORNI,
+) {
   try {
     if (typeof localStorage === "undefined") return;
     const now = Date.now();
     const bundleEntries: { key: string; ts: number }[] = [];
     const letturaEntries: { key: string; ts: number }[] = [];
+    const matchesEntries: { key: string; ts: number }[] = [];
 
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -171,6 +362,20 @@ export function pulisciCacheDispositivo(maxSchede = MAX_LOCAL_SCHEDE, maxEtaMs =
           localStorage.removeItem(k);
           i--;
         }
+      } else if (k.startsWith("pb_matches_")) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(k) || "");
+          const ts = Number(parsed?.ts) || 0;
+          if (now - ts > maxEtaMs) {
+            localStorage.removeItem(k);
+            i--;
+          } else {
+            matchesEntries.push({ key: k, ts });
+          }
+        } catch {
+          localStorage.removeItem(k);
+          i--;
+        }
       }
     }
 
@@ -182,6 +387,11 @@ export function pulisciCacheDispositivo(maxSchede = MAX_LOCAL_SCHEDE, maxEtaMs =
     if (letturaEntries.length > maxSchede) {
       letturaEntries.sort((a, b) => a.ts - b.ts);
       const daRimuovere = letturaEntries.slice(0, letturaEntries.length - maxSchede);
+      for (const e of daRimuovere) localStorage.removeItem(e.key);
+    }
+    if (matchesEntries.length > maxGiorni) {
+      matchesEntries.sort((a, b) => a.ts - b.ts);
+      const daRimuovere = matchesEntries.slice(0, matchesEntries.length - maxGiorni);
       for (const e of daRimuovere) localStorage.removeItem(e.key);
     }
   } catch {}
@@ -344,6 +554,28 @@ export const persistentTabellaCache = {
 let oddSettingsSnapshot: { min_odd: number; options: number[] } | null = null;
 
 export const oddSettingsCache = {
-  get(): { min_odd: number; options: number[] } | null { return oddSettingsSnapshot; },
-  set(v: { min_odd: number; options: number[] }) { oddSettingsSnapshot = v; },
+  get(): { min_odd: number; options: number[] } | null {
+    if (oddSettingsSnapshot) return oddSettingsSnapshot;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("pb_odd_settings");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.min_odd === "number") {
+            oddSettingsSnapshot = parsed;
+            return parsed;
+          }
+        }
+      }
+    } catch {}
+    return null;
+  },
+  set(v: { min_odd: number; options: number[] }) {
+    oddSettingsSnapshot = v;
+    try {
+      if (typeof localStorage !== "undefined") {
+        setItemSafe("pb_odd_settings", JSON.stringify(v));
+      }
+    } catch {}
+  },
 };

@@ -506,10 +506,10 @@ export const api = {
   match: (id: string) => netlifyReq<Match & { prediction?: Prediction }>(`/match-detail?id=${encodeURIComponent(id)}`),
   tabellaScenari: () => netlifyReq<TabellaScenari>(`/tabella-scenari`),
   pagellaConsigliato: () => netlifyReq<PagellaConsigliato>(`/pagella-consigliato`),
-  /** GET con auto=1 (la lettura gratis si fa da sola se manca); genera = POST; pro = modello scelto. */
-  lettura: (id: string, opz: { genera?: boolean; pro?: boolean; auto?: boolean } = {}) =>
+  /** GET con auto=1 (la lettura gratis si fa da sola se manca); genera = POST; pro = modello scelto; savedOnly = non calcola se manca. */
+  lettura: (id: string, opz: { genera?: boolean; pro?: boolean; auto?: boolean; savedOnly?: boolean } = {}) =>
     netlifyReq<RispostaLettura>(
-      `/lettura?matchId=${encodeURIComponent(id)}${opz.genera ? "&genera=1" : ""}${opz.pro ? "&pro=1" : ""}${opz.auto ? "&auto=1" : ""}`,
+      `/lettura?matchId=${encodeURIComponent(id)}${opz.genera ? "&genera=1" : ""}${opz.pro ? "&pro=1" : ""}${opz.auto ? "&auto=1" : ""}${opz.savedOnly ? "&savedOnly=1" : ""}`,
       opz.genera ? { method: "POST" } : undefined,
     ),
   formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),

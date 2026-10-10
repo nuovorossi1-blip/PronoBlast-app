@@ -14,16 +14,54 @@ import { colors } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
-import { matchesCache, daysCache, marketStatsCache, selectedListCache, oddSettingsCache, pulisciCacheDispositivo } from "@/src/utils/cache";
+import {
+  matchesCache,
+  daysCache,
+  marketStatsCache,
+  selectedListCache,
+  oddSettingsCache,
+  pulisciCacheDispositivo,
+  getUltimoElencoSalvato,
+} from "@/src/utils/cache";
 import { confirmAction } from "@/src/utils/platform";
 import { parseLeagueCode, isMainLeague, isFirstDivision } from "@/src/utils/leagues";
 import { predictionQueue } from "@/src/utils/predictionQueue";
-import { observeMatchCards, preloadMatch } from "@/src/utils/matchPreload";
+import {
+  observeMatchCards,
+  preloadMatch,
+  requestMatches,
+  requestDays,
+  requestMarketStats,
+  requestVerdetti,
+  avviaRichiesteIniziali,
+} from "@/src/utils/matchPreload";
 
 function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+function getInitialHomeState(): { day: string; matches: Match[]; loading: boolean; isOggi: boolean } {
+  const oggi = todayISO();
+  // 1) Se c'è già cache per oggi:
+  const cachedOggi = matchesCache.get(oggi);
+  if (cachedOggi && cachedOggi.length > 0) {
+    const res = { day: oggi, matches: cachedOggi, loading: false, isOggi: true };
+    console.log(`[TIMING_JS] getInitialHomeState: trovate ${cachedOggi.length} partite in cache per oggi (${oggi})`);
+    return res;
+  }
+  // 2) Se non c'è per oggi, mostra l'ultimo elenco salvato (es. ieri) indicando il suo giorno reale
+  const ultimo = getUltimoElencoSalvato();
+  if (ultimo && ultimo.matches && ultimo.matches.length > 0) {
+    const res = { day: ultimo.day, matches: ultimo.matches, loading: false, isOggi: false };
+    console.log(`[TIMING_JS] getInitialHomeState: trovate ${ultimo.matches.length} partite in cache per ultimo giorno (${ultimo.day})`);
+    return res;
+  }
+  // 3) Nessuna cache presente sul dispositivo
+  console.log(`[TIMING_JS] getInitialHomeState: nessuna cache su dispositivo`);
+  return { day: oggi, matches: [], loading: true, isOggi: true };
+}
+
 function nearestDay(days: string[]): string | null {
   if (!days.length) return null;
   const today = todayISO();
@@ -42,7 +80,19 @@ function fmtDayShort(d: string) { const dt = parseISO(d); const today = todayISO
 function fmtDayLong(d: string) { const dt = parseISO(d); return `${DAY_FULL_IT[dt.getDay()]} ${dt.getDate()} ${MONTH_FULL_IT[dt.getMonth()]}`; }
 function fmtDateBadge(d: string) { const dt = parseISO(d); return `${dt.getDate()} ${MONTH_LONG_IT[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`; }
 
+const predLabelMap = new Map<string, { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean; isRicalcolato?: boolean }>();
+
 function predLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean; isRicalcolato?: boolean } {
+  const k = `${m.id}|${m.result}|${m.pick_finale}|${m.anteprima_pre}`;
+  const c = predLabelMap.get(k);
+  if (c) return c;
+  const res = computePredLabel(m, stats);
+  if (predLabelMap.size > 2000) predLabelMap.clear();
+  predLabelMap.set(k, res);
+  return res;
+}
+
+function computePredLabel(m: Match, stats: { market: string; win_rate: number; total: number; missed?: number; family: string }[] = []): { label: string; isAi: boolean; isConcord: boolean; isCandidate: boolean; isNoBet: boolean; isCorrect: boolean | null; isAnteprima?: boolean; isRicalcolato?: boolean } {
   // Build pre-pronostic family + LLM markets list, compute final ranking.
   // La card mostra il VERDETTO FINALE salvato, lo stesso che si vede aprendo la
   // partita. Prima ricalcolava un pick per conto suo con una logica diversa da
@@ -163,11 +213,27 @@ export default function Home() {
   const bottomNav = useBottomNav();
   const toast = useToast();
 
-  const [matches, setMatches] = useState<Match[]>([]);
-  const [days, setDays] = useState<string[]>([]);
-  const [selectedDay, setSelectedDay] = useState<string | null>(savedSelectedDay);
+  const [initialHome] = useState(getInitialHomeState);
+  const [matches, setMatches] = useState<Match[]>(() => initialHome.matches);
+  const [days, setDays] = useState<string[]>(() => daysCache.get() || []);
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => savedSelectedDay || initialHome.day);
   const [query, setQuery] = useState(savedQuery);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => initialHome.loading && !savedSelectedDay);
+  const [renderAll, setRenderAll] = useState(false);
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
+
+  useEffect(() => {
+    if (typeof performance !== "undefined") {
+      console.log(`[TIMING_JS] Home mounted at ${performance.now().toFixed(1)} ms, matches iniziali: ${matches.length}`);
+    }
+    const t = setTimeout(() => {
+      setRenderAll(true);
+      if (typeof performance !== "undefined") {
+        console.log(`[TIMING_JS] renderAll attivato a ${performance.now().toFixed(1)} ms`);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -179,7 +245,7 @@ export default function Home() {
   const [competitionFilter, setCompetitionFilter] = useState<string | null>(savedCompetitionFilter);
   const [sortByTime, setSortByTime] = useState(false);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [marketStats, setMarketStats] = useState<{ market: string; win_rate: number; total: number; family: string }[]>([]);
+  const [marketStats, setMarketStats] = useState<{ market: string; win_rate: number; total: number; family: string }[]>(() => marketStatsCache.get() || []);
   const [pendingPreds, setPendingPreds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<ScrollView | null>(null);
 
@@ -207,93 +273,100 @@ export default function Home() {
 
   const load = useCallback(async (day: string | null, force = false) => {
     try {
+      if (!day) {
+        const ds = await requestDays(force);
+        setDays(ds);
+        return ds;
+      }
+
       // STALE-WHILE-REVALIDATE
-      // 1) Se cache esiste, mostro subito (snappy!) e poi rifaccio fetch in background.
-      // 2) Se cache fresca (<5 min) e !force, salto del tutto il fetch.
-      if (day) {
-        const cached = matchesCache.get(day);
-        if (cached) {
-          setMatches(cached);
-          setDays(daysCache.get() || []);
-          if (marketStatsCache.get()) setMarketStats(marketStatsCache.get() || []);
-          if (!force && !matchesCache.isStale(day)) {
-            setLoading(false); setRefreshing(false);
-            return daysCache.get() || [];
-          }
-          // stale → continua fetch in background SENZA spinner
-          setLoading(false);
+      // Se abbiamo dati in cache (RAM o localStorage), li mostriamo subito
+      const cached = matchesCache.get(day);
+      if (cached && cached.length > 0) {
+        setMatches(cached);
+        setDays(daysCache.get() || []);
+        if (marketStatsCache.get()) setMarketStats(marketStatsCache.get() || []);
+        setLoading(false);
+        if (!force && !matchesCache.isStale(day)) {
+          setRefreshing(false);
+          return daysCache.get() || [];
         }
+      } else {
+        setLoading(true);
       }
 
-      if (day === null) {
-        const dsCached = daysCache.get();
-        if (dsCached && !daysCache.isStale()) {
-          setDays(dsCached);
-          setMarketStats(marketStatsCache.get() || []);
-          return dsCached;
-        }
-        const [ds, stats] = await Promise.all([
-          api.days(),
-          api.marketStats().catch(() => ({ markets: [], family_totals: {} })),
-        ]);
-        daysCache.set(ds);
-        marketStatsCache.set(stats?.markets || []);
-        setDays(ds); setMarketStats(stats?.markets || []); return ds;
-      }
-
-      // L'elenco dei giorni e le statistiche mercati cambiano di rado e sono
-      // GIA' state scaricate dalla chiamata load(null) di avvio. Rifarle qui
-      // significava, ad ogni apertura dell'app, tre richieste identiche a
-      // /matches-days e tre a /ml-stats a pochi secondi di distanza (viste nei
-      // log di Vercel). Se la cache e' fresca si riusa e basta.
-      const dsFresh = daysCache.get();
-      const statsFresh = marketStatsCache.get();
+      // Richieste parallele deduplicate
       const [ms, ds, stats] = await Promise.all([
-        api.matches(day),
-        dsFresh && !daysCache.isStale() ? Promise.resolve(dsFresh) : api.days(),
-        statsFresh && !marketStatsCache.isStale()
-          ? Promise.resolve({ markets: statsFresh })
-          : api.marketStats().catch(() => ({ markets: [], family_totals: {} })),
+        requestMatches(day, force),
+        requestDays(force).catch(() => daysCache.get() || []),
+        requestMarketStats(force).catch(() => marketStatsCache.get() || []),
+        requestVerdetti(day).catch(() => null),
       ]);
-      matchesCache.set(day, ms);
-      daysCache.set(ds);
-      marketStatsCache.set(stats?.markets || []);
-      setMatches(ms); setDays(ds); setMarketStats(stats?.markets || []);
 
-      // FASE 0 (29/09/2026): se in questa giornata ci sono partite ancora senza
-      // verdetto, lo fa calcolare al server e ricarica. Cosi' la card mostra il
-      // pronostico VERO invece dell'anteprima, senza che Rossi debba aprire la
-      // scheda una per una. Gira in sottofondo: se fallisce, restano le
-      // anteprime e non si rompe niente.
-      if (day && ms.some((m) => !m.pick_finale && !m.result)) {
-        api.verdettiDelGiorno(day)
-          .then(async (r) => {
-            if (!r?.salvati) return;
-            const aggiornate = await api.matches(day);
-            matchesCache.set(day, aggiornate);
-            setMatches(aggiornate);
-          })
-          .catch(() => {});
-      }
+      setMatches(ms);
+      if (ds && ds.length) setDays(ds);
+      if (stats && stats.length) setMarketStats(stats);
+
       return ds;
-    } catch { return []; } finally { setLoading(false); setRefreshing(false); }
+    } catch {
+      return [];
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
     pulisciCacheDispositivo();
     if (didInit) return;
-    (async () => {
-      setLoading(true);
-      const ds = await load(null);
-      // Se torniamo su questo schermo (giorno gia' scelto in precedenza), non
-      // sovrascriverlo con "il giorno piu' vicino" — mantieni la scelta di prima.
-      if (!savedSelectedDay) {
-        const d = nearestDay(ds);
-        if (d) setSelectedDay(d);
+    setDidInit(true);
+
+    const oggi = todayISO();
+    // REQUISITO 2: Tutte le richieste iniziali partono in parallelo all'avvio
+    const { pMatches, pVerdetti, pDays, pStats } = avviaRichiesteIniziali(oggi);
+
+    pMatches.then((ms) => {
+      // REQUISITO 1: Se il giorno salvato non era oggi, passa a oggi appena arriva
+      if (!savedSelectedDay || savedSelectedDay === oggi || selectedDay !== oggi) {
+        setSelectedDay(oggi);
+        setMatches(ms);
+        setLoading(false);
+      } else if (selectedDay === oggi) {
+        setMatches(ms);
+        setLoading(false);
       }
-      setDidInit(true);
-    })();
-  }, [didInit, load]);
+      setInitialSyncDone(true);
+    }).catch(() => {
+      setLoading(false);
+      setInitialSyncDone(true);
+    });
+
+    pDays.then((ds) => {
+      setDays(ds);
+      if (!ds.includes(oggi) && !savedSelectedDay) {
+        const d = nearestDay(ds);
+        if (d && d !== oggi) {
+          setSelectedDay(d);
+          requestMatches(d).then((ms) => {
+            setMatches(ms);
+            setLoading(false);
+          }).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+
+    pStats.then((stats) => {
+      if (stats && stats.length) setMarketStats(stats);
+    }).catch(() => {});
+
+    pVerdetti.then((r) => {
+      if (r?.salvati && r.salvati > 0) {
+        requestMatches(oggi, true).then((ms) => {
+          setMatches(ms);
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [didInit, selectedDay]);
 
   // Android back button → conferma uscita app quando si è sulla home
   useEffect(() => {
@@ -313,22 +386,22 @@ export default function Home() {
 
   useFocusEffect(useCallback(() => {
     if (!didInit) return;
-    // Se cache globale fresca per il giorno corrente → no spinner, no fetch
     const day = selectedDay;
     const hasCache = day ? matchesCache.get(day) !== null : false;
     const fresh = day ? !matchesCache.isStale(day) : false;
-    if (!hasCache) setLoading(true);
-    // Forza show della BottomNav quando entri nella home
     bottomNav.show();
-    if (hasCache && fresh) {
-      // Mostra istantaneo dalla cache, niente fetch
-      setMatches(matchesCache.get(day!) || []);
-      setDays(daysCache.get() || []);
-      setMarketStats(marketStatsCache.get() || []);
+    if (hasCache) {
+      const cachedMs = matchesCache.get(day!) || [];
+      if (matches.length === 0 || matches !== cachedMs) setMatches(cachedMs);
+      if (days.length === 0) setDays(daysCache.get() || []);
+      if (marketStats.length === 0) setMarketStats(marketStatsCache.get() || []);
       setLoading(false);
-      // restore scroll
-      requestAnimationFrame(() => { if (savedScrollY > 0) scrollRef.current?.scrollTo({ y: savedScrollY, animated: false }); });
-      return;
+      if (fresh) {
+        requestAnimationFrame(() => { if (savedScrollY > 0) scrollRef.current?.scrollTo({ y: savedScrollY, animated: false }); });
+        return;
+      }
+    } else {
+      setLoading(true);
     }
     load(day).then(() => {
       // Restore scroll position after data is loaded
@@ -338,17 +411,13 @@ export default function Home() {
         }, 80);
       }
     });
-  }, [selectedDay, load, didInit]));
+  }, [selectedDay, load, didInit, matches, days.length, marketStats.length]));
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return matches.filter((m) => {
       const lc = parseLeagueCode(m.manifestazione);
       if (q.length >= 2) {
-        // La ricerca guardava solo il CODICE della manifestazione ("ITA1"),
-        // quindi cercare "Italia" o "Francia" non poteva trovare niente.
-        // Ora entrano nel confronto anche il nome leggibile ("Italia · Prima
-        // Lega"), la nazione e l'area geografica.
         const hay = [
           m.squadra1, m.squadra2, m.manifestazione,
           lc.label, lc.country || "", lc.area,
@@ -358,13 +427,6 @@ export default function Home() {
       if (competitionFilter && m.manifestazione !== competitionFilter) return false;
       if (countryFilters.length > 0 && (!lc.country || !countryFilters.includes(lc.country))) return false;
       if (areaFilter && lc.area !== areaFilter) return false;
-
-      // PRINCIPALI, due comportamenti a seconda che ci siano nazioni scelte:
-      //  - da solo: l'elenco fisso (GER1, ING1, SPA1, ITA1, FRA1, OLA1, NOR1,
-      //    POR1, USA1, SVE1, DAN1) piu' tutte le coppe europee;
-      //  - insieme a una o piu' nazioni: SOLO la prima divisione di quelle
-      //    nazioni. Cosi' "Italia + Germania + PRINCIPALI" da' ITA1 e GER1,
-      //    mentre "Italia + Germania" da solo da' anche ITA2, ITA3, GER2...
       if (tierFilter === "top") {
         if (countryFilters.length > 0) {
           if (!isFirstDivision(m.manifestazione)) return false;
@@ -378,7 +440,6 @@ export default function Home() {
 
   const grouped = useMemo(() => {
     if (sortByTime) {
-      // ORARIO mode: flat list ordered chronologically (asc or desc)
       const sorted = [...filtered].sort((a, b) => sortDir === "asc" ? a.time.localeCompare(b.time) : b.time.localeCompare(a.time));
       const arrow = sortDir === "asc" ? "↑ 00:00→23:59" : "↓ 23:59→00:00";
       return sorted.length ? [[`⏱ ORDINE CRONOLOGICO ${arrow}`, sorted] as [string, Match[]]] : [];
@@ -391,11 +452,23 @@ export default function Home() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered, sortByTime, sortDir]);
 
+  const visibleGrouped = useMemo(() => {
+    if (renderAll || grouped.length <= 4) return grouped;
+    let count = 0;
+    const initial: [string, Match[]][] = [];
+    for (const g of grouped) {
+      initial.push(g);
+      count += g[1].length;
+      if (count >= 25) break;
+    }
+    return initial;
+  }, [grouped, renderAll]);
+
   const preloadIds = useMemo(() => grouped.flatMap(([, items]) => items.map((m) => m.id)), [grouped]);
   useFocusEffect(useCallback(() => {
-    if (loading) return;
+    if (loading || !initialSyncDone) return;
     return observeMatchCards(preloadIds);
-  }, [loading, preloadIds]));
+  }, [loading, initialSyncDone, preloadIds]));
 
   const selectedCount = matches.filter((m) => m.selected).length;
   const toggleSelect = async (m: Match) => {
@@ -617,7 +690,7 @@ export default function Home() {
         </View>
       ) : (
         <ScrollView ref={scrollRef} onScroll={(e) => { const y = e.nativeEvent.contentOffset.y; savedScrollY = y; bottomNav.handleScroll(y); }} scrollEventThrottle={16} decelerationRate="fast" keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.list, isDesktop && { paddingHorizontal: 24 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { savedScrollY = 0; setRefreshing(true); load(selectedDay, true); }} tintColor={colors.primary} />}>
-          {grouped.map(([league, items]) => {
+          {visibleGrouped.map(([league, items]) => {
             const lc = parseLeagueCode(league);
             return (
               <View key={league} style={styles.leagueBlock}>

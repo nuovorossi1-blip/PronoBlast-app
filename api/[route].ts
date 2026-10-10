@@ -125,6 +125,13 @@ const ROUTES: Record<string, Handler> = {
   "pagella-consigliato": pagella_consigliato,
 };
 
+import {
+  getServerCachedResponse,
+  setServerCachedResponse,
+  controllaInvalidazioneScrittura,
+  svuotaServerCache,
+} from "../netlify/functions/lib/serverCache";
+
 async function dispatch(req: Request): Promise<Response> {
   // L'ultimo segmento del percorso e' il nome della rotta. Funziona sia se
   // arriva come /predict (rotta pulita, riscritta da vercel.json) sia come
@@ -137,6 +144,13 @@ async function dispatch(req: Request): Promise<Response> {
     name = "";
   }
 
+  // Se la rotta rappresenta una scrittura, svuota subito la cache server
+  controllaInvalidazioneScrittura(name, req.method);
+
+  // Per le 5 letture a bassa variabilità, controlla se c'è una risposta fresca (<= 60s)
+  const cached = getServerCachedResponse(name, req);
+  if (cached) return cached;
+
   const handler = ROUTES[name];
   if (!handler) {
     return new Response(
@@ -144,7 +158,17 @@ async function dispatch(req: Request): Promise<Response> {
       { status: 404, headers: { "Content-Type": "application/json" } }
     );
   }
-  return handler(req);
+  const res = await handler(req);
+
+  // Se la risposta è 200 ed è una delle 5 letture ammesse, memorizza in cache
+  await setServerCachedResponse(name, req, res);
+
+  // In caso di scrittura avvenuta con successo, assicura l'invalidazione
+  if (controllaInvalidazioneScrittura(name, req.method)) {
+    svuotaServerCache(`${name} post-handler`);
+  }
+
+  return res;
 }
 
 export const GET = dispatch;
