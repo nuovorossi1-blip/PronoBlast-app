@@ -135,6 +135,7 @@ export default function MatchDetail() {
   // "all'utente serve la lettura, se vuole approfondire lo fa a parte").
   const [approfondisci, setApprofondisci] = useState(false);
   const [altreFasce, setAltreFasce] = useState(false);
+  const [vecchioVerdetto, setVecchioVerdetto] = useState(false);
   const [tabella, setTabella] = useState<TabellaScenari | null>(() => memTabella ?? persistentTabellaCache.get());
   // La lettura (07/10/2026): frasi del programma + lettura dell'AI gratis.
   const [lettura, setLettura] = useState<RispostaLettura | null>(() => {
@@ -976,7 +977,7 @@ export default function MatchDetail() {
         <TouchableOpacity onPress={() => setAltreFasce((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
           <Ionicons name={altreFasce ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
           <Text style={styles.approfTxt}>
-            {altreFasce ? "Chiudi le altre fasce di quota" : "Altre fasce di quota (1.40 / 1.50 / 1.60 / 1.75): punta su questo e verdetto"}
+            {altreFasce ? "Chiudi il pronostico per fascia" : "Pronostico per fascia di quota (1.40 / 1.50 / 1.60 / 1.75)"}
           </Text>
         </TouchableOpacity>
         {/* ============ IL CONSIGLIO DELL'AI (01/10/2026, Rossi) ============
@@ -1154,12 +1155,19 @@ export default function MatchDetail() {
               : (x.archivio != null ? ` · ${x.archivio.toFixed(1).replace(".", ",")}% in archivio` : x.prob !== null ? ` · ${pctProb(x.prob)} Poisson` : "")
             : "";
           const misuraMot = misuraDi(mot);
-          // Con l'AI che decide: i numeri della fascia scelta, sotto.
+          // A partita finita, l'esito accanto alla giocata della fascia (11/10/2026).
+          const esitoP = (m: string) => {
+            const e = match.result ? evaluateMarketOutcome(m, match.result) : null;
+            return e === true ? <Text style={{ color: colors.success, fontWeight: "900" }}>{"  ✓ VINTA"}</Text>
+              : e === false ? <Text style={{ color: colors.danger, fontWeight: "900" }}>{"  ✗ PERSA"}</Text> : null;
+          };
+          // Con l'AI che corregge: la giocata dei numeri della fascia scelta, "prima era".
           const numeriSotto = motAI ? (
             <Text style={styles.puntaMeta}>
               {motNumeri
-                ? `Dai numeri a ${minOdd.toFixed(2)}: ${nomeM(motNumeri.market)} ${motNumeri.odd !== null ? `${motNumeri.stimata ? "≈" : "@"} ${motNumeri.odd.toFixed(2)}` : "quota n/d"}${misuraDi(motNumeri)}`
-                : `Dai numeri a ${minOdd.toFixed(2)}: nessuna giocata coerente.`}
+                ? `Prima era (numeri a ${minOdd.toFixed(2)}): ${nomeM(motNumeri.market)} ${motNumeri.odd !== null ? `${motNumeri.stimata ? "≈" : "@"} ${motNumeri.odd.toFixed(2)}` : "quota n/d"}${misuraDi(motNumeri)}`
+                : `Prima era (numeri a ${minOdd.toFixed(2)}): nessuna giocata coerente.`}
+              {motNumeri ? esitoP(motNumeri.market) : null}
             </Text>
           ) : null;
           const notaFuori = [
@@ -1171,12 +1179,12 @@ export default function MatchDetail() {
             if (!structural) return null;
             return (
               <View style={styles.puntaBox}>
-                <Text style={styles.puntaLbl}>{proDecide ? "PUNTA SU QUESTO · DAL PRONOSTICO AI (NOTIZIA)" : "PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                <Text style={styles.puntaLbl}>{proDecide ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
                 {selettoreFascia}
                 {proDecide && lettura?.pro?.notizia ? (
-                  <Text style={styles.puntaAvviso}>{`Cambiato per: ${lettura.pro.notizia}`}</Text>
+                  <Text style={styles.puntaAvviso}>{`Corretto dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
                 ) : null}
-                <Text style={styles.puntaVal}>{mot ? nomeM(mot.market) : "Nessuna giocata"}</Text>
+                <Text style={styles.puntaVal}>{mot ? nomeM(mot.market) : "Nessuna giocata"}{mot ? esitoP(mot.market) : null}</Text>
                 {mot ? (
                   <Text style={styles.puntaMeta}>
                     {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
@@ -1212,14 +1220,14 @@ export default function MatchDetail() {
             <View style={styles.puntaBox}>
               {!decideAI ? (
                 <>
-                  <Text style={styles.puntaLbl}>{proDecide ? "PUNTA SU QUESTO · DAL PRONOSTICO AI (NOTIZIA)" : "PUNTA SU QUESTO · DAI NUMERI"}</Text>
+                  <Text style={styles.puntaLbl}>{proDecide ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
                   {selettoreFascia}
                   {proDecide && lettura?.pro?.notizia ? (
-                    <Text style={styles.puntaAvviso}>{`Cambiato per: ${lettura.pro.notizia}`}</Text>
+                    <Text style={styles.puntaAvviso}>{`Corretto dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
                   ) : null}
                   {mot ? (
                     <>
-                      <Text style={styles.puntaVal}>{nomeM(mot.market)}</Text>
+                      <Text style={styles.puntaVal}>{nomeM(mot.market)}{esitoP(mot.market)}</Text>
                       <Text style={styles.puntaMeta}>
                         {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
                         {misuraMot}
@@ -1321,7 +1329,13 @@ export default function MatchDetail() {
           );
         })()}
         {/* ============ VERDETTO FINALE (fusione 3 sistemi) ============ */}
-        {((el: React.ReactNode) => (altreFasce ? el : null))((() => {
+        {altreFasce ? (
+          <TouchableOpacity onPress={() => setVecchioVerdetto((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
+            <Ionicons name={vecchioVerdetto ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+            <Text style={styles.approfTxt}>{vecchioVerdetto ? "Chiudi il vecchio verdetto" : "Vecchio verdetto (fusione motore + PRE): meno preciso, solo per confronto"}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {((el: React.ReactNode) => (altreFasce && vecchioVerdetto ? el : null))((() => {
           if (!structural) return null;
           // FASE 5 — se il backend manda la sua classifica PRE la usiamo: è una
           // sola implementazione invece di due copie da tenere allineate a mano.
@@ -1475,7 +1489,7 @@ export default function MatchDetail() {
             ]}>
               <View style={styles.verdictHeader}>
                 <Ionicons name="trophy" size={16} color="#FFD700" />
-                <Text style={styles.verdictTitle}>VERDETTO FINALE</Text>
+                <Text style={styles.verdictTitle}>VECCHIO VERDETTO</Text>
               </View>
               <Text style={styles.verdictHint}>
                 {daAI
@@ -1532,8 +1546,9 @@ export default function MatchDetail() {
                 </View>
               ) : null}
 
-              {/* FASE 2 — soglia di quota minima: la scelta e' dell'utente */}
-              <View style={styles.minOddRow}>
+              {/* FASE 2 — soglia di quota minima: la scelta e' dell'utente. Dal
+                  11/10/2026 il selettore e' uno solo, nel pronostico per fascia. */}
+              <View style={[styles.minOddRow, { display: "none" }]}>
                 <Text style={styles.minOddLabel}>Fascia di quota</Text>
                 <View style={styles.minOddChips}>
                   {minOddOptions.map((v) => (
