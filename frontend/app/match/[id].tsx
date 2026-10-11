@@ -1119,18 +1119,20 @@ export default function MatchDetail() {
           // fascia 1,60", anche se non e' sicuro, con il triangolo giallo; non la
           // giocata della fascia 1,40. Quella resta nell'avviso come la piu' sicura.
           const migliorePartita = mot;
-          // Se la tabella non ha niente in questa fascia, la stima del motore
-          // (Poisson) del mercato piu' probabile con quota dentro la fascia.
+          // Niente di sicuro in archivio: il mercato PIU' PROBABILE del motore
+          // (Poisson) con quota dentro la fascia, 1,75 chiusa a 1,99. Misura del
+          // 11/10/2026 su 9.979 partite: il motore e' tarato (dice 55%, vince 56%).
+          // Qui niente filtro dei gol attesi (correlazione coi gol veri 0,04).
           const stimaFascia = (): PickMotore | null => {
             const r = (structural?.ranking || [])
-              .filter((x) => isVerdictMarket(x.market) && ammessoDallaStruttura(x.market, structural?.structure) && coerenteConGol(x.market, totAtteso))
+              .filter((x) => isVerdictMarket(x.market) && ammessoDallaStruttura(x.market, structural?.structure))
               .map((x) => ({ x, v: valutaPuntaSu(x.market, ctxC) }))
-              .filter(({ v }) => v && v.odd !== null && v.fascia === minOdd)
+              .filter(({ v }) => v && v.odd !== null && v.odd <= 1.99 && v.fascia === minOdd)
               .sort((a, b) => b.x.coverage - a.x.coverage)[0];
             return r && r.v ? { market: r.x.market, odd: r.v.odd, stimata: r.v.stimata, prob: r.x.coverage, soglia: minOdd } : null;
           };
           const deboleQui = migliorePartita && Math.abs(migliorePartita.soglia - minOdd) > 0.001
-            ? candidatiTabella(minOdd, false)[0] ?? stimaFascia()
+            ? stimaFascia() ?? candidatiTabella(minOdd, false)[0] ?? null
             : null;
           const motNumeri = deboleQui ?? migliorePartita;
           mot = motNumeri;
@@ -1154,7 +1156,7 @@ export default function MatchDetail() {
                   {`⚠ A ${minOdd.toFixed(2)} i numeri non hanno una giocata sicura: ${nomeM(deboleQui.market)} ` +
                     (deboleQui.tab
                       ? `vince solo il ${pcT(deboleQui.tab.pA)} / ${pcT(deboleQui.tab.pB)} in archivio`
-                      : `non ha misura in archivio a questa quota (stima Poisson ${deboleQui.prob != null ? pcT(deboleQui.prob) : "?"})`) +
+                      : `è la più probabile del motore in questa fascia (${deboleQui.prob != null ? pcT(deboleQui.prob) : "?"} Poisson), senza misura in archivio`) +
                     `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Da evitare. ` +
                     `La più sicura della partita: ${nomeM(migliorePartita.market)} ${migliorePartita.stimata ? "≈" : "@"} ${migliorePartita.odd?.toFixed(2)} (fascia ${migliorePartita.soglia.toFixed(2)}). Decidi tu.`}
                   {esitoP(migliorePartita.market)}
