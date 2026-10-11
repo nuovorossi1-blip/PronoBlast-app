@@ -63,6 +63,15 @@ export default async (req: Request): Promise<Response> => {
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
       if (url.searchParams.get("pro") === "1") {
         if (!daGiocare) return jsonResponse({ error: "Partita gia' iniziata: il pronostico e' bloccato e non si cambia piu'." }, 409);
+        // UNA VOLTA SOLA (11/10/2026, Rossi-Rennes: tre pressioni, tre giocate
+        // diverse). Il modello a ogni giro risponde un po' diverso; ripremere
+        // per cercare la risposta che piace fa sbagliare di piu'. Vale il primo:
+        // si rifa' solo se le quote sono cambiate (Excel nuovo).
+        const oraQ = firmaQuote(dati.match);
+        if (pro?.quote && !quoteCambiate(pro.quote, oraQ)) {
+          const { testo: _tt, ...prog } = dati.programma;
+          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: !!dati.numeri, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true });
+        }
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
         // Il consigliato salvato (schedina, multipla) segue il Pronostico AI.

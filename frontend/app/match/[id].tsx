@@ -188,6 +188,10 @@ export default function MatchDetail() {
         memLettura.set(id, r);
         persistentLetturaCache.set(id, r, match?.odds);
         setLettura(r);
+        // Una volta sola (11/10/2026): il server rida' il primo, finche' le quote non cambiano.
+        if ((r as any)?.pro_gia_fatto) {
+          notify("Pronostico AI già fatto", "Vale il primo pronostico: ripremendo il modello risponderebbe un po' diverso ogni volta. Si potrà rifare solo se cambiano le quote (Excel nuovo).");
+        }
       })
       .catch((e) => notify("Pronostico AI non fatto", String(e?.message || e).replace(/^\d{3}\s+/, "")))
       .finally(() => setProInCorso(false));
