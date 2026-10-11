@@ -726,25 +726,42 @@ export default function MatchDetail() {
             return `${forte.n} fa ${n1(forte.f)} gol contro squadre come ${forte.a}, ${forte.a} ne prende ${n1(forte.s)}.`;
           })();
           const avvisiList = analisi?.avvisi ?? salvato?.avvisi ?? [];
+          // A partita finita, l'esito accanto alla giocata (Ajax-Nec 1-1, 11/10/2026:
+          // qui c'era "1 + U4.5" senza esito e il VINTO verde piu' in basso era del
+          // verdetto DC 1X + GG, che sembrava riferito a questa).
+          const esito = (m: string) => {
+            const e = match.result ? evaluateMarketOutcome(m, match.result) : null;
+            return e === true ? <Text style={{ color: colors.success, fontWeight: "900" }}>{"  ✓ VINTA"}</Text>
+              : e === false ? <Text style={{ color: colors.danger, fontWeight: "900" }}>{"  ✗ PERSA"}</Text> : null;
+          };
+          const numeriMarket = salvato?.ai === "cambiato" ? (salvato as any).numeri_market as string | undefined : (c && cambiato ? c.market : undefined);
+          const numeriNome = salvato?.ai === "cambiato" ? ((salvato as any).numeri_nome as string | undefined) ?? numeriMarket : c?.nome;
+          const numeriQuota = salvato?.ai === "cambiato" ? (salvato as any).numeri_quota as number | undefined : c?.quota;
           return (
             <View style={styles.consBox}>
               <Text style={styles.consLbl}>IL CONSIGLIATO</Text>
               {cambiato && mercatoCambiato ? (
                 <>
-                  <Text style={styles.consVal}>{mercatoCambiato.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}</Text>
+                  <Text style={styles.consVal}>{mercatoCambiato.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}{esito(mercatoCambiato)}</Text>
                   {quotaCambiato != null && (
                     <Text style={styles.consMeta}>
                       {`${stimataCambiato ? "≈" : "@"} ${quotaCambiato.toFixed(2)} · proposta AI`}
                     </Text>
                   )}
                   <Text style={styles.consAvviso}>{`Cambiato dal Pronostico AI per: ${notiziaCambiato || "notizia verificata"}`}</Text>
+                  {numeriMarket ? (
+                    <Text style={styles.consMeta}>
+                      {`Dai numeri era: ${(numeriNome || numeriMarket).replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}${numeriQuota ? ` @ ${Number(numeriQuota).toFixed(2)}` : ""}`}
+                      {esito(numeriMarket)}
+                    </Text>
+                  ) : null}
                   {tradottoDaCambiato ? (
                     <Text style={styles.consMeta}>{`Tradotto da proposta AI: «${tradottoDaCambiato}»`}</Text>
                   ) : null}
                 </>
               ) : c ? (
                 <>
-                  <Text style={styles.consVal}>{c.nome}</Text>
+                  <Text style={styles.consVal}>{c.nome}{esito(c.market)}</Text>
                   <Text style={styles.consMeta}>
                     {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)}${c.misurata ? ` · ${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? ` · ~${pc(c.stima)} stima` : ""}`}
                   </Text>
@@ -1565,7 +1582,7 @@ export default function MatchDetail() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.verdictLabel}>
-                    {congelato ? "GIOCATA CONSIGLIATA (congelata)" : soloRicalcolo ? "RICALCOLATA CON LE REGOLE DI OGGI" : "GIOCATA CONSIGLIATA"}
+                    {congelato ? "VERDETTO DELLA FASCIA (congelato) · non è il consigliato" : soloRicalcolo ? "RICALCOLATA CON LE REGOLE DI OGGI" : "VERDETTO DELLA FASCIA"}
                   </Text>
                   {congelato && !verdettoDiverso && (
                     <Text style={styles.congelatoNota}>
