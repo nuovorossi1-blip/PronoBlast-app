@@ -1044,7 +1044,12 @@ export default function MatchDetail() {
           const daTabella = (soglia: number): PickMotore | null => candidatiTabella(soglia, true)[0] ?? null;
           // "MG 2-4 ospite" -> "MG 2-4 Spagna" (Rossi, 07/10/2026).
           const nomeM = (m: string) => m.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
-          const pcT = (x: number) => `${Math.round(x * 100)}%`;
+          // A partita finita, l'esito accanto alla giocata della fascia (11/10/2026).
+          const esitoP = (m: string) => {
+            const e = match.result ? evaluateMarketOutcome(m, match.result) : null;
+            return e === true ? <Text style={{ color: colors.success, fontWeight: "900" }}>{"  ✓ VINTA"}</Text>
+              : e === false ? <Text style={{ color: colors.danger, fontWeight: "900" }}>{"  ✗ PERSA"}</Text> : null;
+          };          const pcT = (x: number) => `${Math.round(x * 100)}%`;
           if (proDecide && lettura?.pro?.mercato) {
             const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds);
             if (v.ok && v.market && v.quota != null) {
@@ -1109,7 +1114,26 @@ export default function MatchDetail() {
             }
           }
           // I numeri della fascia scelta; se decide l'AI, la sua giocata va sopra.
-          const motNumeri = mot;
+          // LA FASCIA SCELTA PRIMA DI TUTTO (11/10/2026, Rossi): "se ho messo 1,60
+          // voglio vedere il pronostico migliore dei numeri che rientra nella
+          // fascia 1,60", anche se non e' sicuro, con il triangolo giallo; non la
+          // giocata della fascia 1,40. Quella resta nell'avviso come la piu' sicura.
+          const migliorePartita = mot;
+          // Se la tabella non ha niente in questa fascia, la stima del motore
+          // (Poisson) del mercato piu' probabile con quota dentro la fascia.
+          const stimaFascia = (): PickMotore | null => {
+            const r = (structural?.ranking || [])
+              .filter((x) => isVerdictMarket(x.market) && ammessoDallaStruttura(x.market, structural?.structure) && coerenteConGol(x.market, totAtteso))
+              .map((x) => ({ x, v: valutaPuntaSu(x.market, ctxC) }))
+              .filter(({ v }) => v && v.odd !== null && v.fascia === minOdd)
+              .sort((a, b) => b.x.coverage - a.x.coverage)[0];
+            return r && r.v ? { market: r.x.market, odd: r.v.odd, stimata: r.v.stimata, prob: r.x.coverage, soglia: minOdd } : null;
+          };
+          const deboleQui = migliorePartita && Math.abs(migliorePartita.soglia - minOdd) > 0.001
+            ? candidatiTabella(minOdd, false)[0] ?? stimaFascia()
+            : null;
+          const motNumeri = deboleQui ?? migliorePartita;
+          mot = motNumeri;
           if (motAI) mot = motAI;
           const fuoriSoglia = !!motNumeri && Math.abs(motNumeri.soglia - minOdd) > 0.001;
           // Le altre giocate buone della stessa fascia (es. a 1,50 anche MG 2-4 Spagna).
@@ -1118,7 +1142,6 @@ export default function MatchDetail() {
             : [];
           // Alla quota scelta non c'e' niente di sicuro: si mostra lo stesso cosa
           // c'e', con l'allarme. Decide Rossi (07/10/2026).
-          const deboleQui = fuoriSoglia ? candidatiTabella(minOdd, false)[0] ?? null : null;
           const extraT = (
             <>
               {alternativeT.map((a) => (
@@ -1126,10 +1149,15 @@ export default function MatchDetail() {
                   {`Anche: ${nomeM(a.market)} ${a.stimata ? "≈" : "@"} ${a.odd?.toFixed(2)} · ${pcT(a.tab!.pA)} / ${pcT(a.tab!.pB)}`}
                 </Text>
               ))}
-              {deboleQui && motNumeri ? (
+              {deboleQui && migliorePartita ? (
                 <Text style={styles.puntaAvviso}>
-                  {`⚠ Alla tua quota (${minOdd.toFixed(2)}): ${nomeM(deboleQui.market)} ${deboleQui.stimata ? "≈" : "@"} ${deboleQui.odd?.toFixed(2)} vince solo il ${pcT(deboleQui.tab!.pA)} / ${pcT(deboleQui.tab!.pB)}` +
-                    `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Non è sicura: su questa partita non superare ${motNumeri.soglia.toFixed(2)}. Decidi tu.`}
+                  {`⚠ A ${minOdd.toFixed(2)} i numeri non hanno una giocata sicura: ${nomeM(deboleQui.market)} ` +
+                    (deboleQui.tab
+                      ? `vince solo il ${pcT(deboleQui.tab.pA)} / ${pcT(deboleQui.tab.pB)} in archivio`
+                      : `non ha misura in archivio a questa quota (stima Poisson ${deboleQui.prob != null ? pcT(deboleQui.prob) : "?"})`) +
+                    `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Da evitare. ` +
+                    `La più sicura della partita: ${nomeM(migliorePartita.market)} ${migliorePartita.stimata ? "≈" : "@"} ${migliorePartita.odd?.toFixed(2)} (fascia ${migliorePartita.soglia.toFixed(2)}). Decidi tu.`}
+                  {esitoP(migliorePartita.market)}
                 </Text>
               ) : null}
             </>
@@ -1141,7 +1169,7 @@ export default function MatchDetail() {
               {minOddOptions.map((o) => (
                 <TouchableOpacity key={o} onPress={() => changeMinOdd(o)} activeOpacity={0.7}
                   style={[styles.fasciaChip, Math.abs(o - minOdd) < 0.001 && styles.fasciaChipOn]}>
-                  <Text style={styles.fasciaChipTxt}>{o.toFixed(2)}</Text>
+                  <Text style={styles.fasciaChipTxt}>{o.toFixed(2)}{Object.keys(perScenario).length > 0 && !daTabella(o) ? " ⚠" : ""}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1155,12 +1183,7 @@ export default function MatchDetail() {
               : (x.archivio != null ? ` · ${x.archivio.toFixed(1).replace(".", ",")}% in archivio` : x.prob !== null ? ` · ${pctProb(x.prob)} Poisson` : "")
             : "";
           const misuraMot = misuraDi(mot);
-          // A partita finita, l'esito accanto alla giocata della fascia (11/10/2026).
-          const esitoP = (m: string) => {
-            const e = match.result ? evaluateMarketOutcome(m, match.result) : null;
-            return e === true ? <Text style={{ color: colors.success, fontWeight: "900" }}>{"  ✓ VINTA"}</Text>
-              : e === false ? <Text style={{ color: colors.danger, fontWeight: "900" }}>{"  ✗ PERSA"}</Text> : null;
-          };
+
           // Con l'AI che corregge: la giocata dei numeri della fascia scelta, "prima era".
           const numeriSotto = motAI ? (
             <Text style={styles.puntaMeta}>
