@@ -1170,6 +1170,30 @@ export default function MatchDetail() {
               {motNumeri ? esitoP(motNumeri.market) : null}
             </Text>
           ) : null;
+          // UNA RIGA (11/10/2026, Rossi): prima la giocata dei numeri con il suo
+          // esito, poi "/" e la giocata corretta dall'AI con il suo; se l'AI
+          // propone la stessa, "confermato".
+          const quotaDi = (x: PickMotore) => (x.odd !== null ? ` ${x.stimata ? "≈" : "@"}${x.odd.toFixed(2)}` : "");
+          const corretto = !!motAI && (!motNumeri || normalizeMarket(motAI.market) !== normalizeMarket(motNumeri.market));
+          const stileQuota = { fontSize: 14, fontWeight: "700" as const, color: colors.textMuted };
+          const rigaPronostico = (
+            <Text style={styles.puntaVal}>
+              {motNumeri
+                ? <>{nomeM(motNumeri.market)}<Text style={stileQuota}>{quotaDi(motNumeri)}</Text>{esitoP(motNumeri.market)}</>
+                : <Text style={stileQuota}>{motAI ? "Numeri: nessuna giocata" : "Nessuna giocata"}</Text>}
+              {corretto && motAI
+                ? <><Text style={{ color: colors.textMuted }}>{"  /  "}</Text>{nomeM(motAI.market)}<Text style={stileQuota}>{quotaDi(motAI)}</Text>{esitoP(motAI.market)}</>
+                : null}
+            </Text>
+          );
+          const metaPronostico = (
+            <>
+              {motAI ? (
+                <Text style={styles.puntaMeta}>{corretto ? "Prima della barra: i numeri · dopo: corretto dal Pronostico AI" : "✓ Confermato dal Pronostico AI"}</Text>
+              ) : null}
+              {motNumeri ? <Text style={styles.puntaMeta}>{`Numeri a ${minOdd.toFixed(2)}${misuraDi(motNumeri)}`}</Text> : null}
+            </>
+          );
           const notaFuori = [
             fuoriSoglia && motNumeri ? `Da ${minOdd.toFixed(2)} i numeri non trovano niente di coerente: ${motAI ? "per i numeri" : "questa"} è la giocata migliore della partita (fascia ${motNumeri.soglia.toFixed(2)}).` : "",
             debole ? `Sotto il ${Math.round(PROB_AFFIDABILE * 100)}%: poco affidabile, valuta se lasciare la partita.` : "",
@@ -1179,19 +1203,13 @@ export default function MatchDetail() {
             if (!structural) return null;
             return (
               <View style={styles.puntaBox}>
-                <Text style={styles.puntaLbl}>{proDecide ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
+                <Text style={styles.puntaLbl}>{proDecide ? (corretto ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · CONFERMATO DALL'AI") : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
                 {selettoreFascia}
                 {proDecide && lettura?.pro?.notizia ? (
-                  <Text style={styles.puntaAvviso}>{`Corretto dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
+                  <Text style={styles.puntaAvviso}>{`${corretto ? "Corretto" : "Confermato"} dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
                 ) : null}
-                <Text style={styles.puntaVal}>{mot ? nomeM(mot.market) : "Nessuna giocata"}{mot ? esitoP(mot.market) : null}</Text>
-                {mot ? (
-                  <Text style={styles.puntaMeta}>
-                    {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
-                    {misuraMot}
-                  </Text>
-                ) : null}
-                {numeriSotto}
+                {rigaPronostico}
+                {metaPronostico}
                 {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                 {extraT}
                 <Text style={styles.puntaNota}>
@@ -1220,23 +1238,13 @@ export default function MatchDetail() {
             <View style={styles.puntaBox}>
               {!decideAI ? (
                 <>
-                  <Text style={styles.puntaLbl}>{proDecide ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
+                  <Text style={styles.puntaLbl}>{proDecide ? (corretto ? "PRONOSTICO PER FASCIA · CORRETTO DALL'AI" : "PRONOSTICO PER FASCIA · CONFERMATO DALL'AI") : "PRONOSTICO PER FASCIA · DAI NUMERI"}</Text>
                   {selettoreFascia}
                   {proDecide && lettura?.pro?.notizia ? (
-                    <Text style={styles.puntaAvviso}>{`Corretto dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
+                    <Text style={styles.puntaAvviso}>{`${corretto ? "Corretto" : "Confermato"} dal Pronostico AI per: ${lettura.pro.notizia}`}</Text>
                   ) : null}
-                  {mot ? (
-                    <>
-                      <Text style={styles.puntaVal}>{nomeM(mot.market)}{esitoP(mot.market)}</Text>
-                      <Text style={styles.puntaMeta}>
-                        {mot.odd !== null ? `${mot.stimata ? "≈" : "@"} ${mot.odd.toFixed(2)}` : "quota n/d"}
-                        {misuraMot}
-                      </Text>
-                    </>
-                  ) : (
-                    <Text style={styles.puntaVal}>Nessuna giocata</Text>
-                  )}
-                  {numeriSotto}
+                  {rigaPronostico}
+                  {metaPronostico}
                   {notaFuori ? <Text style={styles.puntaAvviso}>{notaFuori}</Text> : null}
                   {extraT}
                   <Text style={styles.puntaPerche}>
