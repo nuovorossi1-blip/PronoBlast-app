@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, evaluateMarketOutcome, Lavoro } from "@/src/api";
+import { api, Match, evaluateMarketOutcome, Lavoro, daGiocare } from "@/src/api";
 import { useLavoro, LavoroBox, riepilogoLavoro } from "@/src/components/LavoroBox";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
@@ -389,6 +389,19 @@ export default function Selected() {
                         </Text>
                       </View>
                     ) : null}
+                    {/* DA GIOCARE (11/10/2026): la giocata da mettere in schedina, con il perche'. */}
+                    {(() => {
+                      const g = daGiocare((m as any).consigliato);
+                      if (!g) return null;
+                      const nome = g.nome.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
+                      return (
+                        <View style={[styles.predTag, { borderColor: colors.success, borderWidth: 2 }, outcomeStyle(m.result ? evaluateMarketOutcome(g.market, m.result) : null)]}>
+                          <Text style={[styles.predTagTxt, { color: colors.success, fontWeight: "900" }]}>
+                            {`▶ DA GIOCARE: ${nome}${g.quota != null ? ` ${g.stimata ? "≈" : "@"}${g.quota.toFixed(2)}` : ""} · ${g.perche}`}
+                          </Text>
+                        </View>
+                      );
+                    })()}
                     {/* Cambio dell'AI applicato da solo (Rossi: "se l'ha cambiata ci
                         sara' un motivo"); si puo' tornare alla giocata dei numeri. */}
                     {(m as any).consigliato?.ai === "cambiato" && (m as any).consigliato?.numeri_market && !m.result ? (

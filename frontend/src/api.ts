@@ -3309,6 +3309,48 @@ export type RispostaLettura = {
 };
 
 /**
+ * DA GIOCARE (11/10/2026, Rossi: "nell'app compaiono piu' pronostici: mi serve
+ * quello da giocare e perche'"). Non cambia il consigliato: fra la giocata dei
+ * numeri e quella del Pronostico AI dice quale giocare, con una regola sola.
+ *  - AI che conferma, o nessun AI: il consigliato.
+ *  - AI che cambia senza giocata dei numeri: l'AI.
+ *  - AI che cambia alzando la quota di piu' di 0,10: i numeri (Ajax-Nec
+ *    10/10: 1 + U4.5 @2.03 persa, MG 1-3 Ajax @1.46 vinta).
+ *  - AI che cambia con quota simile o piu' bassa: l'AI (non aggiunge rischio).
+ */
+export const DA_GIOCARE_SCARTO_QUOTA = 0.10;
+export type DaGiocare = { market: string; nome: string; quota: number | null; stimata: boolean; fonte: "numeri" | "ai"; perche: string };
+export function daGiocare(c: {
+  market?: string | null; nome?: string | null; quota?: number | null; stimata?: boolean;
+  ai?: "confermato" | "cambiato" | null; daLasciare?: string | null;
+  numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
+  proposta_scartata?: { mercato: string; motivo: string } | null;
+} | null | undefined): DaGiocare | null {
+  if (!c?.market) return null;
+  const q = (x: number | null | undefined) => (x != null ? Number(x).toFixed(2) : "?");
+  const ai = { market: c.market, nome: c.nome || c.market, quota: c.quota ?? null, stimata: !!c.stimata };
+  if (c.ai !== "cambiato") {
+    const perche = c.ai === "confermato" ? "confermato dal Pronostico AI"
+      : c.proposta_scartata ? `dai numeri: la proposta AI (${c.proposta_scartata.mercato}) è stata scartata`
+      : "dai numeri";
+    return { ...ai, fonte: "numeri", perche };
+  }
+  if (!c.numeri_market) return { ...ai, fonte: "ai", perche: "dal Pronostico AI: i numeri non hanno una giocata" };
+  const qn = c.numeri_quota ?? null, qa = c.quota ?? null;
+  if (qn != null && qa != null && qa > qn + DA_GIOCARE_SCARTO_QUOTA) {
+    return {
+      market: c.numeri_market, nome: c.numeri_nome || c.numeri_market, quota: qn, stimata: false, fonte: "numeri",
+      perche: `dai numeri: l'AI alzava la quota da ${q(qn)} a ${q(qa)}, cioè più rischio`,
+    };
+  }
+  const confronto = qn == null || qa == null ? "quota simile a quella dei numeri"
+    : qa < qn - 0.005 ? `quota più bassa dei numeri (${q(qa)} contro ${q(qn)}), meno rischio`
+    : qa > qn + 0.005 ? `quota appena più alta dei numeri (${q(qa)} contro ${q(qn)}), rischio simile`
+    : `stessa quota dei numeri (${q(qa)}), stesso rischio`;
+  return { ...ai, fonte: "ai", perche: `dal Pronostico AI: ${confronto}` };
+}
+
+/**
  * Il mercato e' coerente con i gol che la lettura si aspetta? (07/10/2026,
  * Croazia-Spagna: la lettura diceva 3,7 gol e "Punta su questo" a 1,75
  * proponeva MG 1-3 totali, al 46-48%.) Con 3 gol o piu' attesi niente

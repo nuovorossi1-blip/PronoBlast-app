@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
+import { daGiocare } from "@/src/api";
 import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
@@ -745,6 +746,27 @@ export default function MatchDetail() {
           return (
             <View style={styles.consBox}>
               <Text style={styles.consLbl}>IL CONSIGLIATO</Text>
+              {(() => {
+                // DA GIOCARE (11/10/2026): una riga sola, con la regola e il perche'.
+                const g = daGiocare(cambiato && mercatoCambiato
+                  ? { market: mercatoCambiato, nome: mercatoCambiato, quota: quotaCambiato, stimata: stimataCambiato, ai: "cambiato",
+                      numeri_market: numeriMarket ?? null, numeri_nome: numeriNome ?? null, numeri_quota: numeriQuota ?? null }
+                  : c ? { market: c.market, nome: c.nome, quota: c.quota, stimata: c.stimata, ai: pro && !scartata ? "confermato" : null, proposta_scartata: scartata }
+                  : null);
+                if (!g) return null;
+                const nome = g.nome.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
+                return (
+                  <View style={{ borderWidth: 2, borderColor: colors.success, borderRadius: 10, padding: 10, marginTop: 6, marginBottom: 8, backgroundColor: "rgba(16,185,129,0.10)" }}>
+                    <Text style={{ color: colors.success, fontWeight: "900", fontSize: 12, letterSpacing: 1 }}>▶ DA GIOCARE</Text>
+                    <Text style={styles.consVal}>
+                      {nome}
+                      {g.quota != null ? <Text style={{ fontSize: 15, color: colors.textMuted }}>{` ${g.stimata ? "≈" : "@"}${g.quota.toFixed(2)}`}</Text> : null}
+                      {esito(g.market)}
+                    </Text>
+                    <Text style={styles.consMeta}>{`Perché: ${g.perche}.`}</Text>
+                  </View>
+                );
+              })()}
               {cambiato && mercatoCambiato ? (
                 <>
                   <Text style={styles.consVal}>{mercatoCambiato.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}{esito(mercatoCambiato)}</Text>
