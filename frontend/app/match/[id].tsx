@@ -134,6 +134,7 @@ export default function MatchDetail() {
   // Tutto il resto della scheda sta in "Approfondisci", chiuso (07/10/2026, Rossi:
   // "all'utente serve la lettura, se vuole approfondire lo fa a parte").
   const [approfondisci, setApprofondisci] = useState(false);
+  const [altreFasce, setAltreFasce] = useState(false);
   const [tabella, setTabella] = useState<TabellaScenari | null>(() => memTabella ?? persistentTabellaCache.get());
   // La lettura (07/10/2026): frasi del programma + lettura dell'AI gratis.
   const [lettura, setLettura] = useState<RispostaLettura | null>(() => {
@@ -969,12 +970,21 @@ export default function MatchDetail() {
           );
         })()}
 
+        {/* ALTRE FASCE DI QUOTA (11/10/2026, Rossi: "manda tanta confusione"): in
+            cima resta solo il consigliato; "Punta su questo" e il verdetto per
+            fascia si aprono qui, per chi vuole giocare a 1.50 / 1.60 / 1.75. */}
+        <TouchableOpacity onPress={() => setAltreFasce((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
+          <Ionicons name={altreFasce ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+          <Text style={styles.approfTxt}>
+            {altreFasce ? "Chiudi le altre fasce di quota" : "Altre fasce di quota (1.40 / 1.50 / 1.60 / 1.75): punta su questo e verdetto"}
+          </Text>
+        </TouchableOpacity>
         {/* ============ IL CONSIGLIO DELL'AI (01/10/2026, Rossi) ============
             Fra scenario e verdetto: il mercato su cui l'AI punterebbe di piu'
             per QUESTA partita, a qualunque quota e fascia ("il consiglio di un
             amico"). Solo dopo "Genera pronostico AI" e solo se generato PRIMA
             del calcio d'inizio. Non cambia il verdetto della fascia scelta. */}
-        {(() => {
+        {altreFasce && (() => {
           const ctxC = { odds: match.odds as any, structural, manuale: manualeFasce };
           // SCELTA B (07/10/2026): senza una notizia verificata "Punta su
           // questo" e' il pick del MOTORE (fusione motore + PRE senza AI, alla
@@ -1310,41 +1320,8 @@ export default function MatchDetail() {
             </View>
           );
         })()}
-
-        <TouchableOpacity onPress={() => setApprofondisci((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
-          <Ionicons name={approfondisci ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
-          <Text style={styles.approfTxt}>
-            {approfondisci ? "Chiudi i dettagli" : "Approfondisci: verdetto per fascia, struttura, risultati, ranking, pronostico AI"}
-          </Text>
-        </TouchableOpacity>
-        {approfondisci && (
-          <>
-            {/* TUTTE LE GIOCATE (07/10/2026, Rossi): quota, probabilita' e perche'
-                si' o perche' no, per ogni mercato della partita. */}
-            {analisi ? (
-              <View style={styles.tabBox}>
-                <Text style={styles.consLbl}>TUTTE LE GIOCATE · PERCHÉ SÌ, PERCHÉ NO</Text>
-                <View style={[styles.tabRiga, styles.tabTesta]}>
-                  <Text style={[styles.tabC1, styles.tabTestaTxt]}>Giocata</Text>
-                  <Text style={[styles.tabC2, styles.tabTestaTxt]}>Quota</Text>
-                  <Text style={[styles.tabC3, styles.tabTestaTxt]}>Prob.</Text>
-                  <Text style={[styles.tabC4, styles.tabTestaTxt]}>Perché</Text>
-                </View>
-                {analisi.righe.slice(0, 30).map((r) => (
-                  <View key={r.market} style={[styles.tabRiga, r.consigliato && styles.tabRigaCons]}>
-                    <Text style={[styles.tabC1, r.consigliato && { fontWeight: "900" }]}>{r.nome}</Text>
-                    <Text style={styles.tabC2}>{`${r.stimata ? "≈" : ""}${r.quota.toFixed(2)}`}</Text>
-                    <Text style={styles.tabC3}>
-                      {r.misurata ? `${Math.round(r.misurata.pA * 100)}/${Math.round(r.misurata.pB * 100)}%` : r.stima != null ? `~${Math.round(r.stima * 100)}%` : "–"}
-                    </Text>
-                    <Text style={styles.tabC4}>{r.perche}</Text>
-                  </View>
-                ))}
-                <Text style={styles.golPic}>{"Prob.: \"60/60%\" = misurata in archivio (partite vecchie / recenti); \"~53%\" = stima Poisson di questa partita."}</Text>
-              </View>
-            ) : null}
         {/* ============ VERDETTO FINALE (fusione 3 sistemi) ============ */}
-        {(() => {
+        {((el: React.ReactNode) => (altreFasce ? el : null))((() => {
           if (!structural) return null;
           // FASE 5 — se il backend manda la sua classifica PRE la usiamo: è una
           // sola implementazione invece di due copie da tenere allineate a mano.
@@ -1774,7 +1751,45 @@ export default function MatchDetail() {
               )}
             </View>
           );
-        })()}
+        })())}
+
+
+        <TouchableOpacity onPress={() => setApprofondisci((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
+          <Ionicons name={approfondisci ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+          <Text style={styles.approfTxt}>
+            {approfondisci ? "Chiudi i dettagli" : "Approfondisci: tutte le giocate, struttura, risultati, ranking"}
+          </Text>
+        </TouchableOpacity>
+        {approfondisci && (
+          <>
+            {/* TUTTE LE GIOCATE (07/10/2026, Rossi): quota, probabilita' e perche'
+                si' o perche' no, per ogni mercato della partita. */}
+            {analisi ? (
+              <View style={styles.tabBox}>
+                <Text style={styles.consLbl}>TUTTE LE GIOCATE · PERCHÉ SÌ, PERCHÉ NO</Text>
+                <View style={[styles.tabRiga, styles.tabTesta]}>
+                  <Text style={[styles.tabC1, styles.tabTestaTxt]}>Giocata</Text>
+                  <Text style={[styles.tabC2, styles.tabTestaTxt]}>Quota</Text>
+                  <Text style={[styles.tabC3, styles.tabTestaTxt]}>Prob.</Text>
+                  <Text style={[styles.tabC4, styles.tabTestaTxt]}>Perché</Text>
+                </View>
+                {analisi.righe.slice(0, 30).map((r) => (
+                  <View key={r.market} style={[styles.tabRiga, r.consigliato && styles.tabRigaCons]}>
+                    <Text style={[styles.tabC1, r.consigliato && { fontWeight: "900" }]}>{r.nome}</Text>
+                    <Text style={styles.tabC2}>{`${r.stimata ? "≈" : ""}${r.quota.toFixed(2)}`}</Text>
+                    <Text style={styles.tabC3}>
+                      {r.misurata ? `${Math.round(r.misurata.pA * 100)}/${Math.round(r.misurata.pB * 100)}%` : r.stima != null ? `~${Math.round(r.stima * 100)}%` : "–"}
+                    </Text>
+                    <Text style={styles.tabC4}>
+                      {r.consigliato && lettura?.consigliato?.ai === "cambiato"
+                        ? r.perche.replace("★ consigliato", "★ scelta dei numeri (poi cambiata dal Pronostico AI)")
+                        : r.perche}
+                    </Text>
+                  </View>
+                ))}
+                <Text style={styles.golPic}>{"Prob.: \"60/60%\" = misurata in archivio (partite vecchie / recenti); \"~53%\" = stima Poisson di questa partita."}</Text>
+              </View>
+            ) : null}
 
         {/* ============ STRUTTURA MATCH (Motore Strutturale) ============ */}
         {structural?.structure && (
