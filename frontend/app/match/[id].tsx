@@ -691,7 +691,10 @@ export default function MatchDetail() {
           if (pro?.notizia_verificata && pro.mercato) {
             const val = mercatoAIValido(pro.mercato, analisi || structural?.market_odds, analisi?.manuali);
             if (val.ok && val.market && val.quota != null) {
-              if (!c || normalizeMarket(val.market) !== normalizeMarket(c.market)) {
+              // Il consigliato salvato e' gia' la giocata dell'AI (ai "cambiato"):
+              // resta un cambio, non una conferma (Ajax-Nec, 11/10/2026: diceva
+              // "Tutti i dati d'accordo · Confermato dal Pronostico AI").
+              if (!c || normalizeMarket(val.market) !== normalizeMarket(c.market) || salvato?.ai === "cambiato") {
                 cambiato = true;
                 mercatoCambiato = val.market;
                 quotaCambiato = val.quota;
