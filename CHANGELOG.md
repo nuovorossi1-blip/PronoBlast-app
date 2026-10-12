@@ -149,6 +149,19 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Analisi di una partita dal bot ("Inter Napoli")
+
+- Nuova rotta `POST /analisi-partita` `{testo}` (segreto del bot): trova la
+  partita fra oggi e i prossimi 3 giorni (nomi in qualsiasi ordine, con o
+  senza "-"/"vs", la piu' vicina nel tempo) e risponde con la scheda:
+  consigliato e archivio, "da lasciare" e perche' + cosa giocare se la si
+  vuole giocare lo stesso (`lasciata_market`), alternative, motore (1X2,
+  gol), lettura AI, numeri del programma, notizie. Consigliato calcolato al
+  volo se manca (`consigliatoDi`, senza salvare). Non scrive niente.
+- Bot: 2-7 parole senza numeri -> analisi partita; "analizza ..." sempre.
+- Controlla schedina: la "schedina corretta" (tenute, cambiate, partite
+  nuove, quota totale); un sostituto non viene proposto due volte.
+
 ### 2026-10-13 — Controlla schedina: giudizio come in PronoBlast, qualsiasi bookmaker
 
 - **Errore della prima versione**: il giudizio era solo probabilita' del

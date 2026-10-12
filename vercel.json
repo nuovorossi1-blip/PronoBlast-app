@@ -73,6 +73,10 @@
       "destination": "/api/suggerisci-multipla"
     },
     {
+      "source": "/analisi-partita",
+      "destination": "/api/analisi-partita"
+    },
+    {
       "source": "/selection-clear",
       "destination": "/api/selection-clear"
     },

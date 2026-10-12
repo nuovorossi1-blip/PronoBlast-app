@@ -88,6 +88,11 @@
   status = 200
 
 [[redirects]]
+  from = "/analisi-partita"
+  to = "/.netlify/functions/analisi-partita"
+  status = 200
+
+[[redirects]]
   from = "/selection-clear"
   to = "/.netlify/functions/selection-clear"
   status = 200
