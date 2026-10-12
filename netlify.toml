@@ -83,6 +83,11 @@
   status = 200
 
 [[redirects]]
+  from = "/suggerisci-multipla"
+  to = "/.netlify/functions/suggerisci-multipla"
+  status = 200
+
+[[redirects]]
   from = "/selection-clear"
   to = "/.netlify/functions/selection-clear"
   status = 200
