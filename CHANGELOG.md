@@ -149,6 +149,22 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-12 — Lettura e Pronostico AI: l'AI riceve di nuovo forma e calcoli del programma
+
+- **Difetto:** quando il programma era gia' salvato in `dossier_web.numeri`
+  (quote invariate), `datiLettura` lo riusava. Ma il programma si salva
+  senza `testo` e senza forma, quindi il prompt dell'AI conteneva
+  `FORMA: n/d` e, al posto dei CALCOLI DEL PROGRAMMA, la parola `undefined`.
+  Nel campione colpiva 59 partite su 61 (es. Arouca - Estrela, 11/10).
+- **Correzione** (`netlify/functions/lib/letturaPartita.ts`): `datiLettura`
+  ha l'opzione `completo` che ricalcola forma e programma;
+  `generaLetturaAI` la usa quando i dati ricevuti non hanno la forma. Il
+  consigliato veloce continua a usare il programma salvato.
+- **Misura** (61 partite giocate, DeepSeek V4 Lite, stesso prompt):
+  com'era 53% vinte, resa −16,9%; con i dati completi 61%, resa −0,9%.
+  Provata anche una regola "attacco contro difesa" nel prompt: 59%, resa
+  −8,0%, quindi NON aggiunta. Campione piccolo: rimisurare tra 1-2 settimane.
+
 ### 2026-10-10 — Partite iniziate bloccate, lavori saltati recuperati, selettori con il Pronostico AI
 
 - Partita iniziata o finita: il consigliato salvato non si ricalcola piu'
