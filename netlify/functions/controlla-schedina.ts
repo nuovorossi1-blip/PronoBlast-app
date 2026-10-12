@@ -156,7 +156,7 @@ async function sostituto(m: any, quota: number | null, escluse: Set<string>): Pr
     if (!c?.market || !c.quota || c.pA == null) continue;
     if (quota && Math.abs(c.quota - quota) > 0.3) continue;
     const p = Math.min(c.pA, c.pB ?? c.pA);
-    if (!best || p > best.p) best = { p, partita: `${x.squadra1} - ${x.squadra2}`, ora: x.time, campionato: x.manifestazione, giocata: c.nome || c.market, quota: c.quota };
+    if (!best || p > best.p) best = { p, id: x.id, market: c.market, casa: x.squadra1, ospite: x.squadra2, partita: `${x.squadra1} - ${x.squadra2}`, ora: x.time, campionato: x.manifestazione, giocata: c.nome || c.market, quota: c.quota };
   }
   return best;
 }
@@ -259,13 +259,16 @@ export default async (req: Request): Promise<Response> => {
     if (c?.daLasciare && !c?.market) { r.esito = "togli"; r.motivo = `PronoBlast la lascia: ${c.daLasciare}`; }
     else if (c?.market && normalizeMarket(c.market) === normalizeMarket(mercato)) { r.esito = "ok"; r.motivo = `e' il consigliato di PronoBlast${r.archivio != null ? ` (archivio ${pct(r.archivio)})` : ""}`; }
     else if (mio && mio.p >= PROB_AFFIDABILE) { r.esito = "ok"; r.motivo = `regge in archivio ${pct(mio.p)}`; }
-    else if (c?.market && c.quota) { r.esito = "cambia"; r.al_posto = { giocata: r.consigliato.giocata, quota: c.quota, prob: r.consigliato.prob, archivio: r.consigliato.archivio, stimata: !!c.stimata }; r.motivo = mio ? `in archivio solo ${pct(mio.p)}` : "non e' tra le giocate che reggono in archivio"; }
+    else if (c?.market && c.quota) { r.esito = "cambia"; r.al_posto = { giocata: r.consigliato.giocata, market: c.market, quota: c.quota, prob: r.consigliato.prob, archivio: r.consigliato.archivio, stimata: !!c.stimata }; r.motivo = mio ? `in archivio solo ${pct(mio.p)}` : "non e' tra le giocate che reggono in archivio"; }
     else if (p >= 0.55) { r.esito = "ok"; r.motivo = `nessun consigliato per questa partita; motore ${pct(p)}`; }
     else if (p < P_TOGLI) { r.esito = "togli"; r.motivo = `nessun consigliato; motore solo ${pct(p)}`; }
     else { r.esito = "debole"; r.motivo = `nessun consigliato; motore ${pct(p)}`; }
     if (coach && r.esito === "ok") { r.esito = "debole"; r.motivo = `${r.motivo}, ma CAMBIO DI ALLENATORE (${giornoMese(coach.data)})`; }
 
-    if (r.esito === "togli") r.al_posto_partita = await sostituto(m, g.quota, nellaSchedina);
+    if (r.esito === "togli") {
+      r.al_posto_partita = await sostituto(m, g.quota, nellaSchedina);
+      if (r.al_posto_partita) nellaSchedina.add(r.al_posto_partita.id);   // non due volte la stessa
+    }
     risultati.push(r);
   }
 
@@ -277,6 +280,18 @@ export default async (req: Request): Promise<Response> => {
     else if (r.esito === "togli") nuova *= r.al_posto_partita?.quota || 1;
     else nuova *= r.quota || 1;
   }
+
+  // LA SCHEDINA CORRETTA (13/10/2026, Rossi: "scrivi come sarebbe la multipla
+  // con le partite sostituite e il pronostico"): tenute, cambiate, nuove.
+  const corretta: { segno: string; casa: string; ospite: string; giocata: string; market: string; quota: number | null; ora?: string }[] = [];
+  for (const r of risultati) {
+    const [casa, ospite = ""] = String(r.partita || r.schedina).split(" - ");
+    if (r.esito === "cambia" && r.al_posto) corretta.push({ segno: "🔄", casa, ospite, giocata: r.al_posto.giocata, market: r.al_posto.market || r.al_posto.giocata, quota: r.al_posto.quota, ora: r.ora });
+    else if (r.esito === "togli") { if (r.al_posto_partita) corretta.push({ segno: "🆕", casa: r.al_posto_partita.casa, ospite: r.al_posto_partita.ospite, giocata: r.al_posto_partita.giocata, market: r.al_posto_partita.market || r.al_posto_partita.giocata, quota: r.al_posto_partita.quota, ora: r.al_posto_partita.ora }); }
+    else corretta.push({ segno: r.esito === "ok" ? "✅" : r.esito === "debole" ? "⚠️" : "❓", casa, ospite, giocata: r.giocata === "ALTRO" ? r.giocata_originale : r.giocata, market: r.giocata === "ALTRO" ? r.giocata_originale : r.giocata, quota: r.quota, ora: r.ora });
+  }
+  const totCorretta = corretta.reduce((t, x) => t * (x.quota || 1), 1);
+  const cambiata = risultati.some((r) => r.esito === "cambia" || r.esito === "togli");
 
   // Una riga di giudizio per partita (testo semplice, senza HTML)
   const giudizio = (r: any): string => {
@@ -292,7 +307,10 @@ export default async (req: Request): Promise<Response> => {
     if (r.lettura_ai) righe.push(`   🧠 lettura AI: ${r.lettura_ai}`);
     for (const a of r.avvisi || []) righe.push(`   ⚠ ${a}`);
   });
-  righe.push("", `Quota con le modifiche: ${q2(nuova)} (era ${q2(totale)})`);
+  if (cambiata) {
+    righe.push("", `SCHEDINA CORRETTA: ${corretta.length} partite, quota ${q2(totCorretta)} (era ${q2(totale)})`);
+    corretta.forEach((x, i) => righe.push(`${x.segno} ${i + 1}. ${x.casa} - ${x.ospite}${x.ora ? ` ${x.ora}` : ""} · ${x.giocata} @${q2(x.quota)}`));
+  }
 
   // Versione per Telegram: tabella + partita per partita (parse_mode HTML, max 4096)
   const ICONA: Record<string, string> = { ok: "✅", cambia: "🔄", togli: "❌", debole: "⚠️", non_valutabile: "❓" };
@@ -301,7 +319,15 @@ export default async (req: Request): Promise<Response> => {
     h.push(pre(["", "#", "Partita", "Gioco", "Quota"],
       risultati.map((r, i) => [ICONA[r.esito] || "❓", String(i + 1), r.partita ? partita(r.partita.split(" - ")[0], r.partita.split(" - ")[1] || "") : r.schedina, giocataCorta(r.giocata === "ALTRO" ? r.giocata_originale : r.giocata), qt(r.quota)]),
       [2, 1, 7, 11, 4]));
-    h.push(`Quota con le modifiche: <b>${esc(q2(nuova))}</b> (era ${esc(q2(totale))})`, "", "<b>Partita per partita</b>");
+    if (cambiata) {
+      h.push("", `🛠 <b>Schedina corretta · ${corretta.length} partite · quota ${esc(q2(totCorretta))}</b> (era ${esc(q2(totale))})`);
+      h.push(pre(["", "#", "Partita", "Gioco", "Quota"],
+        corretta.map((x, i) => [x.segno, String(i + 1), partita(x.casa, x.ospite), giocataCorta(x.market), qt(x.quota)]),
+        [2, 1, 7, 11, 4]));
+      corretta.forEach((x, i) => { if (x.segno === "🔄" || x.segno === "🆕") h.push(`${x.segno} <b>${i + 1}.</b> ${esc(x.casa)} - ${esc(x.ospite)}${x.ora ? ` · ${esc(x.ora)}` : ""}: <b>${esc(x.giocata)}</b> @${esc(q2(x.quota))}`); });
+      h.push("<i>✅ tenuta · 🔄 giocata cambiata · 🆕 partita nuova</i>");
+    } else h.push("Nessuna modifica: la schedina va bene cosi'.");
+    h.push("", "<b>Partita per partita</b>");
     risultati.forEach((r, i) => {
       h.push(SEP);
       h.push(`<b>${i + 1}. ${esc(r.partita || r.schedina)}</b>${r.ora ? ` · ${esc(r.ora)}` : ""}${r.avviso_inizio ? ` ⏱ ${esc(r.avviso_inizio)}` : ""}`);
