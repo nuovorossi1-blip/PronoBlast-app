@@ -84,8 +84,13 @@ async function contaLettura() {
   } catch { /* il conto non deve fermare la lettura */ }
 }
 
-/** Tutti i dati di una partita, la lettura del programma e il testo per l'AI. */
-export async function datiLettura(matchId: string): Promise<{
+/**
+ * Tutti i dati di una partita, la lettura del programma e il testo per l'AI.
+ * `completo`: ricalcola sempre forma e programma. Il programma salvato non ha
+ * ne' la forma ne' il testo per l'AI: senza ricalcolo il modello riceveva
+ * "n/d" e "undefined" (12/10/2026, test su 61 partite: resa -17% contro -1%).
+ */
+export async function datiLettura(matchId: string, opzioni: { completo?: boolean } = {}): Promise<{
   match: any; forma: FormaGol | null; programma: LetturaProgramma; testo: string; numeri: any;
 } | null> {
   const m = (await pgGet(`matches?id=eq.${encodeURIComponent(matchId)}&select=*`))[0];
@@ -98,7 +103,7 @@ export async function datiLettura(matchId: string): Promise<{
   const qAtt = firmaQuote(m);
   const prSalvato = d?.numeri?.programma;
   let programma: LetturaProgramma;
-  if (prSalvato && !quoteCambiate(prSalvato.quote, qAtt)) {
+  if (!opzioni.completo && prSalvato && !quoteCambiate(prSalvato.quote, qAtt)) {
     programma = prSalvato;
   } else {
     forma = await formaGol(
@@ -149,7 +154,9 @@ export async function generaLetturaAI(
   dati?: Awaited<ReturnType<typeof datiLettura>>,
   opzioni: { pro?: boolean } = {},
 ): Promise<LetturaAI | null> {
-  const x = dati ?? (await datiLettura(matchId));
+  // L'AI vuole il testo completo: se i dati vengono dal programma salvato
+  // (forma assente), si ricalcolano.
+  const x = dati?.forma ? dati : await datiLettura(matchId, { completo: true });
   if (!x) return null;
   const pro = !!opzioni.pro;
   if (!pro && !(await letturePossibili())) return null;
