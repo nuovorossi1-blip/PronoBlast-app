@@ -4,7 +4,7 @@ import { simil } from "./lib/teamMatch";
 import { inizioPartitaMs, normalizeMarket, PROB_AFFIDABILE } from "../../frontend/src/api";
 import { consigliatoDi } from "./lib/letturaPartita";
 import { rigaNotizia } from "./lib/notizieSquadre";
-import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella";
+import { esc, pre, partita, giocataCorta, q as qt, SEP } from "./lib/telegramTabella";
 
 /**
  * POST /controlla-schedina — "controlla la mia schedina" (13/10/2026, Rossi).
@@ -300,15 +300,16 @@ export default async (req: Request): Promise<Response> => {
     const h: string[] = [`📋 <b>Schedina: ${risultati.length} partite · quota ${esc(q2(totale))}</b>`];
     h.push(pre(["", "#", "Partita", "Gioco", "Quota"],
       risultati.map((r, i) => [ICONA[r.esito] || "❓", String(i + 1), r.partita ? partita(r.partita.split(" - ")[0], r.partita.split(" - ")[1] || "") : r.schedina, giocataCorta(r.giocata === "ALTRO" ? r.giocata_originale : r.giocata), qt(r.quota)]),
-      [2, 1, 16, 7, 4]));
+      [2, 1, 7, 11, 4]));
     h.push(`Quota con le modifiche: <b>${esc(q2(nuova))}</b> (era ${esc(q2(totale))})`, "", "<b>Partita per partita</b>");
     risultati.forEach((r, i) => {
+      h.push(SEP);
       h.push(`<b>${i + 1}. ${esc(r.partita || r.schedina)}</b>${r.ora ? ` · ${esc(r.ora)}` : ""}${r.avviso_inizio ? ` ⏱ ${esc(r.avviso_inizio)}` : ""}`);
       h.push(`   ${esc(giudizio(r))}`);
       if (r.lettura_ai && maxNote > 0) h.push(`   🧠 ${esc(r.lettura_ai)}`);
       for (const x of (r.avvisi || []).slice(0, maxNote)) h.push(`   ${esc((x.startsWith("📰") ? x : `⚠ ${x}`).slice(0, 160))}`);
     });
-    h.push("", "<i>Come in PronoBlast: prima il consigliato (archivio + notizie), poi l'archivio, il motore solo se manca il consigliato. Un parere, non una garanzia.</i>");
+    h.push(SEP, "<i>Come in PronoBlast: prima il consigliato (archivio + notizie), poi l'archivio, il motore solo se manca il consigliato. Un parere, non una garanzia.</i>");
     return h.join("\n");
   };
   let html = versione(3);

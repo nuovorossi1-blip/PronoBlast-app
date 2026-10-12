@@ -2,7 +2,7 @@ import { pgGet, jsonResponse } from "./lib/supabaseRest";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import buildMultipla from "./build-multipla";
 import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
-import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella";
+import { esc, pre, partita, giocataCorta, q as qt, SEP } from "./lib/telegramTabella";
 
 /**
  * POST /suggerisci-multipla — "suggeriscimi una multipla" dal bot Telegram
@@ -132,19 +132,20 @@ export default async (req: Request): Promise<Response> => {
     h.push(`🎯 <b>Multipla ${esc(day.split("-").reverse().slice(0, 2).join("/"))}</b> · ${ris.legs.length} partite · quota <b>${ris.total_estimated ? "~" : ""}${esc(q2(totale))}</b>`);
     h.push(pre(["#", "Partita", "Gioco", "Quota"],
       ris.legs.map((l: any, i: number) => [String(i + 1), partita(l.squadra1, l.squadra2), giocataCorta(l.market), qt(l.odd) + (l.odd_estimated ? "~" : "")]),
-      [1, 17, 8, 5]));
+      [1, 7, 12, 5]));
     h.push(`Vincono tutte (motore): <b>${pct(ris.total_prob)}</b> · la quota ne chiede ${pct(1 / totale)}`);
     if (totale < minTotalOdd) h.push(`⚠ quota sotto ${esc(q2(minTotalOdd))}: oggi poche partite solide`);
-    h.push("", "<b>Dettagli</b>");
+    h.push("", "<b>Partita per partita</b>");
     ris.legs.forEach((l: any, i: number) => {
       const g = info.get(l.match_id) || { avvisi: [], seri: [], notizia: null };
+      h.push(SEP);
       h.push(`<b>${i + 1}.</b> ${esc(l.time)} · ${esc(l.manifestazione)} · ${esc(l.squadra1)} - ${esc(l.squadra2)}`);
       h.push(`   👉 <b>${esc(l.market)}</b> @${esc(q2(l.odd))}${l.odd_estimated ? " (stimata)" : ""} · motore ${pct(l.prob)}`);
       const note = [...g.seri.map((s: string) => `⚠️ ${s}`), ...(g.notizia ? [`📰 ${g.notizia}`] : []), ...g.avvisi.map((a: string) => (a.startsWith("📰") ? a : `⚠ ${a}`))];
       for (const n of note.slice(0, maxNote)) h.push(`   ${esc(n.length > 160 ? n.slice(0, 157) + "..." : n)}`);
     });
     if (scartate.length) h.push("", `<i>Scartate: ${esc(scartate.join(" · ").slice(0, 400))}</i>`);
-    h.push("", "<i>Notizie: dossier di oggi (FotMob, Google News, web). E' un parere, non una garanzia.</i>");
+    h.push(SEP, "<i>Notizie: dossier di oggi (FotMob, Google News, web). E' un parere, non una garanzia.</i>");
     return h.join("\n");
   };
   let html = versione(3);

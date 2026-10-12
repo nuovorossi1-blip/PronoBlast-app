@@ -1,8 +1,9 @@
 /**
  * Messaggi del bot Telegram in tabella (13/10/2026, Rossi: "formato
  * tabellare facilmente intuibile"). Telegram non ha tabelle vere: si usa un
- * blocco <pre> a caratteri tutti uguali, largo al massimo ~34 caratteri per
- * stare sul telefono in verticale; i dettagli vanno sotto, numerati.
+ * blocco <pre> a caratteri tutti uguali, largo al massimo 28 caratteri per
+ * stare sul telefono in verticale senza scorrere (a 34 Rossi la vedeva
+ * tagliata); i dettagli vanno sotto, una partita per blocco, separate da SEP.
  * Va inviato con parse_mode HTML.
  */
 
@@ -22,7 +23,7 @@ export function giocataCorta(m: string): string {
     .replace(/X oppure GG/i, "X o GG")
     .replace(/MG\s*(\d-\d)\s*totali/gi, "MG$1")
     .replace(/MG\s*(\d-\d)\s*casa/gi, "MG$1c").replace(/MG\s*(\d-\d)\s*ospite/gi, "MG$1o")
-    .replace(/\s*\+\s*MG/g, "+").replace(/\s*\+\s*/g, "+")
+    .replace(/(MG\d-\d[co])\s*\+\s*MG/g, "$1+").replace(/\s*\+\s*/g, "+")
     .trim();
 }
 const taglia = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s.padEnd(n));
@@ -38,5 +39,9 @@ export function pre(intestazione: string[], righe: string[][], larghezze: number
   return `<pre>${esc([riga(intestazione, true), "─".repeat(larghezze.reduce((a, b) => a + b + 1, -1)), ...righe.map((r) => riga(r))].join("\n"))}</pre>`;
 }
 
-export const partita = (casa: string, ospite: string) => `${corto(casa)}-${corto(ospite)}`;
+/** Sigla da tabellino TV: "Atalanta" -> "ATA", "Fc Arda Kardzhali" -> "ARD". */
+export const sigla = (squadra: string) => corto(squadra, 20).replace(/[^A-Za-zÀ-ÿ0-9]/g, "").slice(0, 3).toUpperCase();
+export const partita = (casa: string, ospite: string) => `${sigla(casa)}-${sigla(ospite)}`;
+/** Separatore fra una partita e l'altra nei dettagli. */
+export const SEP = "──────────────";
 export { quota as q };
