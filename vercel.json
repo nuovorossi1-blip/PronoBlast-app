@@ -65,6 +65,10 @@
       "destination": "/api/selected-list"
     },
     {
+      "source": "/controlla-schedina",
+      "destination": "/api/controlla-schedina"
+    },
+    {
       "source": "/selection-clear",
       "destination": "/api/selection-clear"
     },

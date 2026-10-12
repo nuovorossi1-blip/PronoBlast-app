@@ -149,6 +149,27 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Controlla schedina (per il bot Telegram)
+
+- Nuova rotta `POST /controlla-schedina` (`netlify/functions/controlla-schedina.ts`,
+  registrata nei tre posti). Riceve la foto della schedina (corpo `image/*`,
+  oppure JSON `{immagine}` / `{testo}`), la fa trascrivere a
+  `google/gemini-2.5-flash` (OpenRouter) con i nomi dei mercati di PronoBlast,
+  cerca le partite nel DB (giorni vicini, `simil` dei nomi) e per ogni gamba
+  da' ok / cambia / togli / da valutare / non valutabile.
+- Giudizio: probabilita' del motore (Poisson sulle quote PronoBlast) e
+  "valore" = probabilita' x quota DELLA SCHEDINA. ok se p >= 50% e valore >=
+  0,93; togli se p < 45% o valore < 0,85; altrimenti alternativa nella stessa
+  partita piu' probabile di 5 punti e con valore non peggiore (prima il
+  consigliato). Per "togli" propone una partita del giorno con consigliato a
+  quota simile. Avvisi: frasi ⚠ della lettura e notizia dell'AI. Soglie da
+  misurare con le schedine vere.
+- Protetta dall'header `X-Schedina-Segreto` (env `SCHEDINA_SEGRETO`): la rotta
+  e' pubblica e la lettura dell'immagine costa credito. Non scrive nel DB;
+  esclusa dallo svuotamento della cache dei POST (`serverCache.ts`).
+- Data della schedina senza anno: si usa l'anno corrente e si ignora se
+  lontana piu' di 7 giorni (il modello inventava il 2024 e non trovava niente).
+
 ### 2026-10-12 — Lettura e Pronostico AI: l'AI riceve di nuovo forma e calcoli del programma
 
 - **Difetto:** quando il programma era gia' salvato in `dossier_web.numeri`

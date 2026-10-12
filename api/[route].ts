@@ -60,6 +60,7 @@ import results_bulk from "../netlify/functions/results-bulk";
 import results_fetch from "../netlify/functions/results-fetch";
 import save_verdict from "../netlify/functions/save-verdict";
 import selected_list from "../netlify/functions/selected-list";
+import controlla_schedina from "../netlify/functions/controlla-schedina";
 import selection_clear from "../netlify/functions/selection-clear";
 import selection_update from "../netlify/functions/selection-update";
 import stats_reset from "../netlify/functions/stats-reset";
@@ -113,6 +114,7 @@ const ROUTES: Record<string, Handler> = {
   "results-fetch": results_fetch,
   "save-verdict": save_verdict,
   "selected-list": selected_list,
+  "controlla-schedina": controlla_schedina,
   "selection-clear": selection_clear,
   "selection-update": selection_update,
   "stats-reset": stats_reset,

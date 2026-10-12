@@ -78,6 +78,11 @@
   status = 200
 
 [[redirects]]
+  from = "/controlla-schedina"
+  to = "/.netlify/functions/controlla-schedina"
+  status = 200
+
+[[redirects]]
   from = "/selection-clear"
   to = "/.netlify/functions/selection-clear"
   status = 200

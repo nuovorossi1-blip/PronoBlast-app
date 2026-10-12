@@ -61,6 +61,8 @@ export function isScrittura(name: string, method = "GET"): boolean {
   if (name === "import-db") return true;
   if (name === "stats-reset") return true;
   if (name === "odd-settings" && method === "POST") return true;
+  // POST che non scrive niente (legge una schedina): la cache resta.
+  if (name === "controlla-schedina") return false;
   if (method === "POST" || method === "PUT" || method === "DELETE" || method === "PATCH") return true;
   return false;
 }
