@@ -77,6 +77,10 @@
       "destination": "/api/analisi-partita"
     },
     {
+      "source": "/domanda-bot",
+      "destination": "/api/domanda-bot"
+    },
+    {
       "source": "/selection-clear",
       "destination": "/api/selection-clear"
     },

@@ -56,11 +56,15 @@ export default async (req: Request): Promise<Response> => {
   if (!segreto || req.headers.get("x-schedina-segreto") !== segreto) return jsonResponse({ error: "Non autorizzato" }, 401);
   let body: any;
   try { body = await req.json(); } catch { return jsonResponse({ error: "Body JSON non valido" }, 400); }
-  const testo = String(body?.testo || "").trim();
-  if (testo.length < 3) return jsonResponse({ trovata: false, html: "Scrivi le due squadre, per esempio: <b>Inter Napoli</b>" });
+  return jsonResponse(await analizzaPartita(String(body?.testo || "").trim()));
+};
+
+/** La scheda di una partita (HTML per Telegram). Usata anche dall'agente del bot. */
+export async function analizzaPartita(testo: string): Promise<{ trovata: boolean; html: string; match_id?: string; partita?: string }> {
+  if (testo.length < 3) return { trovata: false, html: "Scrivi le due squadre, per esempio: <b>Inter Napoli</b>" };
 
   const t = await trova(testo);
-  if (!t) return jsonResponse({ trovata: false, html: `Non trovo <b>${esc(testo)}</b> fra le partite di oggi e dei prossimi 3 giorni in PronoBlast. Controlla i nomi (es. <b>Inter - Napoli</b>).` });
+  if (!t) return ({ trovata: false, html: `Non trovo <b>${esc(testo)}</b> fra le partite di oggi e dei prossimi 3 giorni in PronoBlast. Controlla i nomi (es. <b>Inter - Napoli</b>).` });
   const m = t.m;
   const [d] = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(m.id)}&select=numeri`).catch(() => []);
   const n = d?.numeri || {};
@@ -128,5 +132,5 @@ export default async (req: Request): Promise<Response> => {
     h.splice(i, 1);
   }
   const html = h.join("\n");
-  return jsonResponse({ trovata: true, match_id: m.id, partita: `${m.squadra1} - ${m.squadra2}`, html });
-};
+  return { trovata: true, match_id: m.id, partita: `${m.squadra1} - ${m.squadra2}`, html };
+}

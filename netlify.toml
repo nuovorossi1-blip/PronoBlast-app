@@ -93,6 +93,11 @@
   status = 200
 
 [[redirects]]
+  from = "/domanda-bot"
+  to = "/.netlify/functions/domanda-bot"
+  status = 200
+
+[[redirects]]
   from = "/selection-clear"
   to = "/.netlify/functions/selection-clear"
   status = 200

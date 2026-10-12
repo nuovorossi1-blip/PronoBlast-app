@@ -63,6 +63,7 @@ import selected_list from "../netlify/functions/selected-list";
 import controlla_schedina from "../netlify/functions/controlla-schedina";
 import suggerisci_multipla from "../netlify/functions/suggerisci-multipla";
 import analisi_partita from "../netlify/functions/analisi-partita";
+import domanda_bot from "../netlify/functions/domanda-bot";
 import selection_clear from "../netlify/functions/selection-clear";
 import selection_update from "../netlify/functions/selection-update";
 import stats_reset from "../netlify/functions/stats-reset";
@@ -119,6 +120,7 @@ const ROUTES: Record<string, Handler> = {
   "controlla-schedina": controlla_schedina,
   "suggerisci-multipla": suggerisci_multipla,
   "analisi-partita": analisi_partita,
+  "domanda-bot": domanda_bot,
   "selection-clear": selection_clear,
   "selection-update": selection_update,
   "stats-reset": stats_reset,
