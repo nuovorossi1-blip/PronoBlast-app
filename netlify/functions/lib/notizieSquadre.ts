@@ -1,0 +1,161 @@
+/**
+ * NOTIZIE DELLE SQUADRE DA GOOGLE NEWS (13/10/2026, punto A).
+ *
+ * Arouca - Estrela (11/10): l'Arouca debuttava con un allenatore nuovo e il
+ * dossier non lo sapeva. Cercando "Arouca treinador" su Google News la
+ * notizia c'era dal 4/10 (A Bola, Record, Maisfutebol, RTP). I feed dei
+ * giornali per paese coprono poco le squadre piccole; la ricerca per squadra
+ * copre ogni campionato, nella lingua del paese (anche Champions, Nations
+ * League, USA, Svezia, Norvegia, Danimarca...).
+ *
+ * Per ogni squadra: titoli degli ultimi 7 giorni PRIMA del calcio d'inizio
+ * con parole su allenatore, infortuni, squalifiche. Si tengono solo i titoli
+ * che nominano la squadra e sono di uno di questi tre tipi. Gratis, nessuna
+ * chiave. Richieste in fila (una ogni ~1,2 s) e in cache 6 ore per squadra.
+ */
+
+export type NotiziaSquadra = { squadra: string; tipo: "allenatore" | "infortunio" | "squalifica"; titolo: string; fonte: string; data: string; url: string };
+
+type Lingua = { hl: string; gl: string; ceid: string; parole: string[] };
+const L = (hl: string, gl: string, parole: string[]): Lingua => ({ hl, gl, ceid: `${gl}:${hl.split("-")[0]}`, parole });
+const IT = L("it", "IT", ["allenatore", "esonerato", "infortunio", "squalificato"]);
+const EN = L("en-GB", "GB", ["manager", "sacked", "injury", "suspended"]);
+const ES = L("es", "ES", ["entrenador", "destituido", "lesión", "sancionado"]);
+const PT = L("pt-PT", "PT", ["treinador", "demitido", "lesão", "castigado"]);
+const BR = L("pt-BR", "BR", ["técnico", "demitido", "lesão", "suspenso"]);
+const DE = L("de", "DE", ["Trainer", "entlassen", "Verletzung", "gesperrt"]);
+const FR = L("fr", "FR", ["entraîneur", "limogé", "blessure", "suspendu"]);
+const NL = L("nl", "NL", ["trainer", "ontslagen", "blessure", "geschorst"]);
+const BE = L("nl", "BE", ["trainer", "ontslagen", "blessure", "geschorst"]);
+const SV = L("sv", "SE", ["tränare", "sparkad", "skada", "avstängd"]);
+const NO = L("no", "NO", ["trener", "sparket", "skade", "utestengt"]);
+const DA = L("da", "DK", ["træner", "fyret", "skade", "karantæne"]);
+const US = L("en-US", "US", ["coach", "fired", "injury", "suspended"]);
+const ARG = L("es-419", "AR", ["entrenador", "técnico", "lesión", "suspendido"]);
+const MX = L("es-419", "MX", ["entrenador", "técnico", "lesión", "suspendido"]);
+
+/** Lingua delle notizie dal prefisso del campionato (ITA1 -> ITA). Coppe e nazionali: inglese. */
+function linguaDi(campionato: string): Lingua {
+  const p = (campionato || "").toUpperCase().replace(/[0-9].*$/, "");
+  if (/^ITA/.test(p)) return IT;
+  if (/^(ING|SCO|GAL|IRL|IRLN|AUS)/.test(p)) return EN;
+  if (/^SPA/.test(p)) return ES;
+  if (/^POR/.test(p)) return PT;
+  if (/^BRA/.test(p)) return BR;
+  if (/^(GER|AUT|SVI)/.test(p)) return DE;
+  if (/^FRA/.test(p)) return FR;
+  if (/^OLA/.test(p)) return NL;
+  if (/^BEL/.test(p)) return BE;
+  if (/^SVE/.test(p)) return SV;
+  if (/^NOR/.test(p)) return NO;
+  if (/^DAN/.test(p)) return DA;
+  if (/^USA/.test(p)) return US;
+  if (/^(ARG|URU|PAR|CIL|COL|PER|ECU|BOL)/.test(p)) return ARG;
+  if (/^(MEX|GUAT|CRC|PNM|ELS)/.test(p)) return MX;
+  return EN;
+}
+
+const TIPI: [NotiziaSquadra["tipo"], RegExp][] = [
+  // Solo il CAMBIO di allenatore: "l'allenatore ha detto" non conta.
+  ["allenatore", /(esoner|nuovo allenatore|nuovo tecnico|panchina a|dimission|sacked|appointed|new (head )?(manager|coach)|parts? ways|caretaker|interim (manager|coach)|leaves? (the )?club|destitu|despedid|nuevo (entrenador|t[eé]cnico)|cesad|demit|novo (treinador|t[eé]cnico)|mudan[cç]a de treinador|deixa o|j[aá] n[aã]o [eé] treinador|sucede|assume o comando|entlass|neuer trainer|trennt sich|limog|nouvel entra[iî]neur|remerci|ontslagen|nieuwe trainer|stapt op|sparkad|ny tr[aä]nare|sparket|ny trener|fyret|ny tr[aæ]ner|fired|new head coach)/i],
+  ["squalifica", /(squalific|suspen|sancionad|castigad|gesperrt|sperre|geschorst|avst[aä]ng|utestengt|karant[aæ]ne|red card|cartellino rosso)/i],
+  ["infortunio", /(infortun|injur|ruled out|lesi[oó]n|lesionad|les[aã]o|verletz|bless[eé]|geblesseerd|blessure|skad|\bout for\b)/i],
+];
+
+// Altri sport e falsi amici: "blessuretijd" (NL) = recupero, "Torino" = ATP Finals...
+const NON_CALCIO = /(tennis|atp|wta|wwe|wrestling|formula ?1|f1|motogp|nba|basket|volley|pallavolo|ciclis|cycling|rugby|nfl|nhl|hockey|handball|pallamano|blessuretijd|injury[- ]time|tempo di recupero|tiempo de descuento)/i;
+
+const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** Il nome "di ricerca": senza sigle (FC, CF, SC...) e senza U19/U23/Women. */
+function nomeRicerca(squadra: string): string {
+  return squadra.replace(/\b(FC|CF|SC|AC|AS|SSC|SS|US|CD|UD|SD|CA|AFC|BK|IF|FK|SK|IK|KV|KRC|RSC|SV|VfL|VfB|TSG|1\.)\b/gi, " ")
+    .replace(/\b(U\d\d|Women|Femminile|II|B)\b/gi, " ").replace(/\s+/g, " ").trim() || squadra;
+}
+/** Il titolo nomina la squadra? Serve la parola piu' lunga del nome (>= 4 lettere), come parola intera. */
+function nomina(titolo: string, squadra: string): boolean {
+  const t = ` ${norm(titolo).replace(/[^a-z0-9]+/g, " ")} `;
+  const parole = norm(nomeRicerca(squadra)).split(/[^a-z0-9]+/).filter((p) => p.length >= 4).sort((a, b) => b.length - a.length);
+  return t.includes(` ${parole.length ? parole[0] : norm(squadra)} `);
+}
+
+const cache = new Map<string, { quando: number; voci: NotiziaSquadra[] }>();
+let coda: Promise<unknown> = Promise.resolve();
+/** Una richiesta alla volta, con una pausa: Google News risponde 429 se si esagera. */
+function inFila<T>(f: () => Promise<T>): Promise<T> {
+  const p = coda.then(f, f);
+  coda = p.then(() => new Promise((r) => setTimeout(r, 1200)), () => new Promise((r) => setTimeout(r, 1200)));
+  return p;
+}
+
+const testo = (xml: string, tag: string) => {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+  return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim() : "";
+};
+
+/** Notizie di una squadra prima della partita. [] se non c'e' niente o Google non risponde. */
+export async function notizieSquadra(squadraDb: string, campionato: string, inizioMs: number | null, nomeCompleto?: string | null): Promise<NotiziaSquadra[]> {
+  const lingua = linguaDi(campionato);
+  // Il nome FotMob e' piu' preciso ("Estrela da Amadora", non "Estrela" = stella)
+  const squadra = nomeCompleto && nomeCompleto.length > squadraDb.length ? nomeCompleto : squadraDb;
+  const chiave = `${norm(squadra)}|${lingua.gl}`;
+  const c = cache.get(chiave);
+  const limite = inizioMs ?? Date.now();
+  const filtra = (voci: NotiziaSquadra[]) => voci.filter((v) => Date.parse(v.data) <= limite && Date.parse(v.data) >= limite - 7 * 86400000);
+  if (c && Date.now() - c.quando < 6 * 3600_000) return filtra(c.voci);
+
+  const q = `"${nomeRicerca(squadra)}" (${lingua.parole.join(" OR ")}) when:7d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${lingua.hl}&gl=${lingua.gl}&ceid=${lingua.ceid}`;
+  let voci: NotiziaSquadra[] = [];
+  try {
+    const xml = await inFila(async () => {
+      const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (PronoBlast dossier)" }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error(`Google News ${r.status}`);
+      return r.text();
+    });
+    const visti = new Set<string>();
+    for (const item of xml.split(/<item>/i).slice(1)) {
+      const completo = testo(item, "title");
+      const fonte = testo(item, "source");
+      const titolo = fonte && completo.endsWith(` - ${fonte}`) ? completo.slice(0, -(fonte.length + 3)) : completo;
+      const ms = Date.parse(testo(item, "pubDate"));
+      if (!titolo || !isFinite(ms) || !nomina(titolo, squadra) || NON_CALCIO.test(titolo)) continue;
+      const data = new Date(ms).toISOString();
+      const tipo = TIPI.find(([, re]) => re.test(titolo))?.[0];
+      if (!tipo) continue;
+      const firma = norm(titolo).slice(0, 60);
+      if (visti.has(firma)) continue;
+      visti.add(firma);
+      voci.push({ squadra: squadraDb, tipo, titolo, fonte, data, url: testo(item, "link") });
+    }
+    voci.sort((a, b) => Date.parse(b.data) - Date.parse(a.data));
+    voci = voci.slice(0, 6);
+    cache.set(chiave, { quando: Date.now(), voci });
+  } catch (e) {
+    console.error("[notizieSquadre]", squadra, (e as any)?.message || e);
+    return [];
+  }
+  return filtra(voci);
+}
+
+/** Le due squadre di una partita, in fila. */
+export async function notiziePartitaSquadre(
+  casa: string, ospite: string, campionato: string, inizioMs: number | null,
+  nomiFotmob?: { casa?: string | null; ospite?: string | null },
+): Promise<NotiziaSquadra[]> {
+  const a = await notizieSquadra(casa, campionato, inizioMs, nomiFotmob?.casa);
+  const b = await notizieSquadra(ospite, campionato, inizioMs, nomiFotmob?.ospite);
+  // lo stesso articolo ("Team news: A vs B") vale per tutte e due: una volta sola
+  const visti = new Set<string>();
+  return [...a, ...b].filter((v) => !visti.has(v.titolo) && visti.add(v.titolo));
+}
+
+const ETICHETTA = { allenatore: "🧑‍💼 allenatore", infortunio: "🚑 infortunio", squalifica: "🟥 squalifica" } as const;
+const giornoMese = (iso: string) => new Date(iso).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", timeZone: "Europe/Rome" });
+/** Una riga leggibile: "[04/10] 🧑‍💼 allenatore · Arouca: Vítor Severino è il nuovo... (A Bola)". */
+export function rigaNotizia(v: NotiziaSquadra): string {
+  return `[${giornoMese(v.data)}] ${ETICHETTA[v.tipo]} · ${v.squadra}: ${v.titolo}${v.fonte ? ` (${v.fonte})` : ""}`;
+}
+/** Cambio di allenatore negli ultimi 10 giorni: l'avviso piu' forte (Arouca - Estrela). */
+export function cambioAllenatore(voci: NotiziaSquadra[] | undefined): NotiziaSquadra | null {
+  return (voci || []).find((v) => v.tipo === "allenatore") ?? null;
+}

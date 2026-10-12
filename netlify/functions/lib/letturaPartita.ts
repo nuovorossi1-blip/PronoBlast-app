@@ -129,7 +129,7 @@ export async function datiLettura(matchId: string, opzioni: { completo?: boolean
     s.totale.partite.map((p: any) => `${p.in_casa ? "vs" : "@"} ${p.avversario} ${p.fatti}-${p.subiti}`).join("; ") +
     `\n  ultime ${s.sede.n} ${sede}: fa ${n1(s.sede.fatti)} prende ${n1(s.sede.subiti)}`;
   const blocchi = (d?.contesto?.blocchi || [])
-    .filter((b: any) => /FotMob/.test(b.etichetta) && !/Classifica/.test(b.etichetta))
+    .filter((b: any) => /FotMob|Google News/.test(b.etichetta) && !/Classifica/.test(b.etichetta))
     .map((b: any) => `- ${b.etichetta}: ${b.righe.join(" | ")}`).join("\n");
   const testo = `PARTITA: ${m.squadra1} - ${m.squadra2} (${m.manifestazione}, ${m.day} ${m.time})
 QUOTE: 1 ${m.odd_1} · X ${m.odd_x} · 2 ${m.odd_2} · Over2.5 ${m.odd_o25} · Under2.5 ${m.odd_u25} · GG ${m.odd_gg} · NG ${m.odd_ng}

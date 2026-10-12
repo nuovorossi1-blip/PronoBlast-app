@@ -18,6 +18,7 @@
  */
 
 import { pgGet, pgPost } from "./supabaseRest";
+import { notiziePartitaSquadre, rigaNotizia } from "./notizieSquadre";
 import { datiFotmob, type NumeriFotmob } from "./fotmobDossier";
 import { notiziePartita } from "./searxng";
 
@@ -265,10 +266,20 @@ export async function contestoPartitaSalvato(
       datiFotmob(p.giorno, p.casa, p.ospite, p.inizioMs, p.campionato),
       notiziePartita(p.casa, p.ospite),
     ]);
+    // Notizie delle squadre (Google News, 13/10/2026): allenatore, infortuni,
+    // squalifiche negli ultimi 7 giorni, con il nome FotMob se c'e'.
+    const squadre = await notiziePartitaSquadre(p.casa, p.ospite, p.campionato, p.inizioMs,
+      { casa: fm?.numeri?.casa?.nome, ospite: fm?.numeri?.ospite?.nome }).catch(() => []);
     const blocchi = [...(fm?.blocchi || [])];
     const fonti = [...(fm?.fonti || [])];
     const fontiDati: string[] = [];
     if (fm) { fontiDati.push("FotMob"); numeri = fm.numeri; }
+    if (squadre.length) {
+      blocchi.push({ etichetta: "Notizie squadre: allenatore, infortuni, squalifiche (Google News)", righe: squadre.map(rigaNotizia) });
+      fonti.push(...squadre.slice(0, 3).map((v) => ({ titolo: v.titolo, url: v.url })));
+      fontiDati.push("Google News");
+    }
+    numeri = { ...((numeri as any) || {}), notizie_squadre: squadre } as any;
     if (news?.righe.length) {
       blocchi.push({ etichetta: "Notizie dell'ultima settimana (web)", righe: news.righe });
       fonti.push(...news.fonti);

@@ -1,6 +1,8 @@
 import { pgGet, jsonResponse } from "./lib/supabaseRest";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import buildMultipla from "./build-multipla";
+import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
+import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella";
 
 /**
  * POST /suggerisci-multipla — "suggeriscimi una multipla" dal bot Telegram
@@ -55,6 +57,12 @@ function giudica(leg: any, n: any) {
     seri.push(`la lettura AI vede favorita l'altra squadra (${ai.direzione})`);
   }
   const notizia = (n?.lettura_pro?.notizia || n?.lettura_ai?.notizia || "").trim() || null;
+  // Google News: cambio di allenatore = avviso serio (Arouca - Estrela, 11/10);
+  // infortuni e squalifiche = informazione (le 2 piu' recenti).
+  const voci: any[] = n?.notizie_squadre || [];
+  const coach = cambioAllenatore(voci);
+  if (coach) seri.push(`cambio di allenatore: ${rigaNotizia(coach)}`);
+  for (const v of voci.filter((v) => v.tipo !== "allenatore").slice(0, 2)) avvisi.push(`📰 ${rigaNotizia(v)}`);
   return { avvisi, seri, notizia };
 }
 
@@ -85,7 +93,7 @@ export default async (req: Request): Promise<Response> => {
     const r = await multipla(day, events, minTotalOdd, escluse);
     if (!r?.legs?.length || (r.total_odd ?? 0) < minTotalOdd) { if (!ris) ris = r; break; }
     const numeri = await avvisiDi(r.legs.map((l: any) => l.match_id));
-    const giudizi = new Map(r.legs.map((l: any) => [l.match_id, giudica(l, numeri.get(l.match_id))]));
+    const giudizi = new Map<string, ReturnType<typeof giudica>>(r.legs.map((l: any) => [l.match_id, giudica(l, numeri.get(l.match_id))]));
     ris = r; info = giudizi;
     // Partite che iniziano entro 15 minuti: non si fa in tempo a giocarle.
     const tardi = (l: any) => (inizioPartitaMs(day, l.time) ?? Infinity) < Date.now() + 15 * 60000;
@@ -99,7 +107,7 @@ export default async (req: Request): Promise<Response> => {
   if (!ris?.legs?.length) {
     righe.push(`Oggi non riesco a comporre ${events} partite a quota ${q2(minTotalOdd)}: ${ris?.reason || ris?.error || "poche partite ancora da giocare con un consigliato"}.`);
     righe.push("Prova con meno partite o una quota piu' bassa (es. 4 partite quota 6).");
-    return jsonResponse({ ok: false, testo: righe.join("\n"), dettaglio: ris });
+    return jsonResponse({ ok: false, testo: righe.join("\n"), html: esc(righe.join("\n")), dettaglio: ris });
   }
   const totale = ris.total_odd;
   righe.push(`🎯 Multipla ${day.split("-").reverse().slice(0, 2).join("/")} · ${ris.legs.length} partite · quota ${ris.total_estimated ? "circa " : ""}${q2(totale)}`, "");
@@ -117,5 +125,29 @@ export default async (req: Request): Promise<Response> => {
   if (scartate.length) righe.push(`Scartate per gli avvisi: ${scartate.join(" · ")}`);
   righe.push(`Probabilita' che vincano tutte (motore): ${pct(ris.total_prob)}. La quota ne chiede ${pct(1 / totale)}.`);
   righe.push("Notizie e avvisi dal dossier di oggi (FotMob + ricerca web). E' un parere, non una garanzia.");
-  return jsonResponse({ ok: true, testo: righe.join("\n"), legs: ris.legs, total_odd: totale, scartate });
+  // Versione per Telegram: tabella + dettagli numerati (parse_mode HTML).
+  // Limite di Telegram 4096 caratteri: se non ci sta, meno note per partita.
+  const versione = (maxNote: number) => {
+    const h: string[] = [];
+    h.push(`🎯 <b>Multipla ${esc(day.split("-").reverse().slice(0, 2).join("/"))}</b> · ${ris.legs.length} partite · quota <b>${ris.total_estimated ? "~" : ""}${esc(q2(totale))}</b>`);
+    h.push(pre(["#", "Partita", "Gioco", "Quota"],
+      ris.legs.map((l: any, i: number) => [String(i + 1), partita(l.squadra1, l.squadra2), giocataCorta(l.market), qt(l.odd) + (l.odd_estimated ? "~" : "")]),
+      [1, 17, 8, 5]));
+    h.push(`Vincono tutte (motore): <b>${pct(ris.total_prob)}</b> · la quota ne chiede ${pct(1 / totale)}`);
+    if (totale < minTotalOdd) h.push(`⚠ quota sotto ${esc(q2(minTotalOdd))}: oggi poche partite solide`);
+    h.push("", "<b>Dettagli</b>");
+    ris.legs.forEach((l: any, i: number) => {
+      const g = info.get(l.match_id) || { avvisi: [], seri: [], notizia: null };
+      h.push(`<b>${i + 1}.</b> ${esc(l.time)} · ${esc(l.manifestazione)} · ${esc(l.squadra1)} - ${esc(l.squadra2)}`);
+      h.push(`   👉 <b>${esc(l.market)}</b> @${esc(q2(l.odd))}${l.odd_estimated ? " (stimata)" : ""} · motore ${pct(l.prob)}`);
+      const note = [...g.seri.map((s: string) => `⚠️ ${s}`), ...(g.notizia ? [`📰 ${g.notizia}`] : []), ...g.avvisi.map((a: string) => (a.startsWith("📰") ? a : `⚠ ${a}`))];
+      for (const n of note.slice(0, maxNote)) h.push(`   ${esc(n.length > 160 ? n.slice(0, 157) + "..." : n)}`);
+    });
+    if (scartate.length) h.push("", `<i>Scartate: ${esc(scartate.join(" · ").slice(0, 400))}</i>`);
+    h.push("", "<i>Notizie: dossier di oggi (FotMob, Google News, web). E' un parere, non una garanzia.</i>");
+    return h.join("\n");
+  };
+  let html = versione(3);
+  for (const n of [2, 1, 0]) if (html.length > 4000) html = versione(n);
+  return jsonResponse({ ok: true, testo: righe.join("\n"), html, legs: ris.legs, total_odd: totale, scartate });
 };

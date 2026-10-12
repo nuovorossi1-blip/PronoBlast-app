@@ -2,6 +2,8 @@ import { pgGet, jsonResponse, rowToOdds } from "./lib/supabaseRest";
 import { fullDistribution, coverageForMarket, evaluateMarketStrict, quoteCatalogo, CANDIDATE_MARKETS } from "./lib/clusterEngine";
 import { simil } from "./lib/teamMatch";
 import { inizioPartitaMs, normalizeMarket } from "../../frontend/src/api";
+import { rigaNotizia } from "./lib/notizieSquadre";
+import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella";
 
 /**
  * POST /controlla-schedina — "controlla la mia schedina" (13/10/2026, Rossi).
@@ -188,6 +190,10 @@ export default async (req: Request): Promise<Response> => {
     for (const f of n.programma?.frasi || []) if (/⚠|NON d'accordo/i.test(f)) avvisi.push(String(f).replace(/^⚠\s*/, ""));
     const notizia = n.lettura_pro?.notizia || n.lettura_ai?.notizia;
     if (notizia) avvisi.push(`Notizia: ${notizia}`);
+    // Google News (allenatore, infortuni, squalifiche): le 3 piu' recenti, il cambio di allenatore sempre
+    const voci: any[] = n.notizie_squadre || [];
+    const scelte = [...voci.filter((v) => v.tipo === "allenatore").slice(0, 1), ...voci.filter((v) => v.tipo !== "allenatore")].slice(0, 3);
+    for (const v of scelte) avvisi.push(`📰 ${rigaNotizia(v)}`);
     r.avvisi = avvisi;
 
     const valore = g.quota ? p * g.quota : null;
@@ -242,5 +248,35 @@ export default async (req: Request): Promise<Response> => {
   righe.push("", `Quota con le modifiche: ${q2(nuova)} (era ${q2(totale)})`);
   righe.push("Probabilita' del motore dalle quote della partita in PronoBlast; e' un parere, non una garanzia.");
 
-  return jsonResponse({ gambe: risultati, quota_totale: totale, quota_nuova: nuova, modello: MODELLO_VISIONE, testo: righe.join("\n") });
+  // Versione per Telegram: tabella + cosa cambiare + note (parse_mode HTML, max 4096)
+  const ICONA: Record<string, string> = { ok: "✅", cambia: "🔄", togli: "❌", debole: "⚠️", non_valutabile: "❓" };
+  const versione = (maxNote: number) => {
+    const h: string[] = [`📋 <b>Schedina: ${risultati.length} partite · quota ${esc(q2(totale))}</b>`];
+    h.push(pre(["", "#", "Partita", "Gioco", "Quota"],
+      risultati.map((r, i) => [ICONA[r.esito] || "❓", String(i + 1), r.partita ? partita(r.partita.split(" - ")[0], r.partita.split(" - ")[1] || "") : r.schedina, giocataCorta(r.giocata === "ALTRO" ? r.giocata_originale : r.giocata), qt(r.quota)]),
+      [2, 1, 16, 7, 4]));
+    const azioni: string[] = [];
+    risultati.forEach((r, i) => {
+      if (r.esito === "cambia") azioni.push(`🔄 <b>${i + 1}</b> metti <b>${esc(r.al_posto.giocata)}</b> @${esc(q2(r.al_posto.quota))}${r.al_posto.stimata ? " (stimata)" : ""} · motore ${pct(r.al_posto.prob)} (ora ${pct(r.prob)})`);
+      if (r.esito === "togli") azioni.push(`❌ <b>${i + 1}</b> togli` + (r.al_posto_partita ? `, metti <b>${esc(r.al_posto_partita.partita)}</b> ${esc(r.al_posto_partita.ora)} · ${esc(r.al_posto_partita.giocata)} @${esc(q2(r.al_posto_partita.quota))}` : " (nessuna partita di oggi a quota simile)"));
+      if (r.esito === "debole") azioni.push(`⚠️ <b>${i + 1}</b> da valutare: motore ${pct(r.prob)}, la quota ne chiede ${pct(r.prob_quota)}`);
+      if (r.esito === "non_valutabile") azioni.push(`❓ <b>${i + 1}</b> ${esc(r.motivo)}: decidi tu`);
+      if (r.avviso_inizio) azioni.push(`⏱ <b>${i + 1}</b> ${esc(r.avviso_inizio)}`);
+    });
+    if (azioni.length) h.push("<b>Cosa cambiare</b>", ...azioni);
+    else h.push("Tutte ok secondo il motore.");
+    h.push(`Quota con le modifiche: <b>${esc(q2(nuova))}</b> (era ${esc(q2(totale))})`);
+    const note: string[] = [];
+    risultati.forEach((r, i) => {
+      const a = (r.avvisi || []).slice(0, maxNote);
+      if (a.length) note.push(`<b>${i + 1}.</b> ${esc(r.partita || r.schedina)}`, ...a.map((x: string) => `   ${esc(x.length > 160 ? x.slice(0, 157) + "..." : x)}`));
+    });
+    if (note.length) h.push("", "<b>Notizie e avvisi</b>", ...note);
+    h.push("", "<i>✅ ok · 🔄 cambia · ❌ togli · ⚠️ da valutare · ❓ non trovata. Probabilita' del motore dalle quote PronoBlast: un parere, non una garanzia.</i>");
+    return h.join("\n");
+  };
+  let html = versione(3);
+  for (const n of [2, 1, 0]) if (html.length > 4000) html = versione(n);
+
+  return jsonResponse({ gambe: risultati, quota_totale: totale, quota_nuova: nuova, modello: MODELLO_VISIONE, testo: righe.join("\n"), html });
 };

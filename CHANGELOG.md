@@ -149,6 +149,30 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Notizie delle squadre da Google News nel dossier (punto A) e messaggi a tabella
+
+- **Perche'**: Arouca - Estrela (11/10) debuttava con un allenatore nuovo e
+  il dossier non lo sapeva. Su Google News, cercando per squadra, la notizia
+  c'era dal 4/10 (A Bola, Record, Maisfutebol, RTP). I feed RSS dei giornali
+  provati (IT, ENG, ESP, POR, GER, FRA, NL, BEL: 15 su 19 funzionano)
+  coprono poco le squadre piccole; la ricerca per squadra copre ogni
+  campionato nella lingua del paese (anche coppe, Nations League, USA,
+  Svezia, Norvegia, Danimarca; coppe e nazionali in inglese).
+- `lib/notizieSquadre.ts`: Google News RSS per squadra, ultimi 7 giorni prima
+  del calcio d'inizio, parole su CAMBIO di allenatore, infortuni, squalifiche
+  nella lingua del campionato; solo titoli che nominano la squadra (parola
+  intera, nome FotMob se c'e': "Estrela da Amadora", non "Estrela" =
+  stella); esclusi altri sport e falsi amici ("blessuretijd" = recupero).
+  Richieste in fila (1,2 s) e cache 6 ore. Gratis, senza chiave.
+- Dossier (`webSearch.ts`): blocco "Notizie squadre (Google News)" e
+  `numeri.notizie_squadre`. La lettura AI ora riceve anche questo blocco
+  (`letturaPartita.ts`). Bot: in controlla-schedina le 3 notizie piu'
+  recenti; in suggerisci-multipla il cambio di allenatore e' un avviso serio
+  (la partita si scarta se la multipla si compone senza).
+- Da misurare dopo 2-3 settimane: consigliati con e senza notizie.
+- Messaggi del bot in tabella (`lib/telegramTabella.ts`, blocco `<pre>`,
+  ~34 caratteri, parse_mode HTML, max 4000 caratteri togliendo note).
+
 ### 2026-10-13 — Suggerisci multipla (bot Telegram)
 
 - Nuova rotta `POST /suggerisci-multipla` `{events, minTotalOdd}` (stesso
