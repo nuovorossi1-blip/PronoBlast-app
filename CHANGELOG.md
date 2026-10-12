@@ -149,6 +149,22 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Agente del bot (domande libere) e risultati recuperati
+
+- `POST /domanda-bot` `{domanda, storico}`: Gemini 2.5 Flash (OpenRouter)
+  risponde ai "perche'" con: le regole con cui PronoBlast decide (motore,
+  archivio >= 58%, consigliato, da lasciare, controllo schedina, multipla),
+  la memoria corta della chat (ultimi 6 messaggi, tenuta da n8n nei dati
+  statici del flusso) e la scheda completa delle partite citate
+  (`analizzaPartita`, ora esportata da analisi-partita.ts). "la 2" = la
+  seconda partita dell'ultima risposta. Niente dati inventati per regola.
+- Bot: domande ("perche'...", "come mai", "cosa giocheresti", "?" finale,
+  `/ai ...`) -> agente; tutte le risposte vengono ricordate.
+- Risultati: GitHub Actions "Aggiorna risultati" dell'11/10 fallita (502,
+  Funnel giu'): 10/10 aveva 124 risultati su 700, 11/10 51 su 708. Lanciato
+  `/sync-results?days=3` a mano (1006 scritti) e aggiunta sul PC
+  l'operazione pianificata "PronoBlast - Risultati (riserva)" alle 11:30.
+
 ### 2026-10-13 — Analisi di una partita dal bot ("Inter Napoli")
 
 - Nuova rotta `POST /analisi-partita` `{testo}` (segreto del bot): trova la
