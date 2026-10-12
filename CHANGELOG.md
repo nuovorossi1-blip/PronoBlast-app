@@ -149,6 +149,19 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Suggerisci multipla (bot Telegram)
+
+- Nuova rotta `POST /suggerisci-multipla` `{events, minTotalOdd}` (stesso
+  segreto di controlla-schedina): chiama `build-multipla` con `apply:false`
+  (la Schedina non si tocca), aggiunge per ogni gamba notizia e avvisi del
+  dossier del giorno. Avvisi "seri" (forma e quote NON d'accordo, lettura AI
+  con favorita opposta al segno giocato, partita che inizia entro 15 minuti):
+  la gamba si esclude e la multipla si rifa' (max 2 volte); se non si arriva
+  alla quota senza, resta con l'avviso. Avvisi non ancora misurati.
+- Bot n8n: pulsanti "3 partite quota 4" ... "7 partite quota 16" o testo
+  libero ("dammi 4 partite quota minima 7,5"). Copia del flusso in
+  `Remoto\n8n\flussi\controlla-schedina.json` (fuori dal repo).
+
 ### 2026-10-13 — Controlla schedina (per il bot Telegram)
 
 - Nuova rotta `POST /controlla-schedina` (`netlify/functions/controlla-schedina.ts`,
