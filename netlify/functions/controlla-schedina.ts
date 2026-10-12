@@ -1,7 +1,8 @@
 import { pgGet, jsonResponse, rowToOdds } from "./lib/supabaseRest";
 import { fullDistribution, coverageForMarket, evaluateMarketStrict, quoteCatalogo, CANDIDATE_MARKETS } from "./lib/clusterEngine";
 import { simil } from "./lib/teamMatch";
-import { inizioPartitaMs, normalizeMarket } from "../../frontend/src/api";
+import { inizioPartitaMs, normalizeMarket, PROB_AFFIDABILE } from "../../frontend/src/api";
+import { consigliatoDi } from "./lib/letturaPartita";
 import { rigaNotizia } from "./lib/notizieSquadre";
 import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella";
 
@@ -26,15 +27,7 @@ import { esc, pre, partita, giocataCorta, q as qt } from "./lib/telegramTabella"
  */
 
 const MODELLO_VISIONE = "google/gemini-2.5-flash";
-// Giudizio (prima versione, da misurare con le schedine vere). "Valore" =
-// probabilita' del motore x quota della schedina: 1 = quota giusta, sotto 1
-// il bookmaker paga meno del rischio. Con il margine normale (~5-8%) una
-// giocata corretta sta intorno a 0,93-0,95.
-const P_MIN = 0.50;         // sotto: piu' facile perdere che vincere
-const P_TOGLI = 0.45;       // sotto: da togliere
-const V_OK = 0.93;          // valore minimo per "ok"
-const V_TOGLI = 0.85;       // sotto: paga troppo poco per il rischio
-const P_IN_PIU = 0.05;      // l'alternativa deve essere almeno 5 punti piu' probabile
+const P_TOGLI = 0.45;       // senza consigliato: sotto questa probabilita' del motore si toglie
 
 type Gamba = { casa: string; ospite: string; giocata: string; giocata_originale: string; quota: number | null; data?: string | null };
 
@@ -42,7 +35,7 @@ const MERCATI_NOTI = [
   ...new Set([...CANDIDATE_MARKETS, "O0.5", "U0.5", "O3.5", "O4.5", "U4.5", "DC 1X + U2.5", "DC X2 + U2.5", "DC 12 + U2.5", "1 + O1.5", "2 + O1.5", "1 + O2.5", "2 + O2.5", "1 + GG", "2 + GG", "X + U2.5"]),
 ];
 
-const PROMPT = `Trascrivi la schedina di scommesse calcio nell'immagine (o nel testo).
+const PROMPT = `Trascrivi la schedina di scommesse calcio nell'immagine (o nel testo). Puo' essere di qualsiasi bookmaker (Sisal, Goldbet, Eurobet, Snai, Fastbet, Bet365, Lottomatica, Planetwin...): leggi ogni riga di partita, ignora pubblicita', importi e bonus.
 Per OGNI partita restituisci: squadra di casa, squadra ospite, la giocata, la quota, la data se c'e'.
 La giocata va tradotta nel formato di questo elenco (scrivila esattamente cosi'):
 ${MERCATI_NOTI.join(", ")}
@@ -50,6 +43,43 @@ Regole di traduzione: "Under 2,5"/"U 2.5"/"Meno di 2,5" -> U2.5; "Over" -> O; "G
 "Doppia chance 1X" -> 1X; "Multigol 2-4" -> MG 2-4 totali; "Multigol casa 1-3" -> MG 1-3 casa; combo "1X + Over 1,5" -> DC 1X + O1.5.
 Se una giocata non ha un equivalente nell'elenco, scrivi "ALTRO".
 Rispondi SOLO con JSON: {"gambe":[{"casa":"...","ospite":"...","giocata":"...","giocata_originale":"come scritta sulla schedina","quota":1.45,"data":"YYYY-MM-DD o null"}]}`;
+
+/**
+ * Traduce i nomi delle giocate dei vari bookmaker (Sisal, Goldbet, Eurobet,
+ * Fastbet, Snai, Bet365...) nei mercati di PronoBlast. Il modello di solito
+ * lo fa gia', ma non sempre ("Multigol casa 2-4" restava cosi'): qui le
+ * regole fisse, una volta per tutte.
+ */
+export function giocataCanonica(s: string): string {
+  if (!s) return "ALTRO";
+  const pezzi = s.replace(/\s+e\s+|\s*&\s*|\s*\+\s*/gi, "+").split("+").map((x) => x.trim()).filter(Boolean);
+  const uno = (x0: string): string | null => {
+    let x = x0.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/,/g, ".").replace(/\s+/g, " ").trim();
+    // via le intestazioni del mercato, anche piu' di una ("Esito Finale 1X2: 2")
+    for (let i = 0; i < 3; i++) x = x.replace(/^(esito finale|1x2|finale|risultato finale|doppia chance|dc|double chance|u\/o|under\/over|over\/under|goal\/no goal|gg\/ng|multigol|multigoal)\s*[:\-]?\s*(?=\S)/, (m) => (/multi/.test(m) ? "multigol " : ""));
+    // "3.5: under" / "2.5 over" (soglia prima del lato)
+    const inv = x.match(/^(\d(?:\.5)?)\s*[:\-]?\s*(under|over)$/);
+    if (inv) x = `${inv[2]} ${inv[1]}`;
+    let m: RegExpMatchArray | null;
+    if ((m = x.match(/^multi\s*go?a?l\s*(casa|ospite|home|away|squadra 1|squadra 2)?\s*(\d)\s*-\s*(\d)\s*(casa|ospite|home|away|totali?)?$/))) {
+      const chi = m[1] || m[4] || "totali";
+      const lato = /casa|home|squadra 1/.test(chi) ? "casa" : /ospite|away|squadra 2/.test(chi) ? "ospite" : "totali";
+      return `MG ${m[2]}-${m[3]} ${lato}`;
+    }
+    if ((m = x.match(/^(?:o|over|piu di)\s*(\d(?:\.5)?)$/))) return `O${m[1].includes(".") ? m[1] : m[1] + ".5"}`;
+    if ((m = x.match(/^(?:u|under|meno di)\s*(\d(?:\.5)?)$/))) return `U${m[1].includes(".") ? m[1] : m[1] + ".5"}`;
+    if (/^(gg|goal|gol|si|entrambe segnano( si)?|btts( yes)?)$/.test(x)) return "GG";
+    if (/^(ng|no ?goal|no ?gol|entrambe segnano no|btts no)$/.test(x)) return "NG";
+    if (/^(1|x|2|1x|x2|12)$/.test(x)) return x.toUpperCase();
+    if (/^x (oppure|o) gg$/.test(x)) return "X oppure GG";
+    return null;
+  };
+  const tradotti = pezzi.map(uno);
+  if (tradotti.some((x) => !x)) return "ALTRO";
+  if (tradotti.length === 1) return tradotti[0]!;
+  // combo: il segno doppio prende "DC" come nel catalogo ("DC 1X + O1.5")
+  return tradotti.map((x, i) => (i === 0 && /^(1X|X2|12)$/.test(x!) ? `DC ${x}` : x)).join(" + ");
+}
 
 async function leggiSchedina(immagine: string | undefined, testo: string | undefined): Promise<Gamba[]> {
   const key = (process.env.OPENROUTER_API_KEY || "").trim();
@@ -110,6 +140,7 @@ async function dossierDi(ids: string[]): Promise<Map<string, any>> {
   return out;
 }
 
+const giornoMese = (iso: string) => new Date(iso).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", timeZone: "Europe/Rome" });
 const pct = (p: number | null | undefined) => (p == null ? "n/d" : `${Math.round(p * 100)}%`);
 const q2 = (q: number | null | undefined) => (q == null ? "n/d" : q.toFixed(2).replace(".", ","));
 
@@ -176,7 +207,13 @@ export default async (req: Request): Promise<Response> => {
     if (m.result || (inizio !== null && inizio <= Date.now())) r.avviso_inizio = m.result ? `finita ${m.result}` : "gia' iniziata";
 
     const odds: any = rowToOdds(m);
-    const mercato = g.giocata === "ALTRO" ? null : g.giocata;
+    // la giocata nel formato di PronoBlast: quella del modello, altrimenti le regole fisse
+    const valida = (x: string | null) => !!x && x !== "ALTRO" && evaluateMarketStrict(x, 1, 1) !== null;
+    let mercato: string | null = g.giocata;
+    if (!valida(mercato)) mercato = giocataCanonica(g.giocata);
+    if (!valida(mercato)) mercato = giocataCanonica(g.giocata_originale);
+    if (!valida(mercato)) mercato = null;
+    r.giocata = mercato || g.giocata;
     if (!odds.odd_1 || !odds.odd_X || !odds.odd_2) { r.esito = "non_valutabile"; r.motivo = "senza quote 1X2 in PronoBlast"; risultati.push(r); continue; }
     if (!mercato || evaluateMarketStrict(mercato, 1, 1) === null) { r.esito = "non_valutabile"; r.motivo = `giocata "${g.giocata_originale}" non calcolabile dal motore`; risultati.push(r); continue; }
 
@@ -184,8 +221,6 @@ export default async (req: Request): Promise<Response> => {
     const p = coverageForMarket(mercato, dist).coverage;
     const implicita = g.quota ? 1 / g.quota : null;
     r.prob = p; r.prob_quota = implicita;
-    const c = n.consigliato;
-    if (c?.market) r.consigliato = { giocata: c.nome || c.market, market: c.market, quota: c.quota, prob: coverageForMarket(c.market, dist).coverage, archivio: c.pA };
     const avvisi: string[] = [];
     for (const f of n.programma?.frasi || []) if (/⚠|NON d'accordo/i.test(f)) avvisi.push(String(f).replace(/^⚠\s*/, ""));
     const notizia = n.lettura_pro?.notizia || n.lettura_ai?.notizia;
@@ -196,30 +231,40 @@ export default async (req: Request): Promise<Response> => {
     for (const v of scelte) avvisi.push(`📰 ${rigaNotizia(v)}`);
     r.avvisi = avvisi;
 
-    const valore = g.quota ? p * g.quota : null;
-    r.valore = valore;
-    if (p < P_TOGLI || (valore != null && valore < V_TOGLI)) r.esito = "togli";
-    else if (p >= P_MIN && (valore == null || valore >= V_OK)) r.esito = "ok";
-    else r.esito = "cambia";
+    // Lettura AI del giorno (direzione e gol), come nella scheda partita
+    const ai = n.lettura_pro || n.lettura_ai;
+    if (ai?.direzione || ai?.gol_totali) r.lettura_ai = `favorita ${ai.direzione === "nessuna" || !ai.direzione ? "nessuna" : ai.direzione === "1" ? m.squadra1 : ai.direzione === "2" ? m.squadra2 : "pareggio"}, gol ${ai.gol_totali || "?"}`;
 
-    if (r.esito === "cambia") {
-      // Alternativa nella stessa partita: piu' probabile E con valore non
-      // peggiore (quote del catalogo PronoBlast), quota almeno 1,30. Il
-      // consigliato vince a parita'.
-      const cat = quoteCatalogo(odds);
-      const vMin = valore ?? 0;
-      let best: any = null;
-      const prova = (mk: string, quota: number | null | undefined, nome?: string, stimata = false) => {
-        if (!quota || quota < 1.3 || normalizeMarket(mk) === normalizeMarket(mercato)) return;
-        const pp = coverageForMarket(mk, dist).coverage, vv = pp * quota;
-        if (pp >= p + P_IN_PIU && vv >= vMin && (!best || vv > best.valore)) best = { giocata: nome || mk, quota, prob: pp, valore: vv, stimata };
-      };
-      if (r.consigliato) prova(r.consigliato.market, r.consigliato.quota, r.consigliato.giocata);
-      const dalConsigliato = best;
-      for (const [mk, v] of Object.entries(cat)) prova(mk, v?.odd, undefined, !!v?.estimated);
-      r.al_posto = dalConsigliato || best;
-      if (!r.al_posto) r.esito = "debole";
-    }
+    // GIUDIZIO COME IN PRONOBLAST (13/10/2026, Rossi: "non sceglie il
+    // consigliato come in PronoBlast?"). Prima versione: probabilita' del
+    // motore x quota della schedina -> con le quote Goldbet piu' basse di
+    // Sisal 5 partite su 7 diventavano "cambia". Ora:
+    //  1. il CONSIGLIATO di PronoBlast (archivio + notizie): se e' la tua
+    //     giocata -> ok; se PronoBlast dice di lasciare la partita -> togli;
+    //  2. la tua giocata regge in archivio (>= 58%) -> ok;
+    //  3. altrimenti -> cambia, con il consigliato;
+    //  4. partite senza consigliato: il motore (ok >= 55%, togli < 45%).
+    // La quota della schedina serve solo per l'avviso "piu' bassa di Sisal".
+    let c = n.consigliato;
+    if (!c?.market && !c?.daLasciare) c = await consigliatoDi(m.id, undefined, false).catch(() => null);
+    if (c?.market) r.consigliato = { giocata: c.nome || c.market, market: c.market, quota: c.quota, prob: coverageForMarket(c.market, dist).coverage, archivio: c.pA != null ? Math.min(c.pA, c.pB ?? c.pA) : null, ai: c.ai };
+    const archivio: { market: string; nome: string; quota: number; p: number }[] = c?.market
+      ? [{ market: c.market, nome: c.nome || c.market, quota: c.quota, p: r.consigliato.archivio ?? 0 }, ...(c.alternative || [])] : (c?.alternative || []);
+    const mio = archivio.find((x) => normalizeMarket(x.market) === normalizeMarket(mercato));
+    r.archivio = mio?.p ?? null;
+    const sisal = (quoteCatalogo(odds) as any)[mercato];
+    if (g.quota && sisal?.odd && !sisal.estimated && g.quota < sisal.odd * 0.94) avvisi.push(`quota bassa: su Sisal la stessa giocata paga ${q2(sisal.odd)}`);
+    const coach = voci.find((v) => v.tipo === "allenatore");
+
+    if (c?.daLasciare && !c?.market) { r.esito = "togli"; r.motivo = `PronoBlast la lascia: ${c.daLasciare}`; }
+    else if (c?.market && normalizeMarket(c.market) === normalizeMarket(mercato)) { r.esito = "ok"; r.motivo = `e' il consigliato di PronoBlast${r.archivio != null ? ` (archivio ${pct(r.archivio)})` : ""}`; }
+    else if (mio && mio.p >= PROB_AFFIDABILE) { r.esito = "ok"; r.motivo = `regge in archivio ${pct(mio.p)}`; }
+    else if (c?.market && c.quota) { r.esito = "cambia"; r.al_posto = { giocata: r.consigliato.giocata, quota: c.quota, prob: r.consigliato.prob, archivio: r.consigliato.archivio, stimata: !!c.stimata }; r.motivo = mio ? `in archivio solo ${pct(mio.p)}` : "non e' tra le giocate che reggono in archivio"; }
+    else if (p >= 0.55) { r.esito = "ok"; r.motivo = `nessun consigliato per questa partita; motore ${pct(p)}`; }
+    else if (p < P_TOGLI) { r.esito = "togli"; r.motivo = `nessun consigliato; motore solo ${pct(p)}`; }
+    else { r.esito = "debole"; r.motivo = `nessun consigliato; motore ${pct(p)}`; }
+    if (coach && r.esito === "ok") { r.esito = "debole"; r.motivo = `${r.motivo}, ma CAMBIO DI ALLENATORE (${giornoMese(coach.data)})`; }
+
     if (r.esito === "togli") r.al_posto_partita = await sostituto(m, g.quota, nellaSchedina);
     risultati.push(r);
   }
@@ -233,46 +278,37 @@ export default async (req: Request): Promise<Response> => {
     else nuova *= r.quota || 1;
   }
 
+  // Una riga di giudizio per partita (testo semplice, senza HTML)
+  const giudizio = (r: any): string => {
+    if (r.esito === "ok") return `✅ ok: ${r.motivo}`;
+    if (r.esito === "cambia") return `🔄 metti ${r.al_posto.giocata} @${q2(r.al_posto.quota)}${r.al_posto.stimata ? " (stimata)" : ""}${r.al_posto.archivio != null ? `, archivio ${pct(r.al_posto.archivio)}` : ""} (la tua: ${r.motivo})`;
+    if (r.esito === "togli") return `❌ togli: ${r.motivo}` + (r.al_posto_partita ? `. Al suo posto ${r.al_posto_partita.partita} ${r.al_posto_partita.ora} · ${r.al_posto_partita.giocata} @${q2(r.al_posto_partita.quota)} (archivio ${pct(r.al_posto_partita.p)})` : ". Nessuna partita di oggi a quota simile");
+    if (r.esito === "debole") return `⚠️ da valutare: ${r.motivo}`;
+    return `❓ ${r.motivo}: decidi tu`;
+  };
   const righe: string[] = [`📋 Letta: ${risultati.length} partite, quota ${q2(totale)}`, ""];
   risultati.forEach((r, i) => {
-    const testa = `${i + 1}. ${r.partita || r.schedina} · ${r.giocata_originale || r.giocata} @${q2(r.quota)}`;
-    const extra = r.avviso_inizio ? ` (⏱ ${r.avviso_inizio})` : "";
-    const conti = `motore ${pct(r.prob)}, la quota ne chiede ${pct(r.prob_quota)}`;
-    if (r.esito === "ok") righe.push(`✅ ${testa}${extra}\n   ok: ${conti}`);
-    else if (r.esito === "cambia") righe.push(`🔄 ${testa}${extra}\n   ${conti}: CAMBIA in ${r.al_posto.giocata} @${q2(r.al_posto.quota)}${r.al_posto.stimata ? " (quota stimata)" : ""}, motore ${pct(r.al_posto.prob)}`);
-    else if (r.esito === "debole") righe.push(`⚠️ ${testa}${extra}\n   da valutare: ${conti}; nessuna alternativa migliore in questa partita`);
-    else if (r.esito === "togli") righe.push(`❌ ${testa}${extra}\n   TOGLI: ${conti}` +(r.al_posto_partita ? `\n   al suo posto: ${r.al_posto_partita.partita} (${r.al_posto_partita.ora}) · ${r.al_posto_partita.giocata} @${q2(r.al_posto_partita.quota)}, in archivio ${pct(r.al_posto_partita.p)}` : "\n   nessuna partita di oggi a quota simile"));
-    else righe.push(`❓ ${testa}\n   ${r.motivo}: decidi tu`);
+    righe.push(`${i + 1}. ${r.partita || r.schedina} · ${r.giocata_originale || r.giocata} @${q2(r.quota)}${r.avviso_inizio ? ` (⏱ ${r.avviso_inizio})` : ""}`, `   ${giudizio(r)}`);
+    if (r.lettura_ai) righe.push(`   🧠 lettura AI: ${r.lettura_ai}`);
     for (const a of r.avvisi || []) righe.push(`   ⚠ ${a}`);
   });
   righe.push("", `Quota con le modifiche: ${q2(nuova)} (era ${q2(totale)})`);
-  righe.push("Probabilita' del motore dalle quote della partita in PronoBlast; e' un parere, non una garanzia.");
 
-  // Versione per Telegram: tabella + cosa cambiare + note (parse_mode HTML, max 4096)
+  // Versione per Telegram: tabella + partita per partita (parse_mode HTML, max 4096)
   const ICONA: Record<string, string> = { ok: "✅", cambia: "🔄", togli: "❌", debole: "⚠️", non_valutabile: "❓" };
   const versione = (maxNote: number) => {
     const h: string[] = [`📋 <b>Schedina: ${risultati.length} partite · quota ${esc(q2(totale))}</b>`];
     h.push(pre(["", "#", "Partita", "Gioco", "Quota"],
       risultati.map((r, i) => [ICONA[r.esito] || "❓", String(i + 1), r.partita ? partita(r.partita.split(" - ")[0], r.partita.split(" - ")[1] || "") : r.schedina, giocataCorta(r.giocata === "ALTRO" ? r.giocata_originale : r.giocata), qt(r.quota)]),
       [2, 1, 16, 7, 4]));
-    const azioni: string[] = [];
+    h.push(`Quota con le modifiche: <b>${esc(q2(nuova))}</b> (era ${esc(q2(totale))})`, "", "<b>Partita per partita</b>");
     risultati.forEach((r, i) => {
-      if (r.esito === "cambia") azioni.push(`🔄 <b>${i + 1}</b> metti <b>${esc(r.al_posto.giocata)}</b> @${esc(q2(r.al_posto.quota))}${r.al_posto.stimata ? " (stimata)" : ""} · motore ${pct(r.al_posto.prob)} (ora ${pct(r.prob)})`);
-      if (r.esito === "togli") azioni.push(`❌ <b>${i + 1}</b> togli` + (r.al_posto_partita ? `, metti <b>${esc(r.al_posto_partita.partita)}</b> ${esc(r.al_posto_partita.ora)} · ${esc(r.al_posto_partita.giocata)} @${esc(q2(r.al_posto_partita.quota))}` : " (nessuna partita di oggi a quota simile)"));
-      if (r.esito === "debole") azioni.push(`⚠️ <b>${i + 1}</b> da valutare: motore ${pct(r.prob)}, la quota ne chiede ${pct(r.prob_quota)}`);
-      if (r.esito === "non_valutabile") azioni.push(`❓ <b>${i + 1}</b> ${esc(r.motivo)}: decidi tu`);
-      if (r.avviso_inizio) azioni.push(`⏱ <b>${i + 1}</b> ${esc(r.avviso_inizio)}`);
+      h.push(`<b>${i + 1}. ${esc(r.partita || r.schedina)}</b>${r.ora ? ` · ${esc(r.ora)}` : ""}${r.avviso_inizio ? ` ⏱ ${esc(r.avviso_inizio)}` : ""}`);
+      h.push(`   ${esc(giudizio(r))}`);
+      if (r.lettura_ai && maxNote > 0) h.push(`   🧠 ${esc(r.lettura_ai)}`);
+      for (const x of (r.avvisi || []).slice(0, maxNote)) h.push(`   ${esc((x.startsWith("📰") ? x : `⚠ ${x}`).slice(0, 160))}`);
     });
-    if (azioni.length) h.push("<b>Cosa cambiare</b>", ...azioni);
-    else h.push("Tutte ok secondo il motore.");
-    h.push(`Quota con le modifiche: <b>${esc(q2(nuova))}</b> (era ${esc(q2(totale))})`);
-    const note: string[] = [];
-    risultati.forEach((r, i) => {
-      const a = (r.avvisi || []).slice(0, maxNote);
-      if (a.length) note.push(`<b>${i + 1}.</b> ${esc(r.partita || r.schedina)}`, ...a.map((x: string) => `   ${esc(x.length > 160 ? x.slice(0, 157) + "..." : x)}`));
-    });
-    if (note.length) h.push("", "<b>Notizie e avvisi</b>", ...note);
-    h.push("", "<i>✅ ok · 🔄 cambia · ❌ togli · ⚠️ da valutare · ❓ non trovata. Probabilita' del motore dalle quote PronoBlast: un parere, non una garanzia.</i>");
+    h.push("", "<i>Come in PronoBlast: prima il consigliato (archivio + notizie), poi l'archivio, il motore solo se manca il consigliato. Un parere, non una garanzia.</i>");
     return h.join("\n");
   };
   let html = versione(3);

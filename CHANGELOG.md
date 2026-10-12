@@ -149,6 +149,25 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Controlla schedina: giudizio come in PronoBlast, qualsiasi bookmaker
+
+- **Errore della prima versione**: il giudizio era solo probabilita' del
+  motore x quota della schedina. Con le quote Goldbet piu' basse di Sisal,
+  su una schedina vera di 7 partite 5 diventavano "cambia", con alternative
+  scelte dal motore (es. "12 @1,30") e non il consigliato (Rossi: "non
+  sceglie il consigliato come in PronoBlast?").
+- **Ora**: 1) consigliato di PronoBlast (salvato, o calcolato al volo con
+  `consigliatoDi(..., salva=false)`): se e' la giocata -> ok; se PronoBlast
+  la lascia -> togli + partita sostitutiva; 2) la giocata regge in archivio
+  (>= PROB_AFFIDABILE) -> ok; 3) altrimenti cambia con il consigliato;
+  4) senza consigliato: motore. Cambio di allenatore -> "da valutare".
+  La quota della schedina serve solo per l'avviso "su Sisal paga di piu'".
+  In piu' la lettura AI del giorno (favorita, gol).
+- **Qualsiasi bookmaker** (Eurobet, Fastbet, Snai, Bet365...): prompt
+  generico + `giocataCanonica()` con regole fisse ("Multigol casa 2-4" ->
+  "MG 2-4 casa", "Esito Finale 1X2: 2" -> "2", "U/O 3.5: Under" -> "U3.5",
+  combo con "+").
+
 ### 2026-10-13 — Notizie delle squadre da Google News nel dossier (punto A) e messaggi a tabella
 
 - **Perche'**: Arouca - Estrela (11/10) debuttava con un allenatore nuovo e
