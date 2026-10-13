@@ -282,6 +282,19 @@ export const selectedListCache = {
   },
 };
 
+// 13/10/2026 — Selezione cambiata dalla lista partite: la BottomNav aggiorna
+// subito il numero della Schedina (prima solo al cambio di pagina).
+const ascoltatoriSelezione = new Set<() => void>();
+export const selezioneEventi = {
+  ascolta(f: () => void): () => void {
+    ascoltatoriSelezione.add(f);
+    return () => { ascoltatoriSelezione.delete(f); };
+  },
+  avvisa() {
+    ascoltatoriSelezione.forEach((f) => { try { f(); } catch {} });
+  },
+};
+
 // ============================================================
 // 10/09/2026 — CACHE DEL DETTAGLIO PARTITA
 // ============================================================

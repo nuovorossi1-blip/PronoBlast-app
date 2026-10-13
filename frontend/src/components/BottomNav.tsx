@@ -7,7 +7,7 @@ import Animated from "react-native-reanimated";
 import { colors } from "@/src/theme";
 import { api } from "@/src/api";
 import { useBottomNav } from "@/src/components/BottomNavContext";
-import { selectedListCache } from "@/src/utils/cache";
+import { selectedListCache, selezioneEventi } from "@/src/utils/cache";
 import { requestSelectedList } from "@/src/utils/matchPreload";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -82,6 +82,10 @@ export default function BottomNav() {
       return () => { active = false; };
     }
   }, [path, show]);
+
+  useEffect(() => selezioneEventi.ascolta(() => {
+    requestSelectedList().then((list) => setSelCount(list.length)).catch(() => {});
+  }), []);
 
   // ============================================================
   // Scelta TABS in base alla route corrente

@@ -19,6 +19,7 @@ import {
   daysCache,
   marketStatsCache,
   selectedListCache,
+  selezioneEventi,
   oddSettingsCache,
   pulisciCacheDispositivo,
   getUltimoElencoSalvato,
@@ -386,6 +387,13 @@ export default function Home() {
     return () => handler.remove();
   }, []);
 
+  // 13/10/2026: lista, giorni e statistiche letti da ref. Prima erano tra le
+  // dipendenze: ogni cambio della lista (spunta, verdetti in sottofondo)
+  // rilanciava questo effetto, e con la cache scaduta o cancellata ripartiva
+  // il caricamento con la rotella e la lista vuota. Ora gira solo all'arrivo
+  // sulla pagina e al cambio di giorno.
+  const statoRef = useRef({ matches, days, marketStats });
+  statoRef.current = { matches, days, marketStats };
   useFocusEffect(useCallback(() => {
     if (!didInit) return;
     const day = selectedDay;
@@ -394,9 +402,10 @@ export default function Home() {
     bottomNav.show();
     if (hasCache) {
       const cachedMs = matchesCache.get(day!) || [];
-      if (matches.length === 0 || matches !== cachedMs) setMatches(cachedMs);
-      if (days.length === 0) setDays(daysCache.get() || []);
-      if (marketStats.length === 0) setMarketStats(marketStatsCache.get() || []);
+      const ora = statoRef.current;
+      if (ora.matches.length === 0 || ora.matches !== cachedMs) setMatches(cachedMs);
+      if (ora.days.length === 0) setDays(daysCache.get() || []);
+      if (ora.marketStats.length === 0) setMarketStats(marketStatsCache.get() || []);
       setLoading(false);
       if (fresh) {
         requestAnimationFrame(() => { if (savedScrollY > 0) scrollRef.current?.scrollTo({ y: savedScrollY, animated: false }); });
@@ -413,7 +422,21 @@ export default function Home() {
         }, 80);
       }
     });
-  }, [selectedDay, load, didInit, matches, days.length, marketStats.length]));
+  }, [selectedDay, load, didInit]));
+
+  // 13/10/2026: i giorni vicini si scaricano in sottofondo dopo la lista del
+  // giorno scelto, cosi' toccando un altro giorno la lista c'e' gia' (prima:
+  // rotella e lista vuota a ogni cambio giorno).
+  useEffect(() => {
+    if (!initialSyncDone || !days.length || !selectedDay) return;
+    const i = days.indexOf(selectedDay);
+    if (i < 0) return;
+    const vicini = days.slice(Math.max(0, i - 2), i + 3).filter((d) => d !== selectedDay);
+    const t = setTimeout(() => {
+      vicini.reduce((p, d) => p.then(() => requestMatches(d).then(() => undefined, () => undefined)), Promise.resolve());
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [initialSyncDone, days, selectedDay]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -476,15 +499,20 @@ export default function Home() {
   const toggleSelect = async (m: Match) => {
     const next = !m.selected;
     // 1) UI ottimistica: update locale
-    setMatches((arr) => arr.map((x) => x.id === m.id ? { ...x, selected: next } : x));
-    // 2) Invalida cache (BottomNav badge + Schedina list)
+    const nuove = matches.map((x) => x.id === m.id ? { ...x, selected: next } : x);
+    setMatches(nuove);
+    // 2) Cache del giorno aggiornata, non cancellata: cancellarla faceva
+    //    ripartire il caricamento della lista (rotella, lista vuota) a ogni
+    //    spunta (13/10/2026). La lista della Schedina invece si rilegge.
     selectedListCache.invalidate();
-    matchesCache.invalidate(m.day);
+    if (m.day === selectedDay) matchesCache.set(m.day, nuove);
+    else matchesCache.invalidate(m.day);
     // 3) Toast feedback
     const teams = `${m.squadra1} vs ${m.squadra2}`;
     toast.show(next ? `✓ Aggiunta: ${teams}` : `Rimossa: ${teams}`, next ? "success" : "info");
     // 4) Sync con backend
     try { await api.updateSelection([m.id], next); } catch {}
+    selezioneEventi.avvisa();
   };
   const clearAllSelection = () => confirmAction({
     title: "Svuotare selezione?", confirmText: "Svuota", destructive: true,
@@ -496,6 +524,7 @@ export default function Home() {
       matchesCache.invalidate(); // clear all days
       // 3) Sync con backend
       try { await api.clearSelection(); } catch {}
+      selezioneEventi.avvisa();
       // 4) Force re-fetch del giorno corrente (UI fresca)
       await load(selectedDay, true);
       toast.show("Selezione svuotata", "info");
