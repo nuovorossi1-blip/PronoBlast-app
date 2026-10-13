@@ -395,8 +395,9 @@ export default function Selected() {
                       if (!g) return null;
                       const nome = g.nome.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
                       return (
-                        <View style={[styles.predTag, { borderColor: colors.success, borderWidth: 2 }, outcomeStyle(m.result ? evaluateMarketOutcome(g.market, m.result) : null)]}>
-                          <Text style={[styles.predTagTxt, { color: colors.success, fontWeight: "900" }]}>
+                        // Riga intera e testo a capo: la frase lunga usciva dalla card (13/10/2026).
+                        <View style={[styles.predTag, { borderColor: colors.success, borderWidth: 2, width: "100%" }, outcomeStyle(m.result ? evaluateMarketOutcome(g.market, m.result) : null)]}>
+                          <Text style={[styles.predTagTxt, { color: colors.success, fontWeight: "900", flexShrink: 1 }]}>
                             {`▶ DA GIOCARE: ${nome}${g.quota != null ? ` ${g.stimata ? "≈" : "@"}${g.quota.toFixed(2)}` : ""} · ${g.perche}`}
                           </Text>
                         </View>
