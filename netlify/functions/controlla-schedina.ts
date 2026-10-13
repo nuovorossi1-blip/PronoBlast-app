@@ -3,7 +3,7 @@ import { fullDistribution, coverageForMarket, evaluateMarketStrict, quoteCatalog
 import { simil } from "./lib/teamMatch";
 import { inizioPartitaMs, normalizeMarket, PROB_AFFIDABILE } from "../../frontend/src/api";
 import { consigliatoDi } from "./lib/letturaPartita";
-import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
+import { rigaNotizia, cambioAllenatore, notiziePertinenti } from "./lib/notizieSquadre";
 import { leagueTier, isPartitaMinore } from "./lib/leagueTier";
 import { esc, pre, partita, giocataCorta, q as qt, SEP } from "./lib/telegramTabella";
 
@@ -236,7 +236,7 @@ export default async (req: Request): Promise<Response> => {
     const notizia = n.lettura_pro?.notizia || n.lettura_ai?.notizia;
     if (notizia) avvisi.push(`Notizia: ${notizia}`);
     // Google News (allenatore, infortuni, squalifiche): le 3 piu' recenti, il cambio di allenatore sempre
-    const voci: any[] = n.notizie_squadre || [];
+    const voci: any[] = notiziePertinenti(n.notizie_squadre);
     const allenatoreVero = cambioAllenatore(voci);
     const scelte = [...(allenatoreVero ? [allenatoreVero] : []), ...voci.filter((v) => v.tipo !== "allenatore")].slice(0, 3);
     for (const v of scelte) avvisi.push(`📰 ${rigaNotizia(v)}`);

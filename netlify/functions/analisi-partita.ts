@@ -3,7 +3,7 @@ import { fullDistribution, coverageForMarket, quoteCatalogo } from "./lib/cluste
 import { simil } from "./lib/teamMatch";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import { consigliatoDi } from "./lib/letturaPartita";
-import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
+import { rigaNotizia, cambioAllenatore, notiziePertinenti } from "./lib/notizieSquadre";
 import { esc, SEP } from "./lib/telegramTabella";
 
 /**
@@ -117,7 +117,7 @@ export async function analizzaPartita(testo: string): Promise<{ trovata: boolean
   }
   const frasi: string[] = n.programma?.frasi || [];
   if (frasi.length) { h.push("", "<b>Numeri del programma</b>"); for (const f of frasi.slice(0, 4)) h.push(`• ${esc(f)}`); }
-  const voci: any[] = n.notizie_squadre || [];
+  const voci: any[] = notiziePertinenti(n.notizie_squadre);
   const coach = cambioAllenatore(voci);
   if (voci.length) {
     h.push("", "<b>Notizie</b> (ultimi 7 giorni)");

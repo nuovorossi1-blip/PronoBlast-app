@@ -149,6 +149,20 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Notizie Google News: solo quelle della squadra
+
+- `notizieSquadre.ts`: `notiziaPertinente` scarta i titoli non sportivi
+  (camion, ospedale, governo, cronaca...: "Girl escapes injury after city truck
+  crashes into Birmingham house") e quelli in cui la squadra e' l'avversaria
+  (nome dopo "vs", "against", "ahead of", "following"..., salvo genitivo
+  "after Burnley's win"). Applicato alla ricerca e, con `notiziePertinenti`,
+  alle notizie gia' salvate nei dossier (bot: multipla, controlla schedina,
+  analisi partita). Misura sui dossier del 12-13/10: 305 tenute, 98 scartate.
+  Prima prova con "deve contenere una parola di calcio" scartata: perdeva
+  notizie giuste ("Haji Wright injury: Lampard reveals earliest return...").
+- Forma FotMob del Bayern senza partite dal 19/09 al 09/10: NON e' un errore,
+  e' la pausa del calendario (confermata anche dalla tabella `matches`).
+
 ### 2026-10-13 — Bot Telegram: multipla e sostituti a scalare per livello
 
 Richiesta di Rossi: prima le principali (Champions, Europa, Mondiali, Serie A,

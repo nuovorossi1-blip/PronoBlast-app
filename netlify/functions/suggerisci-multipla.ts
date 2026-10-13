@@ -1,7 +1,7 @@
 import { pgGet, jsonResponse } from "./lib/supabaseRest";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import buildMultipla from "./build-multipla";
-import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
+import { rigaNotizia, cambioAllenatore, notiziePertinenti } from "./lib/notizieSquadre";
 import { esc, pre, partita, giocataCorta, q as qt, SEP } from "./lib/telegramTabella";
 
 /**
@@ -59,7 +59,7 @@ function giudica(leg: any, n: any) {
   const notizia = (n?.lettura_pro?.notizia || n?.lettura_ai?.notizia || "").trim() || null;
   // Google News: cambio di allenatore = avviso serio (Arouca - Estrela, 11/10);
   // infortuni e squalifiche = informazione (le 2 piu' recenti).
-  const voci: any[] = n?.notizie_squadre || [];
+  const voci: any[] = notiziePertinenti(n?.notizie_squadre);
   const coach = cambioAllenatore(voci);
   if (coach) seri.push(`cambio di allenatore: ${rigaNotizia(coach)}`);
   for (const v of voci.filter((v) => v.tipo !== "allenatore").slice(0, 2)) avvisi.push(`📰 ${rigaNotizia(v)}`);

@@ -80,6 +80,41 @@ function nomina(titolo: string, squadra: string): boolean {
   return t.includes(` ${parole.length ? parole[0] : norm(squadra)} `);
 }
 
+/**
+ * NOTIZIA PERTINENTE (13/10/2026, Rossi: notizie che non c'entrano).
+ *  1. Niente titoli chiaramente non sportivi: "Girl escapes injury after city
+ *     truck crashes into Birmingham house" passava perche' nomina Birmingham.
+ *  2. La squadra e' il soggetto, non l'avversaria: se il nome compare solo
+ *     dopo "vs", "against", "ahead of"... la notizia e' dell'altra squadra
+ *     ("Former Real Madrid manager defends Vinicius following red card vs
+ *     Villarreal", "Urbig set to start for Bayern against Viking").
+ */
+// Prima prova con "deve contenere una parola di calcio": scartava
+// "Haji Wright injury: Lampard reveals earliest return as Coventry...". Si
+// scartano invece i titoli chiaramente non sportivi.
+const NON_SPORT = /(newborn|neonat|baby|liver|study finds|patient|hospital|ospedale|truck|camion|crash(es|ed)? into|\bhouse\b|property owner|police|polizia|arrest|court\b|tribunale|government|\bgovt\b|governo|agency|minister|ministro|election|elezion|school|scuola|student|weather|\bfire\b|incendio|shooting|traffic|\broad\b|driving|airport|aeroporto|flight|stock market|\bbank\b|concert|movie|\bfilm\b|singer|actor|actress|theft|furto|robbery|rapina|cannabis|\bdrugs?\b|factory|fabbrica|bomb|murder|omicidio)/i;
+const PREPOSIZIONI_AVVERSARIO = /(\bvs?\.?|versus|against|contro|contra|gegen|tegen|mot|ahead of|before|prima di|antes de|vor|voor|following|after|dopo|despu[eé]s de|depois de|nach|clash with|trip to|visit of|visit to|face|faces|facing|host|hosts|beat|beats|lose to|loss to|draw with|win over|victory over|defeat to|sfida|ante|frente a)\s+(the\s+|il\s+|lo\s+|la\s+|el\s+|o\s+|a\s+|den\s+|de\s+)?$/i;
+
+export function notiziaPertinente(titolo: string, squadra: string): boolean {
+  if (NON_SPORT.test(titolo)) return false;
+  const t = norm(titolo);
+  const parole = norm(nomeRicerca(squadra)).split(/[^a-z0-9]+/).filter((p) => p.length >= 4).sort((a, b) => b.length - a.length);
+  const nome = parole[0] || norm(squadra);
+  const i = t.search(new RegExp(`(^|[^a-z0-9])${nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`));
+  if (i < 0) return true;   // nominata in altro modo: decide nomina()
+  // "after Burnley's win", "ahead of Orlando Pirates' final": col genitivo
+  // la squadra e' il soggetto.
+  const dopo = t.slice(i, i + 40);
+  if (new RegExp(`${nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[a-z ]{0,20}?['’‘](s\\b|\\s|$)`).test(dopo)) return true;
+  const prima = t.slice(Math.max(0, i - 30), i + 1);
+  return !PREPOSIZIONI_AVVERSARIO.test(prima);
+}
+
+/** Filtro per le notizie gia' salvate nel dossier con le regole vecchie. */
+export function notiziePertinenti<T extends { titolo: string; squadra: string }>(voci: T[] | undefined | null): T[] {
+  return (voci || []).filter((v) => notiziaPertinente(v.titolo, v.squadra));
+}
+
 const cache = new Map<string, { quando: number; voci: NotiziaSquadra[] }>();
 let coda: Promise<unknown> = Promise.resolve();
 /** Una richiesta alla volta, con una pausa: Google News risponde 429 se si esagera. */
@@ -120,7 +155,7 @@ export async function notizieSquadra(squadraDb: string, campionato: string, iniz
       const fonte = testo(item, "source");
       const titolo = fonte && completo.endsWith(` - ${fonte}`) ? completo.slice(0, -(fonte.length + 3)) : completo;
       const ms = Date.parse(testo(item, "pubDate"));
-      if (!titolo || !isFinite(ms) || !nomina(titolo, squadra) || NON_CALCIO.test(titolo)) continue;
+      if (!titolo || !isFinite(ms) || !nomina(titolo, squadra) || NON_CALCIO.test(titolo) || !notiziaPertinente(titolo, squadra)) continue;
       const data = new Date(ms).toISOString();
       const tipo = TIPI.find(([t, re]) => re.test(titolo) && (t !== "allenatore" || eCambioAllenatore(titolo)))?.[0];
       if (!tipo) continue;
