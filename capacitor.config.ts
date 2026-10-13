@@ -11,7 +11,9 @@ const config: CapacitorConfig = {
     // 06/10/2026: Vercel e' in pausa (402) e l'app restava bloccata sul logo.
     // Finche' l'app gira sul PC di casa il guscio carica da li'. Al ritorno su
     // Vercel rimettere 'https://pronoblast.vercel.app' (promemoria del 5/11).
-    url: 'https://pc-claude.tailcad625.ts.net:8443',
+    // 13/10/2026: dal PC passa da Cloudflare (tunnel pc-windows), piu' veloce di
+    // Tailscale Funnel; la riserva resta https://pc-claude.tailcad625.ts.net:8443.
+    url: 'https://prono.redapp.dev',
     cleartext: false,
   },
   android: {
