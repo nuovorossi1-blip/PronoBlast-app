@@ -149,6 +149,20 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Prova di Jev (modello decisionale) sulle partite giocate: non usato
+
+**Cosa.** `scripts/prova-jev.mts`: a Jev (`typesafe/jev-1.13` su OpenRouter,
+`/api/alpha/decisions`) si passano i dati del dossier salvati prima del via e i
+candidati della scheda; due domande ("da giocare?", "quale candidato?"). Costo
+delle due prove: ~0,05 $ in tutto.
+
+**Esito (562 partite, 07-13/10).** Con le percentuali d'archivio Jev le copia
+(63,7% come il piu' solido) e dice "95-100%" su scelte che vincono il 63,6%.
+Senza percentuali: 63,0% resa -7,8% contro il piu' solido 63,5% -5,8% e il
+consigliato della scheda 60,8% -4,8%. "Da giocare" non separa le partite buone.
+Quando e' sicuro sceglie partite piu' facili, ma sulle stesse partite il piu'
+solido fa uguale. Nessun vantaggio stabile: non entra nell'app.
+
 ### 2026-10-13 — Monitoraggio dei ritardi (scripts/misura-ritardi.mts)
 
 **Cosa.** Script in sola lettura: per Over 2.5, GG, 1 e 2 conta quante volte
