@@ -695,10 +695,10 @@ export default function MatchDetail() {
                 tradottoDaCambiato = val.tradotto_da || null;
                 scartata = null;
               }
-            } else if ((val.motivo === "fuori scala" || val.motivo === "contro i risultati") && salvato?.ai === "cambiato" && salvato.market) {
-              // Proposta sotto 1,40, sopra il tetto o contro i suoi risultati: il
-              // server e' salito alla giocata piu' solida coerente con la lettura
-              // dell'AI (salitaDaProposta, 13/10/2026).
+            } else if (val.motivo === "fuori scala" && salvato?.ai === "cambiato" && salvato.market) {
+              // Proposta sotto 1,40 o sopra il tetto: il server e' salito alla
+              // giocata piu' solida coerente con la lettura dell'AI
+              // (salitaDaProposta, 13/10/2026). "Contro i risultati": scartata.
               cambiato = true;
               mercatoCambiato = salvato.market;
               quotaCambiato = salvato.quota ?? null;

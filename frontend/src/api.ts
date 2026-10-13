@@ -1299,17 +1299,18 @@ export function mercatoAIValido(
     return { ok: false, market: null, quota: null, stimata: false, motivo: "senza quota", tradotto_da: trad.tradottoDa || null };
   }
 
+  // Coerenza con la stessa lettura dell'AI (13/10/2026, Viking-Bayern: U3.5
+  // con 1-3 fra i suoi risultati probabili). Prima della scala: un'AI che si
+  // contraddice non deve guidare neanche la salita, la proposta si scarta.
+  const marketFinale = marketTrovato || canonico;
+  if (controRisultatiAI(marketFinale, risultati)) {
+    return { ok: false, market: null, quota, stimata, motivo: "contro i risultati", tradotto_da: trad.tradottoDa || null };
+  }
+
   // Scala: quota da 1.40 a QUOTA_MAX_AI e fasciaDellaQuota(quota) != null.
   // Tetto (13/10/2026, Champions): l'AI portava 1 @1,95 e DC X2 + U3.5 @2,57.
   if (quota < 1.40 || quota > QUOTA_MAX_AI + 1e-9 || fasciaDellaQuota(quota) === null) {
     return { ok: false, market: null, quota, stimata, motivo: "fuori scala", tradotto_da: trad.tradottoDa || null };
-  }
-
-  // Coerenza con la stessa lettura dell'AI (13/10/2026, Viking-Bayern: U3.5
-  // con 1-3 fra i suoi risultati probabili).
-  const marketFinale = marketTrovato || canonico;
-  if (controRisultatiAI(marketFinale, risultati)) {
-    return { ok: false, market: null, quota, stimata, motivo: "contro i risultati", tradotto_da: trad.tradottoDa || null };
   }
 
   return { ok: true, market: marketFinale, quota, stimata, motivo: null, tradotto_da: trad.tradottoDa || null };

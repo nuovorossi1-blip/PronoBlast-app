@@ -346,10 +346,12 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
         // sotto 1,40 (X2 a 1,30) non si butta. Si prende la giocata piu'
         // solida coerente con la lettura dell'AI: stessa direzione, non in
         // contrasto con il suo mercato, dentro i suoi gol. Se non c'e', scarto.
-        // Stessa salita sopra QUOTA_MAX_AI e se la proposta perde con i suoi
-        // risultati probabili (13/10/2026).
-        const salita = v.motivo === "fuori scala" || v.motivo === "contro i risultati" ? salitaDaProposta(pro, a) : null;
-        const perche = v.motivo === "contro i risultati" ? "contro i suoi risultati" : v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
+        // Stessa salita sopra QUOTA_MAX_AI (13/10/2026). Se la proposta perde
+        // con i suoi stessi risultati probabili l'AI si contraddice: niente
+        // salita guidata da lei, decidono i numeri (Viking-Bayern: la sua
+        // lettura "pochi gol" portava a MG 1-3 Bayern).
+        const salita = v.motivo === "fuori scala" ? salitaDaProposta(pro, a) : null;
+        const perche = v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
         if (salita && (!out.market || normalizeMarket(salita.market) !== normalizeMarket(out.market))) {
           out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
           out.ai = "cambiato"; out.notizia = pro.notizia || null;

@@ -69,7 +69,10 @@ function giudica(leg: any, n: any) {
 async function multipla(day: string, events: number, minTotalOdd: number, escluse: string[]) {
   const r = await buildMultipla(new Request("http://interno/build-multipla", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ day, events, minTotalOdd, apply: false, excludeMatches: escluse }),
+    // A scalare per livello (principali, poi seconde, poi terze divisioni) e
+    // senza minori; nessun tetto per campionato, altrimenti con 9 partite di
+    // Champions si scendeva alle riserve argentine (13/10/2026).
+    body: JSON.stringify({ day, events, minTotalOdd, apply: false, excludeMatches: escluse, escludiMinori: true, maxPerLeague: events }),
   }));
   return r.json() as Promise<any>;
 }
@@ -105,23 +108,31 @@ export default async (req: Request): Promise<Response> => {
 
   const righe: string[] = [];
   if (!ris?.legs?.length) {
-    righe.push(`Oggi non riesco a comporre ${events} partite a quota ${q2(minTotalOdd)}: ${ris?.reason || ris?.error || "poche partite ancora da giocare con un consigliato"}.`);
-    righe.push("Prova con meno partite o una quota piu' bassa (es. 4 partite quota 6).");
+    righe.push("🚫 Oggi non giocare: nessuna partita affidabile ancora da giocare, ne' nelle principali ne' nelle seconde e terze divisioni.");
+    if (ris?.reason || ris?.error) righe.push(String(ris.reason || ris.error));
     return jsonResponse({ ok: false, testo: righe.join("\n"), html: esc(righe.join("\n")), dettaglio: ris });
   }
   const totale = ris.total_odd;
+  // Multipla incompleta o sotto quota: si dice chiaro che quella consigliata
+  // non si puo' fare e si danno solo le partite trovate (13/10/2026, Rossi).
+  const poche = ris.legs.length < events;
+  const sottoQuota = totale < minTotalOdd;
+  const avvisoTesta = poche
+    ? `⚠ Impossibile creare la multipla consigliata da ${events}: trovate solo ${ris.legs.length} partite affidabili (principali, poi seconde e terze divisioni). Ti do solo queste.`
+    : sottoQuota ? `⚠ Impossibile arrivare a quota ${q2(minTotalOdd)} con partite affidabili: la migliore trovata arriva a ${q2(totale)}.` : null;
+  const livello = (l: any) => (l.tier === 1 ? "principale" : l.tier === 2 ? "seconda fascia" : "terza fascia");
+  if (avvisoTesta) righe.push(avvisoTesta, "");
   righe.push(`🎯 Multipla ${day.split("-").reverse().slice(0, 2).join("/")} · ${ris.legs.length} partite · quota ${ris.total_estimated ? "circa " : ""}${q2(totale)}`, "");
   ris.legs.sort((a: any, b: any) => String(a.time).localeCompare(String(b.time)));
   ris.legs.forEach((l: any, i: number) => {
     const g = info.get(l.match_id) || { avvisi: [], seri: [], notizia: null };
-    righe.push(`${i + 1}. ${l.time} ${l.squadra1} - ${l.squadra2} (${l.manifestazione})`);
+    righe.push(`${i + 1}. ${l.time} ${l.squadra1} - ${l.squadra2} (${l.manifestazione}, ${livello(l)})`);
     righe.push(`   👉 ${l.market} @${q2(l.odd)}${l.odd_estimated ? " (quota stimata)" : ""} · motore ${pct(l.prob)}`);
     if (g.notizia) righe.push(`   📰 ${g.notizia}`);
     for (const a of g.avvisi) righe.push(`   ⚠ ${a}`);
     for (const s of g.seri) righe.push(`   ⚠️ ${s} (tenuta: senza di lei non si arrivava alla quota)`);
   });
   righe.push("");
-  if (totale < minTotalOdd) righe.push(`⚠ Quota ${q2(totale)}, sotto ${q2(minTotalOdd)}: oggi non ci sono abbastanza partite solide.`);
   if (scartate.length) righe.push(`Scartate per gli avvisi: ${scartate.join(" · ")}`);
   righe.push(`Probabilita' che vincano tutte (motore): ${pct(ris.total_prob)}. La quota ne chiede ${pct(1 / totale)}.`);
   righe.push("Notizie e avvisi dal dossier di oggi (FotMob + ricerca web). E' un parere, non una garanzia.");
@@ -129,17 +140,17 @@ export default async (req: Request): Promise<Response> => {
   // Limite di Telegram 4096 caratteri: se non ci sta, meno note per partita.
   const versione = (maxNote: number) => {
     const h: string[] = [];
+    if (avvisoTesta) h.push(`<b>${esc(avvisoTesta)}</b>`, "");
     h.push(`🎯 <b>Multipla ${esc(day.split("-").reverse().slice(0, 2).join("/"))}</b> · ${ris.legs.length} partite · quota <b>${ris.total_estimated ? "~" : ""}${esc(q2(totale))}</b>`);
     h.push(pre(["#", "Partita", "Gioco", "Quota"],
       ris.legs.map((l: any, i: number) => [String(i + 1), partita(l.squadra1, l.squadra2), giocataCorta(l.market), qt(l.odd) + (l.odd_estimated ? "~" : "")]),
       [1, 7, 12, 5]));
     h.push(`Vincono tutte (motore): <b>${pct(ris.total_prob)}</b> · la quota ne chiede ${pct(1 / totale)}`);
-    if (totale < minTotalOdd) h.push(`⚠ quota sotto ${esc(q2(minTotalOdd))}: oggi poche partite solide`);
     h.push("", "<b>Partita per partita</b>");
     ris.legs.forEach((l: any, i: number) => {
       const g = info.get(l.match_id) || { avvisi: [], seri: [], notizia: null };
       h.push(SEP);
-      h.push(`<b>${i + 1}.</b> ${esc(l.time)} · ${esc(l.manifestazione)} · ${esc(l.squadra1)} - ${esc(l.squadra2)}`);
+      h.push(`<b>${i + 1}.</b> ${esc(l.time)} · ${esc(l.manifestazione)} (${livello(l)}) · ${esc(l.squadra1)} - ${esc(l.squadra2)}`);
       h.push(`   👉 <b>${esc(l.market)}</b> @${esc(q2(l.odd))}${l.odd_estimated ? " (stimata)" : ""} · motore ${pct(l.prob)}`);
       const note = [...g.seri.map((s: string) => `⚠️ ${s}`), ...(g.notizia ? [`📰 ${g.notizia}`] : []), ...g.avvisi.map((a: string) => (a.startsWith("📰") ? a : `⚠ ${a}`))];
       for (const n of note.slice(0, maxNote)) h.push(`   ${esc(n.length > 160 ? n.slice(0, 157) + "..." : n)}`);

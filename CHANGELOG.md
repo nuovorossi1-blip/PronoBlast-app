@@ -149,6 +149,29 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Bot Telegram: multipla e sostituti a scalare per livello
+
+Richiesta di Rossi: prima le principali (Champions, Europa, Mondiali, Serie A,
+Bundesliga, Premier...), poi le seconde (Serie B, Segunda...), poi le terze
+divisioni; se non basta ci si ferma e si danno solo le partite trovate; con
+zero, "oggi non giocare". Stessa logica per le partite da sostituire.
+- `lib/leagueTier.ts`: Champions/Europa/Conference e nazionali al livello 1
+  (prima la Champions era livello 2); `isMinore`/`isPartitaMinore`: riserve,
+  femminili (anche "Scozia - Repubblica Ceca F" dentro MONDQF), giovanili,
+  amichevoli, codici numerici, dalla quarta divisione in giu'.
+- `build-multipla`: `escludiMinori` (solo il bot). `suggerisci-multipla`: niente
+  tetto per campionato (con 9 partite di Champions scendeva a ARG1RS e OLIMFQ),
+  livello di ogni partita, "Impossibile creare la multipla consigliata..." e
+  "Oggi non giocare".
+- `controlla-schedina`: sostituto cercato livello per livello; senza
+  consigliato propone il pronostico di PronoBlast (pick_finale) se e' piu'
+  affidabile di 5 punti (Viking-Bayern: MG 1-3 Bayern 59% -> MG 3-6 totali 69%).
+- `notizieSquadre`: niente falsi cambi di allenatore ("Referee Observer
+  Appointed", "Expects to be sacked!"): scartavano Sabah e Atletico.
+- `mercatoAIValido`: "contro i risultati" viene prima della scala e la proposta
+  si scarta senza salita (un'AI che si contraddice non guida la scelta):
+  Viking -> MG 3-6 totali, Atletico -> O2.5.
+
 ### 2026-10-13 — Cambi del Pronostico AI: tetto di quota e coerenza con la sua lettura
 
 Controllo della Schedina Champions del 13/10: l'AI aveva cambiato 9 consigliati

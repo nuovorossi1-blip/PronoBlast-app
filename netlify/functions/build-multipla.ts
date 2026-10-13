@@ -5,7 +5,7 @@ import {
 } from "./lib/clusterEngine";
 import { parseResult } from "./lib/marketEval";
 import { classifyScenario } from "./lib/scenario";
-import { leagueTier, tierLabel, type LeagueTier } from "./lib/leagueTier";
+import { leagueTier, tierLabel, isNazionale, isPartitaMinore, type LeagueTier } from "./lib/leagueTier";
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds, jsonResponse } from "./lib/supabaseRest";
 import { readMinOdd } from "./odd-settings";
 
@@ -129,6 +129,9 @@ export default async (req: Request): Promise<Response> => {
   const locked: { matchId: string; market: string }[] = Array.isArray(body?.locked) ? body.locked.filter((l: any) => l?.matchId && l?.market) : [];
   const excludeMatches = new Set<string>(Array.isArray(body?.excludeMatches) ? body.excludeMatches.map(String) : []);
   const excludeLeagues = new Set<string>(Array.isArray(body?.excludeLeagues) ? body.excludeLeagues.map((l: string) => String(l).toUpperCase().trim()) : []);
+  // Bot Telegram (13/10/2026): niente riserve, femminili, giovanili,
+  // amichevoli, ne' divisioni sotto la terza (lib/leagueTier.ts, isMinore).
+  const escludiMinori = !!body?.escludiMinori;
   // Pattern di mercato: lista vuota o assente = comportamento di sempre (il
   // motore prende la giocata piu' probabile di ogni partita). Con uno o piu'
   // pattern, per ogni partita si guardano SOLO quei mercati e si tiene il
@@ -179,7 +182,7 @@ export default async (req: Request): Promise<Response> => {
     const id = String(row.id);
     const league = String(row.manifestazione || "").toUpperCase().trim();
     const isLocked = lockedIds.has(id);
-    if (!isLocked && (excludeMatches.has(id) || excludeLeagues.has(league))) { skippedExcluded++; continue; }
+    if (!isLocked && (excludeMatches.has(id) || excludeLeagues.has(league) || (escludiMinori && isPartitaMinore(league, row.squadra1, row.squadra2)))) { skippedExcluded++; continue; }
     if (!isLocked && hasStarted(day, row.time, nowRome)) { skippedStarted++; continue; }
 
     const odds: Odds = rowToOdds(row);
@@ -574,10 +577,6 @@ function componi(pool: Candidate[], n: number, minTot: number, maxPerLeague: num
 }
 
 /** Nazionali maggiori (07/10/2026): contano come i campionati di livello 1. */
-function isNazionale(c: string): boolean {
-  return /^(EURONL|EURQ|MOND|WCQ|AMINAZ|EURO$|COPAM|AFCNAZ|CONCAF)/.test(c);
-}
-
 function toLeg(c: Candidate, opt: Option, locked: boolean): Leg {
   return {
     // Lo storico si riempie dopo, quando le gambe sono decise: calcolarlo per

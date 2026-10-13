@@ -57,7 +57,9 @@ function linguaDi(campionato: string): Lingua {
 
 const TIPI: [NotiziaSquadra["tipo"], RegExp][] = [
   // Solo il CAMBIO di allenatore: "l'allenatore ha detto" non conta.
-  ["allenatore", /(esoner|nuovo allenatore|nuovo tecnico|panchina a|dimission|sacked|appointed|new (head )?(manager|coach)|parts? ways|caretaker|interim (manager|coach)|leaves? (the )?club|destitu|despedid|nuevo (entrenador|t[eé]cnico)|cesad|demit|novo (treinador|t[eé]cnico)|mudan[cç]a de treinador|deixa o|j[aá] n[aã]o [eé] treinador|sucede|assume o comando|entlass|neuer trainer|trennt sich|limog|nouvel entra[iî]neur|remerci|ontslagen|nieuwe trainer|stapt op|sparkad|ny tr[aä]nare|sparket|ny trener|fyret|ny tr[aæ]ner|fired|new head coach)/i],
+  // "appointed" da solo no (13/10/2026: "Referee Observer Appointed for Sabah
+  // vs Slavia" diventava un cambio di allenatore e la partita veniva scartata).
+  ["allenatore", /(esoner|nuovo allenatore|nuovo tecnico|panchina a|dimission|sacked|appointed (as )?(the )?(new )?(head )?(manager|coach|boss)|(manager|coach|boss) appointed|new (head )?(manager|coach)|parts? ways|caretaker|interim (manager|coach)|leaves? (the )?club|destitu|despedid|nuevo (entrenador|t[eé]cnico)|cesad|demit|novo (treinador|t[eé]cnico)|mudan[cç]a de treinador|deixa o|j[aá] n[aã]o [eé] treinador|sucede|assume o comando|entlass|neuer trainer|trennt sich|limog|nouvel entra[iî]neur|remerci|ontslagen|nieuwe trainer|stapt op|sparkad|ny tr[aä]nare|sparket|ny trener|fyret|ny tr[aæ]ner|fired|new head coach)/i],
   ["squalifica", /(squalific|suspen|sancionad|castigad|gesperrt|sperre|geschorst|avst[aä]ng|utestengt|karant[aæ]ne|red card|cartellino rosso)/i],
   ["infortunio", /(infortun|injur|ruled out|lesi[oó]n|lesionad|les[aã]o|verletz|bless[eé]|geblesseerd|blessure|skad|\bout for\b)/i],
 ];
@@ -120,7 +122,7 @@ export async function notizieSquadra(squadraDb: string, campionato: string, iniz
       const ms = Date.parse(testo(item, "pubDate"));
       if (!titolo || !isFinite(ms) || !nomina(titolo, squadra) || NON_CALCIO.test(titolo)) continue;
       const data = new Date(ms).toISOString();
-      const tipo = TIPI.find(([, re]) => re.test(titolo))?.[0];
+      const tipo = TIPI.find(([t, re]) => re.test(titolo) && (t !== "allenatore" || eCambioAllenatore(titolo)))?.[0];
       if (!tipo) continue;
       const firma = norm(titolo).slice(0, 60);
       if (visti.has(firma)) continue;
@@ -157,5 +159,15 @@ export function rigaNotizia(v: NotiziaSquadra): string {
 }
 /** Cambio di allenatore negli ultimi 10 giorni: l'avviso piu' forte (Arouca - Estrela). */
 export function cambioAllenatore(voci: NotiziaSquadra[] | undefined): NotiziaSquadra | null {
-  return (voci || []).find((v) => v.tipo === "allenatore") ?? null;
+  // Si ricontrolla il titolo con la regola di adesso: le notizie gia' salvate
+  // nel dossier possono essere state classificate con quella vecchia.
+  return (voci || []).find((v) => v.tipo === "allenatore" && eCambioAllenatore(v.titolo)) ?? null;
+}
+
+const ARBITRI = /(referee|arbitr|[aá]rbitro|schiedsrichter|scheidsrechter|observer|osservatore|var\b)/i;
+// Ipotesi, non fatti (13/10/2026: "'Expects to be sacked!' Body language
+// expert..." su Carrick faceva scartare Atletico - Manchester United).
+const IPOTESI = /(expects? to be|could be|set to be|facing (the )?sack|odds|rumou?r|future|under pressure|on the brink|verge|in line|would|might|may be|close to|signs|potrebbe|rischia|in bilico|verso l'esonero|podr[ií]a|pode ser|k[oö]nnte)/i;
+export function eCambioAllenatore(titolo: string): boolean {
+  return TIPI[0][1].test(titolo) && !ARBITRI.test(titolo) && !IPOTESI.test(titolo);
 }

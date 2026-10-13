@@ -3,7 +3,8 @@ import { fullDistribution, coverageForMarket, evaluateMarketStrict, quoteCatalog
 import { simil } from "./lib/teamMatch";
 import { inizioPartitaMs, normalizeMarket, PROB_AFFIDABILE } from "../../frontend/src/api";
 import { consigliatoDi } from "./lib/letturaPartita";
-import { rigaNotizia } from "./lib/notizieSquadre";
+import { rigaNotizia, cambioAllenatore } from "./lib/notizieSquadre";
+import { leagueTier, isPartitaMinore } from "./lib/leagueTier";
 import { esc, pre, partita, giocataCorta, q as qt, SEP } from "./lib/telegramTabella";
 
 /**
@@ -144,21 +145,30 @@ const giornoMese = (iso: string) => new Date(iso).toLocaleDateString("it-IT", { 
 const pct = (p: number | null | undefined) => (p == null ? "n/d" : `${Math.round(p * 100)}%`);
 const q2 = (q: number | null | undefined) => (q == null ? "n/d" : q.toFixed(2).replace(".", ","));
 
-/** Una partita del giorno al posto di quella da togliere: consigliato piu' solido a quota simile. */
+/**
+ * Una partita del giorno al posto di quella da togliere: consigliato piu'
+ * solido a quota simile, cercato a scalare (13/10/2026, Rossi): prima le
+ * principali (top 7, coppe europee, nazionali), poi le seconde, poi le terze
+ * divisioni; mai riserve, femminili, giovanili, amichevoli.
+ */
 async function sostituto(m: any, quota: number | null, escluse: Set<string>): Promise<any | null> {
   const delGiorno = await pgGet(`matches?day=eq.${m.day}&result=is.null&select=id,day,time,manifestazione,squadra1,squadra2`).catch(() => []);
   const ora = Date.now();
-  const libere = delGiorno.filter((x: any) => !escluse.has(x.id) && (inizioPartitaMs(x.day, x.time) ?? 0) > ora);
+  const libere = delGiorno.filter((x: any) => !escluse.has(x.id) && !isPartitaMinore(x.manifestazione, x.squadra1, x.squadra2) && (inizioPartitaMs(x.day, x.time) ?? 0) > ora);
   const dossier = await dossierDi(libere.map((x: any) => x.id));
-  let best: any = null;
-  for (const x of libere) {
-    const c = dossier.get(x.id)?.consigliato;
-    if (!c?.market || !c.quota || c.pA == null) continue;
-    if (quota && Math.abs(c.quota - quota) > 0.3) continue;
-    const p = Math.min(c.pA, c.pB ?? c.pA);
-    if (!best || p > best.p) best = { p, id: x.id, market: c.market, casa: x.squadra1, ospite: x.squadra2, partita: `${x.squadra1} - ${x.squadra2}`, ora: x.time, campionato: x.manifestazione, giocata: c.nome || c.market, quota: c.quota };
+  for (const livello of [1, 2, 3]) {
+    let best: any = null;
+    for (const x of libere) {
+      if (leagueTier(x.manifestazione) !== livello) continue;
+      const c = dossier.get(x.id)?.consigliato;
+      if (!c?.market || !c.quota || c.pA == null || c.pA <= 0) continue;
+      if (quota && Math.abs(c.quota - quota) > 0.3) continue;
+      const p = Math.min(c.pA, c.pB ?? c.pA);
+      if (!best || p > best.p) best = { p, id: x.id, market: c.market, casa: x.squadra1, ospite: x.squadra2, partita: `${x.squadra1} - ${x.squadra2}`, ora: x.time, campionato: x.manifestazione, livello, giocata: c.nome || c.market, quota: c.quota };
+    }
+    if (best) return best;
   }
-  return best;
+  return null;
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -227,7 +237,8 @@ export default async (req: Request): Promise<Response> => {
     if (notizia) avvisi.push(`Notizia: ${notizia}`);
     // Google News (allenatore, infortuni, squalifiche): le 3 piu' recenti, il cambio di allenatore sempre
     const voci: any[] = n.notizie_squadre || [];
-    const scelte = [...voci.filter((v) => v.tipo === "allenatore").slice(0, 1), ...voci.filter((v) => v.tipo !== "allenatore")].slice(0, 3);
+    const allenatoreVero = cambioAllenatore(voci);
+    const scelte = [...(allenatoreVero ? [allenatoreVero] : []), ...voci.filter((v) => v.tipo !== "allenatore")].slice(0, 3);
     for (const v of scelte) avvisi.push(`📰 ${rigaNotizia(v)}`);
     r.avvisi = avvisi;
 
@@ -254,12 +265,24 @@ export default async (req: Request): Promise<Response> => {
     r.archivio = mio?.p ?? null;
     const sisal = (quoteCatalogo(odds) as any)[mercato];
     if (g.quota && sisal?.odd && !sisal.estimated && g.quota < sisal.odd * 0.94) avvisi.push(`quota bassa: su Sisal la stessa giocata paga ${q2(sisal.odd)}`);
-    const coach = voci.find((v) => v.tipo === "allenatore");
+    const coach = cambioAllenatore(voci);
+    // Senza consigliato: il pronostico di PronoBlast (pick_finale, il piu'
+    // solido fra le fasce). Se e' piu' affidabile della tua giocata di
+    // almeno 5 punti, si propone di cambiare (13/10/2026, Viking - Bayern:
+    // "MG 1-3 Bayern" 59% restava "ok" con MG 3-6 totali al 69%).
+    const pf = m.pick_finale && m.pick_finale_prob != null ? { market: String(m.pick_finale), p: Number(m.pick_finale_prob) } : null;
+    const pfQuota = pf ? (quoteCatalogo(odds) as any)[pf.market] : null;
+    const pfMeglio = !c?.market && pf && pf.p >= PROB_AFFIDABILE && pf.p >= p + 0.05 && normalizeMarket(pf.market) !== normalizeMarket(mercato) && pfQuota?.odd >= 1.4;
 
     if (c?.daLasciare && !c?.market) { r.esito = "togli"; r.motivo = `PronoBlast la lascia: ${c.daLasciare}`; }
     else if (c?.market && normalizeMarket(c.market) === normalizeMarket(mercato)) { r.esito = "ok"; r.motivo = `e' il consigliato di PronoBlast${r.archivio != null ? ` (archivio ${pct(r.archivio)})` : ""}`; }
     else if (mio && mio.p >= PROB_AFFIDABILE) { r.esito = "ok"; r.motivo = `regge in archivio ${pct(mio.p)}`; }
     else if (c?.market && c.quota) { r.esito = "cambia"; r.al_posto = { giocata: r.consigliato.giocata, market: c.market, quota: c.quota, prob: r.consigliato.prob, archivio: r.consigliato.archivio, stimata: !!c.stimata }; r.motivo = mio ? `in archivio solo ${pct(mio.p)}` : "non e' tra le giocate che reggono in archivio"; }
+    else if (pfMeglio) {
+      const nome = pf!.market.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
+      r.esito = "cambia"; r.al_posto = { giocata: nome, market: pf!.market, quota: pfQuota.odd, prob: pf!.p, archivio: pf!.p, stimata: !!pfQuota.estimated };
+      r.motivo = `nessun consigliato; la tua ${pct(p)}, il pronostico di PronoBlast ${pct(pf!.p)}`;
+    }
     else if (p >= 0.55) { r.esito = "ok"; r.motivo = `nessun consigliato per questa partita; motore ${pct(p)}`; }
     else if (p < P_TOGLI) { r.esito = "togli"; r.motivo = `nessun consigliato; motore solo ${pct(p)}`; }
     else { r.esito = "debole"; r.motivo = `nessun consigliato; motore ${pct(p)}`; }
@@ -297,7 +320,7 @@ export default async (req: Request): Promise<Response> => {
   const giudizio = (r: any): string => {
     if (r.esito === "ok") return `✅ ok: ${r.motivo}`;
     if (r.esito === "cambia") return `🔄 metti ${r.al_posto.giocata} @${q2(r.al_posto.quota)}${r.al_posto.stimata ? " (stimata)" : ""}${r.al_posto.archivio != null ? `, archivio ${pct(r.al_posto.archivio)}` : ""} (la tua: ${r.motivo})`;
-    if (r.esito === "togli") return `❌ togli: ${r.motivo}` + (r.al_posto_partita ? `. Al suo posto ${r.al_posto_partita.partita} ${r.al_posto_partita.ora} · ${r.al_posto_partita.giocata} @${q2(r.al_posto_partita.quota)} (archivio ${pct(r.al_posto_partita.p)})` : ". Nessuna partita di oggi a quota simile");
+    if (r.esito === "togli") return `❌ togli: ${r.motivo}` + (r.al_posto_partita ? `. Al suo posto ${r.al_posto_partita.partita} ${r.al_posto_partita.ora} (${r.al_posto_partita.campionato}, ${r.al_posto_partita.livello === 1 ? "principale" : r.al_posto_partita.livello === 2 ? "seconda fascia" : "terza fascia"}) · ${r.al_posto_partita.giocata} @${q2(r.al_posto_partita.quota)} (archivio ${pct(r.al_posto_partita.p)})` : ". Nessuna partita affidabile a quota simile fino alle terze divisioni: toglila e basta");
     if (r.esito === "debole") return `⚠️ da valutare: ${r.motivo}`;
     return `❓ ${r.motivo}: decidi tu`;
   };
