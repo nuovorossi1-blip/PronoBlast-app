@@ -149,6 +149,16 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — App Android e bot Telegram passano da Cloudflare
+
+- Il guscio Android (`capacitor.config.ts`) carica da https://prono.redapp.dev
+  (tunnel Cloudflare `pc-windows` sul PC) invece che da Tailscale Funnel :8443:
+  latenza piu' bassa. Serve l'APK nuovo (build automatica). La riserva
+  https://pc-claude.tailcad625.ts.net:8443 resta attiva.
+- Bot Telegram (n8n): webhook su https://bot.redapp.dev/webhook/ (solo quel
+  percorso) e chiamate a PronoBlast su prono.redapp.dev.
+- Restano su Tailscale le chiamate lunghe (GitHub Actions /sync-results ~10 min,
+  pg_cron dossier-giornata ~4 min): Cloudflare chiude le richieste dopo 100 s.
 ### 2026-10-13 — Prova di Jev (modello decisionale) sulle partite giocate: non usato
 
 **Cosa.** `scripts/prova-jev.mts`: a Jev (`typesafe/jev-1.13` su OpenRouter,
