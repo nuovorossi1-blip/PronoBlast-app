@@ -437,6 +437,13 @@ export const api = {
       `/verdetto?day=${encodeURIComponent(day)}`,
     ),
 
+  /** Fa calcolare e salvare al server il consigliato di UNA partita: il piu'
+   *  solido fra tutte le fasce, qualunque fascia si stia guardando (13/10/2026). */
+  verdettoPartita: (matchId: string) =>
+    netlifyReq<{ ok: boolean; pick: VerdictPick | null; fascia?: number | null; salvato: boolean }>(
+      `/verdetto?id=${encodeURIComponent(matchId)}`,
+    ),
+
   /** Traccia: rigioca il motore sulle partite concluse. Non influenza niente. */
   backtest: (
     from: number, minOdd: number, lambdaVecchi: boolean,
@@ -2542,6 +2549,26 @@ export function etichettaFascia(soglia: number): string {
   const f = (x: number) => x.toFixed(2).replace(".", ",");
   if (!FASCE_AI.some((x) => Math.abs(x - soglia) < 0.001)) return `da ${f(da)}`;
   return a === Infinity ? `${f(da)} e oltre` : `${f(da)}–${f(a - 0.01)}`;
+}
+
+/**
+ * IL CONSIGLIATO SALVATO (13/10/2026, Rossi): "deve essere il piu' solido, e se
+ * li' non c'e' niente si prende quello sotto". Prima si salvava il primo della
+ * fascia aperta nella scheda: guardando la 1,75 il consigliato diventava la
+ * giocata piu' rischiosa (Aarhus GG+O2.5 51%, Famalicao 1 51%). Ora si prende
+ * il primo di OGNI fascia e vince il piu' probabile; a parita' la quota piu'
+ * alta. Il calcolo di ogni fascia resta quello di sempre.
+ */
+export function consigliatoTraFasce(
+  verdettoDellaFascia: (soglia: number) => VerdictPick[],
+): { pick: VerdictPick; fascia: number } | null {
+  let best: { pick: VerdictPick; fascia: number } | null = null;
+  for (const f of FASCE_AI) {
+    const top = verdettoDellaFascia(f)[0];
+    if (!top || typeof top.coverage !== "number") continue;
+    if (!best || top.coverage >= (best.pick.coverage ?? 0)) best = { pick: top, fascia: f };
+  }
+  return best;
 }
 
 /** La fascia in cui cade una quota (null se sotto la prima). */

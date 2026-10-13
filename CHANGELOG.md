@@ -149,6 +149,25 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Consigliato salvato = il piu' solido fra tutte le fasce
+
+**Cosa.** `pick_finale` (la giocata in Schedina e nella lista) non e' piu' il
+primo della fascia aperta nella scheda. Si calcola il verdetto di ogni fascia
+(1,40 / 1,50 / 1,60 / 1,75) e vince il primo piu' probabile; a parita' la
+quota piu' alta (`consigliatoTraFasce` in `frontend/src/api.ts`). Lo calcola
+solo il server (`verdettoDiPartita`); la scheda chiede `/verdetto?id=` una
+volta per partita aperta invece di salvare da se' (`save-verdict` resta per
+compatibilita'). Il calcolo di ogni fascia e' invariato.
+
+**Perche'.** Rossi: "deve essere il piu' solido, e se li' non c'e' niente si
+prende quello sotto". Il 12/10 guardando la fascia 1,75 si erano salvati
+Aarhus GG+O2.5 (51%, perso) e Famalicao 1 (51%, perso); con la regola nuova
+O2.5 64% (vinto), Levante 1X 64% (vinto), Famalicao MG 2-4 totali 61% (perso).
+
+**Attenzione.** `verdetto` restituito da `verdettoDiPartita` resta quello della
+soglia richiesta; `pick` e `fascia` sono il consigliato salvato. L'eccezione
+dell'AI in Schedina (`applicaCambioInSchedina`) non e' toccata.
+
 ### 2026-10-13 — Agente del bot (domande libere) e risultati recuperati
 
 - `POST /domanda-bot` `{domanda, storico}`: Gemini 2.5 Flash (OpenRouter)

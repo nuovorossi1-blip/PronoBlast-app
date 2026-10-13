@@ -360,35 +360,20 @@ export default function MatchDetail() {
   const manualeQui = candidatiManuale(match?.odds, manualeStats?.scenari, minOdd, structural?.market_odds, false, structural?.structure);
   const manualeFasce = candidatiManuale(match?.odds, manualeStats?.scenari, FASCE_AI[0], structural?.market_odds, true, structural?.structure);
 
+  // Il consigliato salvato (pick_finale) non dipende piu' dalla fascia che si
+  // sta guardando: lo calcola il server, il piu' solido fra tutte le fasce
+  // (consigliatoTraFasce, 13/10/2026). La scheda chiede solo di aggiornarlo,
+  // una volta per partita aperta.
   const savedVerdictRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!match || match.id !== id || !structural || match.result) return;
-    try {
-      // FASE 5 — se il backend manda la sua classifica PRE la usiamo: è una
-      // sola implementazione invece di due copie da tenere allineate a mano.
-      const fam = structural?.pre_ranking?.length
-        ? structural.pre_ranking.map((c) => ({ market: c.market, odd: c.odd, family: "" }))
-        : quickPredictionFamily(match.odds);
-      const llmMarkets = predDecide?.playable_markets?.map((p) => p.market)
-        || (predDecide?.main_prediction ? [predDecide.main_prediction] : []);
-      // Filtro strutturale in ingresso (Ticket 6): stesso calcolo del riquadro.
-      const ingresso = fusioneInIngresso(structural, fam, llmMarkets);
-      const preRanked = rankPicks(ingresso.pre, llmMarkets, marketStats);
-      // Con le fasce AI il verdetto e' la classifica dell'AI (stessa funzione del server).
-      const daAI = verdettoDaAI(predVerdetto, structural, match.odds, minOdd, match, manualeFasce);
-      const verdictRaw = daAI ? daAI.picks : buildFinalVerdict(ingresso.structural, preRanked, predDecide?.playable_markets, match.odds, history, { minOdd, manuale: manualeQui });
-      const verdict = verdictRaw.filter((v) => ammessoDallaStruttura(v.market, structural.structure));
-      const top = verdict[0];
-      if (!top || savedVerdictRef.current === top.market) return;
-      savedVerdictRef.current = top.market;
-      api.saveVerdict(match.id, top.market, top.coverage ?? undefined).catch(() => {
-        // Best effort: se il salvataggio fallisce l'app resta identica.
-        savedVerdictRef.current = null;
-      });
-    } catch {
-      // Nessun impatto sul pronostico mostrato.
-    }
-  }, [id, match, structural, prediction, marketStats, history, minOdd, manualeStats]);
+    if (!match || match.id !== id || match.result) return;
+    if (savedVerdictRef.current === match.id) return;
+    savedVerdictRef.current = match.id;
+    api.verdettoPartita(match.id).catch(() => {
+      // Best effort: se il salvataggio fallisce l'app resta identica.
+      savedVerdictRef.current = null;
+    });
+  }, [id, match]);
 
   // Subscribe to background prediction queue so the UI reflects in-flight requests
   useEffect(() => {
@@ -1075,7 +1060,8 @@ export default function MatchDetail() {
             const e = match.result ? evaluateMarketOutcome(m, match.result) : null;
             return e === true ? <Text style={{ color: colors.success, fontWeight: "900" }}>{"  ✓ VINTA"}</Text>
               : e === false ? <Text style={{ color: colors.danger, fontWeight: "900" }}>{"  ✗ PERSA"}</Text> : null;
-          };          const pcT = (x: number) => `${Math.round(x * 100)}%`;
+          };
+          const pcT = (x: number) => `${Math.round(x * 100)}%`;
           if (proDecide && lettura?.pro?.mercato) {
             const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds);
             if (v.ok && v.market && v.quota != null) {

@@ -4,7 +4,7 @@ import { preHeuristicRanking } from "./preHeuristic";
 import { manualeStatsRecenti } from "./manuale";
 import {
   buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita, aiDecide,
-  candidatiManuale, FASCE_AI,
+  candidatiManuale, FASCE_AI, consigliatoTraFasce,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -34,6 +34,8 @@ export type EsitoVerdetto = {
   match_id: string;
   verdetto: VerdictPick[];
   pick: VerdictPick | null;
+  /** fascia da cui viene il consigliato salvato */
+  fascia?: number | null;
   aveva_ai: boolean;
   salvato: boolean;
   motivo?: string;
@@ -98,8 +100,6 @@ export async function verdettoDiPartita(
     return { ...base, motivo: "quote 1X2 incomplete" };
   }
 
-  const structural = structuralAnalysis(odds, minOdd);
-
   // Ultimo pronostico AI salvato, se esiste. La maggior parte delle partite non
   // ce l'ha: la fusione funziona lo stesso, con due voci invece di tre.
   let aiMarkets: { market: string; reasoning?: string }[] | undefined;
@@ -128,20 +128,6 @@ export async function verdettoDiPartita(
   }
 
   const history = await storicoPartita(match.id);
-  // Filtro strutturale IN INGRESSO (Ticket 6): motore e PRE vengono ripuliti
-  // dai mercati inammissibili PRIMA della fusione, come nella scheda partita.
-  const ingresso = fusioneInIngresso(
-    structural as any,
-    preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd, family: c.family })),
-    (aiMarkets || []).map((x) => x.market),
-  );
-  const preRanked = rankPicks(ingresso.pre as any, [], []);
-
-  // Se il pronostico AI ha le fasce, il verdetto e' la sua classifica validata
-  // per la fascia della soglia (stessa funzione della scheda); altrimenti la
-  // fusione di sempre.
-  // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
-  // archivio, quota >= soglia): stessa funzione della scheda.
   const marketOdds = quoteCatalogo(odds);
   let statsScenari: any = null;
   try {
@@ -149,28 +135,49 @@ export async function verdettoDiPartita(
   } catch (e) {
     console.error("[verdettoServer] manuale", e);
   }
-  const manuale = candidatiManuale(odds, statsScenari, minOdd, marketOdds, false, structural.structure);
-  const manualeFasce = candidatiManuale(odds, statsScenari, FASCE_AI[0], marketOdds, true, structural.structure);
-  const daAI = verdettoDaAI(
-    { fasce: fasceAI },
-    {
-      ...(structural as any),
-      market_odds: marketOdds,
-      pre_ranking: preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd })),
-    },
-    odds, minOdd, match, manualeFasce,
-  );
-  const grezzo = daAI ? daAI.picks : buildFinalVerdict(
-    { ...(ingresso.structural as any), market_odds: marketOdds }, preRanked, aiMarkets, odds, history, { minOdd, manuale },
-  );
-  // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
-  // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
-  const s: any = (structural as any)?.structure;
-  const verdetto = s
-    ? grezzo.filter((v) => ammessoDallaStruttura(v.market, s))
-    : grezzo;
 
-  const pick = verdetto[0] || null;
+  /** Il verdetto di UNA fascia: il calcolo di sempre, solo con la soglia come parametro. */
+  const verdettoDellaFascia = (soglia: number): VerdictPick[] => {
+    const structural = structuralAnalysis(odds, soglia);
+    // Filtro strutturale IN INGRESSO (Ticket 6): motore e PRE vengono ripuliti
+    // dai mercati inammissibili PRIMA della fusione, come nella scheda partita.
+    const ingresso = fusioneInIngresso(
+      structural as any,
+      preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd, family: c.family })),
+      (aiMarkets || []).map((x) => x.market),
+    );
+    const preRanked = rankPicks(ingresso.pre as any, [], []);
+
+    // Se il pronostico AI ha le fasce, il verdetto e' la sua classifica validata
+    // per la fascia della soglia (stessa funzione della scheda); altrimenti la
+    // fusione di sempre.
+    // Mercati del manuale candidati in QUESTA partita (scenario, >50% in
+    // archivio, quota >= soglia): stessa funzione della scheda.
+    const manuale = candidatiManuale(odds, statsScenari, soglia, marketOdds, false, structural.structure);
+    const manualeFasce = candidatiManuale(odds, statsScenari, FASCE_AI[0], marketOdds, true, structural.structure);
+    const daAI = verdettoDaAI(
+      { fasce: fasceAI },
+      {
+        ...(structural as any),
+        market_odds: marketOdds,
+        pre_ranking: preHeuristicRanking(odds).map((c) => ({ market: c.market, odd: c.odd })),
+      },
+      odds, soglia, match, manualeFasce,
+    );
+    const grezzo = daAI ? daAI.picks : buildFinalVerdict(
+      { ...(ingresso.structural as any), market_odds: marketOdds }, preRanked, aiMarkets, odds, history, { minOdd: soglia, manuale },
+    );
+    // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
+    // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
+    const s: any = (structural as any)?.structure;
+    return s ? grezzo.filter((v) => ammessoDallaStruttura(v.market, s)) : grezzo;
+  };
+
+  // `verdetto` resta quello della soglia richiesta (lo mostra chi lo chiede);
+  // il consigliato salvato e' il piu' solido fra tutte le fasce (13/10/2026).
+  const verdetto = verdettoDellaFascia(minOdd);
+  const scelto = consigliatoTraFasce(verdettoDellaFascia);
+  const pick = scelto?.pick || null;
   let salvato = false;
   if (salva && pick && !match.result) {
     try {
@@ -183,5 +190,5 @@ export async function verdettoDiPartita(
       // il salvataggio non deve far fallire il calcolo
     }
   }
-  return { ...base, verdetto, pick, salvato };
+  return { ...base, verdetto, pick, fascia: scelto?.fascia ?? null, salvato };
 }
