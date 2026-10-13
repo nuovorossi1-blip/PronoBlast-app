@@ -10,6 +10,9 @@ import {
   MERCATI_VIETATI,
   firmaQuote,
   quoteCambiate,
+  QUOTA_MAX_AI,
+  controRisultatiAI,
+  esitiDelSegno,
 } from "../frontend/src/api";
 import {
   CANDIDATE_MARKETS,
@@ -31,7 +34,7 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     "1 + U4.5": { odd: 1.65 },
     "MG 2-4 totali": { odd: 1.55 },
     "MG 2-4 casa": { odd: 1.85 },
-    "MG 2-4 ospite": { odd: 2.10 },
+    "MG 2-4 ospite": { odd: 1.80 },
   };
 
   it("1. Dortmund-Werder: '1 + Over 1.5 (o GG)' -> tradotto in 'MG 2-4 casa' e accettato in scala", () => {
@@ -72,7 +75,7 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     const res = mercatoAIValido("2 + O2.5", catalogoEsempio);
     assert.equal(res.ok, true);
     assert.equal(res.market, "MG 2-4 ospite");
-    assert.equal(res.quota, 2.10);
+    assert.equal(res.quota, 1.80);
     assert.equal(res.tradotto_da, "2 + O2.5");
   });
 
@@ -154,7 +157,7 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     const vOspite = mercatoAIValido("MG 2-4 ospite", catalogoEsempio);
     assert.equal(vOspite.ok, true);
     assert.equal(vOspite.market, "MG 2-4 ospite");
-    assert.equal(vOspite.quota, 2.10);
+    assert.equal(vOspite.quota, 1.80);
   });
 
   it("11. Cache dispositivo (Difetto 2): pulizia eta > 3 giorni e limite 40 schede", () => {
@@ -345,5 +348,23 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     const vDortmund = mercatoAIValido("1 + Over 1.5 (o GG)", catalogoEsempio);
     assert.equal(vDortmund.ok, true);
     assert.equal(vDortmund.market, "MG 2-4 casa");
+  });
+
+  it("13/10/2026: tetto QUOTA_MAX_AI, coerenza con i risultati probabili, esiti del segno", () => {
+    assert.equal(QUOTA_MAX_AI, 1.85);
+    // Atletico-United: '1' a 1,95 -> fuori scala (si sale)
+    const vAtl = mercatoAIValido("1", { "1": { odd: 1.95 } });
+    assert.equal(vAtl.ok, false);
+    assert.equal(vAtl.motivo, "fuori scala");
+    // Viking-Bayern: U3.5 perde con 1-3, che e' fra i risultati dell'AI
+    assert.equal(controRisultatiAI("DC X2 + U3.5", ["0-2", "1-3", "0-3"]), true);
+    assert.equal(controRisultatiAI("DC X2 + O1.5", ["0-2", "1-3", "0-3"]), false);
+    const vRis = mercatoAIValido("X2", { X2: { odd: 1.60 } }, undefined, ["1-1", "2-1"]);
+    assert.equal(vRis.ok, false);
+    assert.equal(vRis.motivo, "contro i risultati");
+    // Inter-Brugge: da 'DC 1X + O1.5' non si puo' salire a 'DC 12 + O2.5'
+    assert.deepEqual([...esitiDelSegno("DC 1X + O1.5")!].sort(), ["1", "X"]);
+    assert.deepEqual([...esitiDelSegno("DC 12 + O2.5")!].sort(), ["1", "2"]);
+    assert.equal(esitiDelSegno("MG 2-4 casa"), null);
   });
 });

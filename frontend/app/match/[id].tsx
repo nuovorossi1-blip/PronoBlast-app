@@ -681,7 +681,7 @@ export default function MatchDetail() {
           let scartata: { mercato: string; motivo: string } | null = (salvato as any)?.proposta_scartata ?? null;
 
           if (pro?.notizia_verificata && pro.mercato) {
-            const val = mercatoAIValido(pro.mercato, analisi || structural?.market_odds, analisi?.manuali);
+            const val = mercatoAIValido(pro.mercato, analisi || structural?.market_odds, analisi?.manuali, pro.risultati_probabili);
             if (val.ok && val.market && val.quota != null) {
               // Il consigliato salvato e' gia' la giocata dell'AI (ai "cambiato"):
               // resta un cambio, non una conferma (Ajax-Nec, 11/10/2026: diceva
@@ -695,9 +695,10 @@ export default function MatchDetail() {
                 tradottoDaCambiato = val.tradotto_da || null;
                 scartata = null;
               }
-            } else if (val.motivo === "fuori scala" && salvato?.ai === "cambiato" && salvato.market) {
-              // Proposta sotto 1,40: il server e' salito alla giocata piu'
-              // solida coerente con la lettura dell'AI (salitaDaProposta, 13/10/2026).
+            } else if ((val.motivo === "fuori scala" || val.motivo === "contro i risultati") && salvato?.ai === "cambiato" && salvato.market) {
+              // Proposta sotto 1,40, sopra il tetto o contro i suoi risultati: il
+              // server e' salito alla giocata piu' solida coerente con la lettura
+              // dell'AI (salitaDaProposta, 13/10/2026).
               cambiato = true;
               mercatoCambiato = salvato.market;
               quotaCambiato = salvato.quota ?? null;
@@ -1073,7 +1074,7 @@ export default function MatchDetail() {
           };
           const pcT = (x: number) => `${Math.round(x * 100)}%`;
           if (proDecide && lettura?.pro?.mercato) {
-            const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds);
+            const v = mercatoAIValido(lettura.pro.mercato, analisi || structural?.market_odds, undefined, lettura.pro.risultati_probabili);
             if (v.ok && v.market && v.quota != null) {
               const vp = valutaPuntaSu(v.market, ctxC);
               motAI = { market: v.market, odd: v.quota, stimata: v.stimata, prob: vp?.prob ?? null, soglia: minOdd, archivio: null };

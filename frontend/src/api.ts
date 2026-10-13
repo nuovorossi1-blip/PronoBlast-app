@@ -1185,7 +1185,7 @@ export type EsitoMercatoAI = {
   market: string | null;
   quota: number | null;
   stimata: boolean;
-  motivo: "non ammesso" | "senza quota" | "fuori scala" | null;
+  motivo: "non ammesso" | "senza quota" | "fuori scala" | "contro i risultati" | null;
   tradotto_da?: string | null;
 };
 
@@ -1203,7 +1203,9 @@ export type EsitoMercatoAI = {
 export function mercatoAIValido(
   mercato: string | null | undefined,
   analisiOrCatalogo: AnalisiGiocate | Record<string, { odd: number; estimated?: boolean; stimata?: boolean }> | RigaGiocata[] | null | undefined,
-  manuali?: string[] | null
+  manuali?: string[] | null,
+  /** risultati_probabili della lettura AI: la giocata non deve perdere con nessuno */
+  risultati?: string[] | null,
 ): EsitoMercatoAI {
   if (!mercato || !mercato.trim()) {
     return { ok: false, market: null, quota: null, stimata: false, motivo: "non ammesso" };
@@ -1297,12 +1299,40 @@ export function mercatoAIValido(
     return { ok: false, market: null, quota: null, stimata: false, motivo: "senza quota", tradotto_da: trad.tradottoDa || null };
   }
 
-  // Scala: quota >= 1.40 e fasciaDellaQuota(quota) != null
-  if (quota < 1.40 || fasciaDellaQuota(quota) === null) {
+  // Scala: quota da 1.40 a QUOTA_MAX_AI e fasciaDellaQuota(quota) != null.
+  // Tetto (13/10/2026, Champions): l'AI portava 1 @1,95 e DC X2 + U3.5 @2,57.
+  if (quota < 1.40 || quota > QUOTA_MAX_AI + 1e-9 || fasciaDellaQuota(quota) === null) {
     return { ok: false, market: null, quota, stimata, motivo: "fuori scala", tradotto_da: trad.tradottoDa || null };
   }
 
-  return { ok: true, market: marketTrovato || canonico, quota, stimata, motivo: null, tradotto_da: trad.tradottoDa || null };
+  // Coerenza con la stessa lettura dell'AI (13/10/2026, Viking-Bayern: U3.5
+  // con 1-3 fra i suoi risultati probabili).
+  const marketFinale = marketTrovato || canonico;
+  if (controRisultatiAI(marketFinale, risultati)) {
+    return { ok: false, market: null, quota, stimata, motivo: "contro i risultati", tradotto_da: trad.tradottoDa || null };
+  }
+
+  return { ok: true, market: marketFinale, quota, stimata, motivo: null, tradotto_da: trad.tradottoDa || null };
+}
+
+/** Quota massima con cui il Pronostico AI puo' cambiare il consigliato
+ *  (13/10/2026): oltre si sale alla giocata piu' solida coerente. 1,85 e' gia'
+ *  il limite alto della zona preferita nel punteggio dei pick. */
+export const QUOTA_MAX_AI = 1.85;
+
+/** La giocata perde con almeno uno dei risultati probabili dati dall'AI? */
+export function controRisultatiAI(market: string, risultati?: string[] | null): boolean {
+  if (!risultati?.length) return false;
+  return risultati.some((r) => /^\s*\d+\s*-\s*\d+\s*$/.test(r) && evaluateMarketOutcome(market, r.replace(/\s/g, "")) === false);
+}
+
+/** Esiti 1/X/2 coperti dal segno di una giocata ("DC 1X + O1.5" -> 1,X);
+ *  null se la giocata non ha segno (solo gol). */
+export function esitiDelSegno(market: string): Set<string> | null {
+  const m = market.trim().toUpperCase().replace(/^DC\s+/, "");
+  const r = /^(1X|X2|12|1|X|2)(?=\s|$|\+)/.exec(m);
+  if (!r) return null;
+  return new Set(r[1].split(""));
 }
 
 export type VerdictSource = "structural" | "ai" | "pre";

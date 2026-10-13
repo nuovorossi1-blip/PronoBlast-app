@@ -149,6 +149,24 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Cambi del Pronostico AI: tetto di quota e coerenza con la sua lettura
+
+Controllo della Schedina Champions del 13/10: l'AI aveva cambiato 9 consigliati
+su 9, con 1 @1,95 (Atletico-United), DC X2 + U3.5 @2,57 (Viking-Bayern, contro
+il suo stesso 1-3) e una salita da DC 1X + O1.5 a DC 12 + O2.5 (Inter-Brugge).
+- `mercatoAIValido` (`frontend/src/api.ts`): tetto `QUOTA_MAX_AI` = 1,85 (sopra
+  -> "fuori scala") e nuovo motivo "contro i risultati" se la giocata perde con
+  uno dei `risultati_probabili` dell'AI (`controRisultatiAI`).
+- `salitaDaProposta` (`letturaPartita.ts`): stesso tetto, stessa coerenza con i
+  risultati, e il segno resta dentro gli esiti del mercato dell'AI
+  (`esitiDelSegno`: da 1X non si sale a 12). La salita scatta anche sopra il
+  tetto e "contro i risultati"; `tradotto_da` dice il motivo.
+- pA/pB/n del consigliato sono quelli della giocata scelta anche quando l'AI
+  cambia (prima restavano quelli dei numeri, o 0 se "da lasciare"):
+  `pick_finale_prob` non e' piu' vuoto.
+- Ricalcolate le 9 partite: Atletico -> MG 1-3 casa + MG 0-2 ospite @1,51,
+  Viking -> MG 1-3 Bayern @1,70, Inter -> MG 3-6 totali @1,51.
+
 ### 2026-10-13 — App Android e bot Telegram passano da Cloudflare
 
 - Il guscio Android (`capacitor.config.ts`) carica da https://prono.redapp.dev

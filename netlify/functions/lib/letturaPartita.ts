@@ -16,7 +16,7 @@
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
-import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
+import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
 import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
@@ -225,7 +225,8 @@ export function giocataDelConsigliato(c: ConsigliatoSalvato | null | undefined):
   if (!c) return null;
   const market = c.market || c.lasciata_market;
   if (!market) return null;
-  const prob = c.market && c.ai !== "cambiato" && c.pA != null ? Math.min(c.pA, c.pB ?? c.pA) : null;
+  // Dal 13/10/2026 pA/pB sono quelli della giocata scelta anche quando l'AI cambia.
+  const prob = c.market && c.pA != null && c.pA > 0 ? Math.min(c.pA, c.pB ?? c.pA) : null;
   return { pick_finale: market, pick_finale_prob: prob };
 }
 
@@ -245,14 +246,20 @@ export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>
   const dir = String(pro?.direzione || "");
   const gol = forchetta(pro?.gol_totali);
   const totAI = gol ? (gol[0] + gol[1]) / 2 : null;
+  // Esiti 1/X/2 ammessi dal mercato dell'AI (13/10/2026, Inter-Brugge: da
+  // "DC 1X + O1.5" si saliva a "DC 12 + O2.5", che toglie la X e aggiunge il 2).
+  const esitiAI = pro?.mercato ? esitiDelSegno(String(pro.mercato)) : null;
   let best: RigaGiocata | null = null, bestP = -1;
   for (const r of a.righe) {
-    if (!(r.quota >= 1.40) || isMercatoVietato(r.market)) continue;
+    if (!(r.quota >= 1.40) || r.quota > QUOTA_MAX_AI + 1e-9 || isMercatoVietato(r.market)) continue;
     const seg = r.market.trim().toUpperCase().replace(/^DC\s+/, "");
     if (dir === "2" && /^(1|1X)(\s|$|\+)|^1 (DNB|AH)/.test(seg)) continue;
     if (dir === "1" && /^(2|X2)(\s|$|\+)|^2 (DNB|AH)/.test(seg)) continue;
+    const esiti = esitiDelSegno(r.market);
+    if (esitiAI && esiti && [...esiti].some((e) => !esitiAI.has(e))) continue;
     if (pro?.mercato && contraddice(String(pro.mercato), r.market)) continue;
     if (!coerenteConGol(r.market, totAI)) continue;
+    if (controRisultatiAI(r.market, pro?.risultati_probabili)) continue;
     const ps = [r.stima, r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null].filter((x): x is number => typeof x === "number");
     if (!ps.length) continue;
     const p = Math.min(...ps);
@@ -313,13 +320,20 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
     if (pro.notizia_verificata && pro.mercato) {
-      const v = mercatoAIValido(pro.mercato, a, nota?.markets);
+      const v = mercatoAIValido(pro.mercato, a, nota?.markets, pro.risultati_probabili);
+      // Probabilita' della giocata nuova (13/10/2026): prima restavano quelle
+      // della giocata dei numeri, o 0 se i numeri dicevano "da lasciare".
+      const probDi = (market: string) => {
+        const r = a.righe.find((x) => normalizeMarket(x.market) === normalizeMarket(market));
+        out.pA = r?.misurata?.pA ?? r?.stima ?? null; out.pB = r?.misurata?.pB ?? r?.stima ?? null; out.n = r?.misurata?.n ?? null;
+      };
       if (v.ok && v.market && v.quota != null) {
         if (!out.market || normalizeMarket(v.market) !== normalizeMarket(out.market)) {
           out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
           out.ai = "cambiato"; out.notizia = pro.notizia || null;
           out.market = v.market; out.nome = v.market.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
           out.quota = v.quota; out.stimata = v.stimata; out.daLasciare = null;
+          probDi(v.market);
           out.tradotto_da = v.tradotto_da || null;
           out.proposta_scartata = null;
         } else if (out.market) {
@@ -332,17 +346,21 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
         // sotto 1,40 (X2 a 1,30) non si butta. Si prende la giocata piu'
         // solida coerente con la lettura dell'AI: stessa direzione, non in
         // contrasto con il suo mercato, dentro i suoi gol. Se non c'e', scarto.
-        const salita = v.motivo === "fuori scala" ? salitaDaProposta(pro, a) : null;
+        // Stessa salita sopra QUOTA_MAX_AI e se la proposta perde con i suoi
+        // risultati probabili (13/10/2026).
+        const salita = v.motivo === "fuori scala" || v.motivo === "contro i risultati" ? salitaDaProposta(pro, a) : null;
+        const perche = v.motivo === "contro i risultati" ? "contro i suoi risultati" : v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
         if (salita && (!out.market || normalizeMarket(salita.market) !== normalizeMarket(out.market))) {
           out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
           out.ai = "cambiato"; out.notizia = pro.notizia || null;
           out.market = salita.market; out.nome = salita.nome; out.quota = salita.quota; out.stimata = salita.stimata;
           out.daLasciare = null;
-          out.tradotto_da = `${pro.mercato} (sotto 1,40)`;
+          probDi(salita.market);
+          out.tradotto_da = `${pro.mercato} (${perche})`;
           out.proposta_scartata = null;
         } else if (salita && out.market) {
           out.ai = "confermato";
-          out.tradotto_da = `${pro.mercato} (sotto 1,40)`;
+          out.tradotto_da = `${pro.mercato} (${perche})`;
           out.proposta_scartata = null;
         } else {
           // Proposta AI scartata: non ammessa, senza quota o fuori scala
