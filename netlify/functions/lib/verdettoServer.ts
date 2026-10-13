@@ -2,6 +2,7 @@ import { pgGet, pgPatch } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo, type Odds } from "./clusterEngine";
 import { preHeuristicRanking } from "./preHeuristic";
 import { manualeStatsRecenti } from "./manuale";
+import { consigliatoValido, giocataDelConsigliato } from "./letturaPartita";
 import {
   buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita, aiDecide,
   candidatiManuale, FASCE_AI, consigliatoTraFasce,
@@ -36,6 +37,8 @@ export type EsitoVerdetto = {
   pick: VerdictPick | null;
   /** fascia da cui viene il consigliato salvato */
   fascia?: number | null;
+  /** true = la giocata e' il consigliato della scheda (dossier) */
+  da_scheda?: boolean;
   aveva_ai: boolean;
   salvato: boolean;
   motivo?: string;
@@ -177,18 +180,34 @@ export async function verdettoDiPartita(
   // il consigliato salvato e' il piu' solido fra tutte le fasce (13/10/2026).
   const verdetto = verdettoDellaFascia(minOdd);
   const scelto = consigliatoTraFasce(verdettoDellaFascia);
-  const pick = scelto?.pick || null;
+  let pick = scelto?.pick || null;
+  let giocata: { pick_finale: string; pick_finale_prob: number | null } | null =
+    pick ? { pick_finale: pick.market, pick_finale_prob: pick.coverage ?? null } : null;
+  // UN SOLO CONSIGLIATO (13/10/2026, Rossi): se la scheda ha il suo consigliato
+  // (dossier, quote di adesso) la Schedina gioca quello, anche quando l'ha
+  // cambiato il Pronostico AI. Il piu' solido fra le fasce resta solo per le
+  // partite senza consigliato.
+  let daScheda = false;
+  try {
+    const [d] = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(match.id)}&select=numeri`);
+    const c = consigliatoValido(d?.numeri, match);
+    const g = giocataDelConsigliato(c);
+    if (g) {
+      giocata = g;
+      daScheda = true;
+      pick = { market: g.pick_finale, odd: c?.market ? c.quota ?? undefined : c?.lasciata_quota ?? undefined, coverage: g.pick_finale_prob ?? undefined } as any;
+    }
+  } catch (e) {
+    console.error("[verdettoServer] consigliato della scheda", e);
+  }
   let salvato = false;
-  if (salva && pick && !match.result) {
+  if (salva && giocata && !match.result) {
     try {
-      await pgPatch(`matches?id=eq.${encodeURIComponent(match.id)}`, {
-        pick_finale: pick.market,
-        pick_finale_prob: pick.coverage ?? null,
-      });
+      await pgPatch(`matches?id=eq.${encodeURIComponent(match.id)}`, giocata);
       salvato = true;
     } catch {
       // il salvataggio non deve far fallire il calcolo
     }
   }
-  return { ...base, verdetto, pick, fascia: scelto?.fascia ?? null, salvato };
+  return { ...base, verdetto, pick, fascia: daScheda ? null : scelto?.fascia ?? null, da_scheda: daScheda, salvato };
 }

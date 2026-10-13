@@ -149,6 +149,28 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Un solo consigliato (scheda, Schedina, bot) e salita della proposta AI sotto 1,40
+
+**Cosa.**
+1. `pick_finale` (lista e Schedina) = il consigliato della scheda
+   (`dossier_web.numeri.consigliato`), lo stesso che mostra il bot. Lo scrive
+   `consigliatoDi` a ogni salvataggio (`giocataDelConsigliato`: il mercato,
+   oppure per le partite "da lasciare" quello che si giocherebbe lo stesso), e
+   `verdettoDiPartita` lo preferisce se e' valido con le quote di adesso. Il piu'
+   solido fra le fasce (voce sotto) resta solo per le partite senza consigliato.
+2. Pronostico AI con notizia verificata ma mercato sotto 1,40 ("fuori scala"):
+   non si scarta piu'. `salitaDaProposta` prende la giocata piu' solida da 1,40
+   coerente con la lettura dell'AI (stessa direzione, non in contrasto con il
+   suo mercato, `coerenteConGol` sulla sua forchetta di gol). Salvata come
+   `ai: "cambiato"`, `tradotto_da: "<mercato> (sotto 1,40)"`; la scheda la mostra.
+3. Il mercato dei numeri resta in `numeri_market` per la pagella numeri/AI.
+
+**Perche'.** Misura del 13/10 (partite gia' giocate, consigliato calcolato prima
+del via): consigliato della scheda 449 partite 59,9% resa -7,5%, il piu' solido
+fra le fasce sulle stesse 432 partite 60,0% resa -10,6%. Troyes-Marsiglia 11/10
+(0-2): DeepSeek diceva X2 (1,30, scartato) e la Schedina giocava 1X; con la
+salita: MG 0-2 casa + MG 1-3 ospite @1,52 (vinta).
+
 ### 2026-10-13 — Consigliato salvato = il piu' solido fra tutte le fasce
 
 **Cosa.** `pick_finale` (la giocata in Schedina e nella lista) non e' piu' il

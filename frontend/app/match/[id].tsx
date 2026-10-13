@@ -695,6 +695,16 @@ export default function MatchDetail() {
                 tradottoDaCambiato = val.tradotto_da || null;
                 scartata = null;
               }
+            } else if (val.motivo === "fuori scala" && salvato?.ai === "cambiato" && salvato.market) {
+              // Proposta sotto 1,40: il server e' salito alla giocata piu'
+              // solida coerente con la lettura dell'AI (salitaDaProposta, 13/10/2026).
+              cambiato = true;
+              mercatoCambiato = salvato.market;
+              quotaCambiato = salvato.quota ?? null;
+              stimataCambiato = !!salvato.stimata;
+              notiziaCambiato = salvato.notizia || pro.notizia || null;
+              tradottoDaCambiato = (salvato as any)?.tradotto_da || null;
+              scartata = null;
             } else {
               scartata = { mercato: pro.mercato, motivo: val.motivo || "non ammesso" };
             }

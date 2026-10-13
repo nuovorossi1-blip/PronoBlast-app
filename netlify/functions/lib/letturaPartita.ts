@@ -15,8 +15,8 @@
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
-import { structuralAnalysis, quoteCatalogo } from "./clusterEngine";
-import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
+import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
+import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
 import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
@@ -219,6 +219,48 @@ export type ConsigliatoSalvato = {
   quote: QuoteFirma; quando: string;
 };
 
+/** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
+ *  "da lasciare") quello che si giocherebbe lo stesso. null = nessuno. */
+export function giocataDelConsigliato(c: ConsigliatoSalvato | null | undefined): { pick_finale: string; pick_finale_prob: number | null } | null {
+  if (!c) return null;
+  const market = c.market || c.lasciata_market;
+  if (!market) return null;
+  const prob = c.market && c.ai !== "cambiato" && c.pA != null ? Math.min(c.pA, c.pB ?? c.pA) : null;
+  return { pick_finale: market, pick_finale_prob: prob };
+}
+
+/** "1-3" -> [1, 3] */
+const forchetta = (s: unknown): [number, number] | null => {
+  const r = /^(\d+)\s*-\s*(\d+)$/.exec(String(s ?? "").trim());
+  return r ? [Number(r[1]), Number(r[2])] : null;
+};
+
+/**
+ * La giocata piu' solida coerente con la lettura del Pronostico AI, quando il
+ * suo mercato e' sotto 1,40. Coerente vuol dire: quota da 1,40, non contro la
+ * sua direzione ne' contro il suo mercato, gol nella sua forchetta.
+ * Solida: la probabilita' piu' bassa fra archivio (se misurata) e motore.
+ */
+export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>): RigaGiocata | null {
+  const dir = String(pro?.direzione || "");
+  const gol = forchetta(pro?.gol_totali);
+  const totAI = gol ? (gol[0] + gol[1]) / 2 : null;
+  let best: RigaGiocata | null = null, bestP = -1;
+  for (const r of a.righe) {
+    if (!(r.quota >= 1.40) || isMercatoVietato(r.market)) continue;
+    const seg = r.market.trim().toUpperCase().replace(/^DC\s+/, "");
+    if (dir === "2" && /^(1|1X)(\s|$|\+)|^1 (DNB|AH)/.test(seg)) continue;
+    if (dir === "1" && /^(2|X2)(\s|$|\+)|^2 (DNB|AH)/.test(seg)) continue;
+    if (pro?.mercato && contraddice(String(pro.mercato), r.market)) continue;
+    if (!coerenteConGol(r.market, totAI)) continue;
+    const ps = [r.stima, r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null].filter((x): x is number => typeof x === "number");
+    if (!ps.length) continue;
+    const p = Math.min(...ps);
+    if (p > bestP + 1e-9 || (Math.abs(p - bestP) <= 1e-9 && best && r.quota > best.quota)) { best = r; bestP = p; }
+  }
+  return best;
+}
+
 /** Partita con risultato o con l'orario d'inizio gia' passato. */
 export function partitaIniziata(m: { result?: string | null; day?: string | null; time?: string | null }): boolean {
   if (m.result) return true;
@@ -286,10 +328,28 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
           out.proposta_scartata = null;
         }
       } else {
-        // Proposta AI scartata: non ammessa, senza quota o fuori scala
-        out.ai = null;
-        out.proposta_scartata = { mercato: pro.mercato, motivo: v.motivo ?? "non ammesso" };
-        out.tradotto_da = null;
+        // SALITA (13/10/2026, Rossi, Troyes-Marsiglia): una proposta giusta ma
+        // sotto 1,40 (X2 a 1,30) non si butta. Si prende la giocata piu'
+        // solida coerente con la lettura dell'AI: stessa direzione, non in
+        // contrasto con il suo mercato, dentro i suoi gol. Se non c'e', scarto.
+        const salita = v.motivo === "fuori scala" ? salitaDaProposta(pro, a) : null;
+        if (salita && (!out.market || normalizeMarket(salita.market) !== normalizeMarket(out.market))) {
+          out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
+          out.ai = "cambiato"; out.notizia = pro.notizia || null;
+          out.market = salita.market; out.nome = salita.nome; out.quota = salita.quota; out.stimata = salita.stimata;
+          out.daLasciare = null;
+          out.tradotto_da = `${pro.mercato} (sotto 1,40)`;
+          out.proposta_scartata = null;
+        } else if (salita && out.market) {
+          out.ai = "confermato";
+          out.tradotto_da = `${pro.mercato} (sotto 1,40)`;
+          out.proposta_scartata = null;
+        } else {
+          // Proposta AI scartata: non ammessa, senza quota o fuori scala
+          out.ai = null;
+          out.proposta_scartata = { mercato: pro.mercato, motivo: v.motivo ?? "non ammesso" };
+          out.tradotto_da = null;
+        }
       }
     } else if (out.market) {
       out.ai = "confermato";
@@ -305,6 +365,12 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
       if (numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, {
         numeri: { ...numeri, consigliato: out, programma: { ...programma, quote: out.quote } },
       });
+      // UN SOLO CONSIGLIATO (13/10/2026, Rossi): la giocata in lista e in
+      // Schedina (pick_finale) e' questa, la stessa della scheda e del bot.
+      const giocata = giocataDelConsigliato(out);
+      if (giocata && !partitaIniziata(m)) {
+        await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}&result=is.null`, giocata);
+      }
     } catch (e) {
       console.error("[consigliato] salvataggio", e);
     }
