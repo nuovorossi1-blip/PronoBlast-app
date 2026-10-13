@@ -149,6 +149,19 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-13 — Monitoraggio dei ritardi (scripts/misura-ritardi.mts)
+
+**Cosa.** Script in sola lettura: per Over 2.5, GG, 1 e 2 conta quante volte
+sono usciti nelle ultime 5 partite delle squadre (dal dossier, salvate prima del
+via) e confronta con il risultato e con la quota senza margine. Nessun effetto
+sull'app.
+
+**Prima misura (13/10, partite dal 06/10).** Il ritardo NON fa uscire l'esito:
+Over in ritardo 35,3% contro 45,6% del book (resa -28,8%), GG in ritardo 47,3%
+contro 51,0%; su 1 e 2 il book e' preciso (casa in ritardo: 1 esce 36,7%
+contro 37,4%). Unico segnale positivo: Under con Over in ritardo +10,6% su 119
+partite. Rifare con 3-4 settimane di dossier (dal 06/11) prima di usarlo.
+
 ### 2026-10-13 — Un solo consigliato (scheda, Schedina, bot) e salita della proposta AI sotto 1,40
 
 **Cosa.**
