@@ -149,6 +149,19 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-14 — Dossier: raccolta di peso assenti, allenatore e portiere (solo dati)
+
+`fotmobDossier.ts`: per ogni squadra si legge anche la pagina squadra FotMob
+(`api/data/teams`, in memoria 6 ore) e si salvano in `numeri.extra_casa` /
+`numeri.extra_ospite`: assenti con ruolo, gol, assist, voto, valore e se erano
+titolari nell'ultima partita; gol della rosa e degli assenti; quota del valore
+assente; allenatore (partite in stagione, nuovo dall'estate, cambio in
+stagione); portiere dell'ultima partita contro portiere della formazione.
+Nessun calcolo, consigliato o testo per l'AI li usa: servono a misurare tra
+3-4 settimane se "chi manca" e allenatore/portiere aggiungono qualcosa alle
+quote (misura di oggi sull'archivio: forma e serie quasi nulla oltre le quote;
+campionato da pochi gol e 5+ assenti sì). Se FotMob non risponde: `null`.
+
 ### 2026-10-14 — "Forma e quote non d'accordo" non rende più la partita "da lasciare"
 
 Richiesta di Rossi dopo le misure del 14/10: sulle partite finite con il

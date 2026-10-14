@@ -153,6 +153,20 @@ export type NumeriFotmob = {
   forma_ospite: string;
   precedenti: { casa: number; pari: number; ospite: number; partite: number };
   formazioni: string;      // "ufficiali" | "probabili" | "non disponibili"
+  // Solo raccolta per le misure (14/10/2026): nessun calcolo ne' testo per l'AI li usa.
+  extra_casa?: ExtraSquadra | null;
+  extra_ospite?: ExtraSquadra | null;
+};
+
+/** Peso degli assenti, allenatore e portiere di una squadra (pagina squadra FotMob). */
+export type ExtraSquadra = {
+  assenti: { nome: string; ruolo: string | null; gol: number | null; assist: number | null; voto: number | null; valore: number | null; titolare_ultima: boolean }[];
+  gol_rosa: number;               // somma dei gol dei giocatori in rosa (stagione FotMob)
+  gol_assenti: number;
+  titolari_ultima_assenti: number; // assenti che erano titolari nell'ultima partita
+  valore_assenti_pct: number | null;
+  allenatore: { nome: string | null; partite_lega_stagione: number | null; nuovo_in_stagione: boolean | null; cambio_in_stagione: boolean | null };
+  portiere: { ultima: string | null; titolare: string | null; cambiato: boolean | null; titolare_ultima_assente: boolean };
 };
 
 type RigaSquadra = {
@@ -201,6 +215,79 @@ function testoSquadra(r: RigaSquadra | null, inCasa: boolean): string | null {
     s += `; xG a partita ${ap(r.xg)} fatti / ${ap(r.xg_subiti)} subiti (totali in ${g ?? "?"} gare: ${r.xg} / ${r.xg_subiti})`;
   }
   return s;
+}
+
+const squadre = new Map<number, { quando: number; dati: any }>();
+
+async function paginaSquadra(id: number): Promise<any | null> {
+  const c = squadre.get(id);
+  if (c && Date.now() - c.quando < 6 * 3600_000) return c.dati;
+  const dati = await getJson(`https://www.fotmob.com/api/data/teams?id=${id}`, 20000).catch(() => null);
+  squadre.set(id, { quando: Date.now(), dati });
+  return dati;
+}
+
+const PORTIERE = 11; // positionId del portiere nelle formazioni FotMob
+
+/** Chi manca quanto pesa, allenatore nuovo o cambiato, portiere diverso dall'ultima partita. Mai lancia. */
+async function extraSquadra(idSquadra: number, lineup: any): Promise<ExtraSquadra | null> {
+  try {
+    if (!idSquadra) return null;
+    const t = await paginaSquadra(idSquadra);
+    if (!t) return null;
+    const rosa = (t?.squad?.squad || []).flatMap((g: any) => (g?.title === "coach" ? [] : (g?.members || []).map((p: any) => ({ ...p, ruolo: g.title }))));
+    const perId = new Map<number, any>(rosa.map((p: any) => [Number(p.id), p]));
+    const ultima = (t?.overview?.lastLineupStats?.starters || []) as any[];
+    const idUltima = new Set(ultima.map((p) => Number(p?.id)));
+    const num = (x: unknown) => (typeof x === "number" ? x : null);
+
+    const assenti = (lineup?.unavailable || []).map((p: any) => {
+      const r = perId.get(Number(p?.id));
+      return {
+        nome: String(p?.name || ""), ruolo: r?.ruolo ?? null,
+        gol: num(r?.goals), assist: num(r?.assists), voto: num(r?.rating),
+        valore: num(p?.marketValue ?? r?.transferValue), titolare_ultima: idUltima.has(Number(p?.id)),
+      };
+    });
+    const gol_rosa = rosa.reduce((s: number, p: any) => s + (num(p?.goals) || 0), 0);
+    const valoreRosa = rosa.reduce((s: number, p: any) => s + (num(p?.transferValue) || 0), 0);
+    const valoreAss = assenti.reduce((s: number, p: any) => s + (p.valore || 0), 0);
+
+    // Allenatore: storico per stagione e campionato; la stagione in corso e' l'ultima dell'elenco.
+    const storia = (t?.overview?.coachHistory || []) as any[];
+    const coach = (t?.squad?.squad || []).find((g: any) => g?.title === "coach")?.members?.[0];
+    const stagione = storia.length ? storia[storia.length - 1]?.season : null;
+    const diQuesta = storia.filter((x) => x?.season === stagione);
+    const prima = storia.filter((x) => x?.season !== stagione);
+    const idCoach = Number(coach?.id ?? diQuesta[diQuesta.length - 1]?.id);
+    const sue = diQuesta.filter((x) => Number(x?.id) === idCoach);
+    const allenatore = {
+      nome: coach?.name ?? sue[0]?.name ?? null,
+      partite_lega_stagione: sue.length ? sue.reduce((s, x) => s + (x.win || 0) + (x.draw || 0) + (x.loss || 0), 0) : null,
+      nuovo_in_stagione: prima.length && idCoach ? Number(prima[prima.length - 1]?.id) !== idCoach : null,
+      cambio_in_stagione: diQuesta.length && idCoach ? diQuesta.some((x) => Number(x?.id) !== idCoach) : null,
+    };
+
+    const portUltima = ultima.find((p) => Number(p?.positionId) === PORTIERE);
+    const portOggi = (lineup?.starters || []).find((p: any) => Number(p?.positionId) === PORTIERE);
+    const portiere = {
+      ultima: portUltima?.name ?? null,
+      titolare: portOggi?.name ?? null,
+      cambiato: portUltima && portOggi ? Number(portUltima.id) !== Number(portOggi.id) : null,
+      titolare_ultima_assente: !!portUltima && assenti.some((a: any) => a.nome === portUltima.name),
+    };
+
+    return {
+      assenti, gol_rosa,
+      gol_assenti: assenti.reduce((s: number, p: any) => s + (p.gol || 0), 0),
+      titolari_ultima_assenti: assenti.filter((p: any) => p.titolare_ultima).length,
+      valore_assenti_pct: valoreRosa > 0 ? Math.round((1000 * valoreAss) / valoreRosa) / 10 : null,
+      allenatore, portiere,
+    };
+  } catch (e) {
+    console.error("[fotmobDossier] extra", idSquadra, e);
+    return null;
+  }
 }
 
 function assenti(lista: any[] | undefined): string[] {
@@ -301,6 +388,9 @@ export async function datiFotmob(giorno: string, casa: string, ospite: string, o
         return x?.text ? `${chi ? `${chi}: ` : ""}${x.text}` : null;
       })
       .filter(Boolean) as string[];
+    // Solo per le misure: salvati nei numeri, non entrano nei blocchi letti dall'AI.
+    const [extraC, extraO] = await Promise.all([extraSquadra(idC, c?.lineup?.homeTeam), extraSquadra(idO, c?.lineup?.awayTeam)]);
+
     const w = c?.weather;
     if (w?.temperature != null) curiosita.push(`Meteo previsto: ${w.temperature}°C, ${w.description || ""}, pioggia ${w.precipChance ?? "?"}%`);
     if (curiosita.length) blocchi.push({ etichetta: "Statistiche e meteo (FotMob)", righe: curiosita });
@@ -314,6 +404,7 @@ export async function datiFotmob(giorno: string, casa: string, ospite: string, o
         assenti_casa: ac.length, assenti_ospite: ao.length,
         forma_casa: formaC, forma_ospite: formaO,
         precedenti: prec, formazioni,
+        extra_casa: extraC, extra_ospite: extraO,
       },
       aliasScoperto: m.aliasScoperto,
     };
