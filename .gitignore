@@ -98,3 +98,4 @@ server-locale/ATTIVO.txt
 
 # memoria locale dei verdetti senza pick (verdetto.ts)
 .cache-senza-pick.json
+server-locale/test-regole/
