@@ -207,8 +207,9 @@ async function prova() {
     const [m] = await pgGet(`matches?id=eq.${id}&select=*`);
     const [d] = await pgGet(`dossier_web?match_id=eq.${id}&select=ai:numeri->lettura_ai,pro:numeri->lettura_pro,prog:numeri->programma`);
     const dec = decidi(m, d);
-    const [h, a] = String(m.result ?? "").split("-").map(Number);
-    const es = dec.scelta && Number.isFinite(h) ? (vince(dec.scelta.mk, h, a) ? "VINTA" : "persa") : "-";
+    const fin = /^\d+-\d+$/.test(String(m.result ?? "").trim());
+    const [h, a] = fin ? String(m.result).trim().split("-").map(Number) : [NaN, NaN];
+    const es = dec.scelta && fin ? (vince(dec.scelta.mk, h, a) ? "VINTA" : "persa") : "da giocare";
     console.log(`${m.squadra1}-${m.squadra2} ${m.result ?? ""} | ${dec.scenario} | ${dec.semaforo} (${dec.motivo}) | scelta ${dec.scelta ? `${dec.scelta.mk} @${dec.scelta.quota} ${(dec.scelta.p * 100).toFixed(0)}%` : "esclusa"} -> ${es} | fasce ${Object.entries(dec.fasce).map(([k, v]: any) => `${k}: ${v ? v.mk + " @" + v.quota : "-"}`).join("; ")}`);
   }
 }
