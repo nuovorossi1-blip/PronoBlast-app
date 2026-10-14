@@ -48,7 +48,8 @@ async function avvisiDi(ids: string[]): Promise<Map<string, { avvisi: string[]; 
 function giudica(leg: any, n: any) {
   const avvisi: string[] = [], seri: string[] = [];
   for (const f of n?.programma?.frasi || []) {
-    if (/NON d'accordo/i.test(f)) seri.push("forma e quote non sono d'accordo");
+    // 14/10/2026: il contrasto forma/quote non toglie piu' la partita (la favorita delle quote vince di piu'): solo avviso.
+    if (/NON d'accordo/i.test(f)) avvisi.push("forma e quote non sono d'accordo: valgono le quote");
     else if (/⚠/.test(f)) avvisi.push(String(f).replace(/^⚠\s*/, ""));
   }
   const ai = n?.lettura_pro || n?.lettura_ai;

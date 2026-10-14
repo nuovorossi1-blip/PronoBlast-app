@@ -145,7 +145,8 @@ export async function letturaProgramma(
   if (pc) f.push(`Contro squadre del livello di ${nomi.ospite}, ${nomi.casa} fa ${g(pc.fatti)} gol e ne prende ${g(pc.subiti)}.`);
   if (po) f.push(`Contro squadre del livello di ${nomi.casa}, ${nomi.ospite} fa ${g(po.fatti)} gol e ne prende ${g(po.subiti)}.`);
   if (out.accordo === true) f.push("Forma e quote sono d'accordo ✓");
-  else if (out.accordo === false) f.push(`⚠ Forma e quote NON sono d'accordo: ${out.motivi.join("; ")}. Partita più incerta.`);
+  // 14/10/2026: con il contrasto la favorita delle quote vince piu' del previsto (+4,8 su 334): valgono le quote.
+  else if (out.accordo === false) f.push(`⚠ Forma e quote NON sono d'accordo: ${out.motivi.join("; ")}. Valgono le quote: in questi casi la favorita delle quote vince più spesso del previsto.`);
   if (ass.length) f.push(`⚠ Assenze pesanti: ${ass.join("; ")}.`);
   out.frasi = f;
   out.testo = `CALCOLI DEL PROGRAMMA (affidabili: usali, non ricalcolarli):\n${righe.join("\n")}\n` +

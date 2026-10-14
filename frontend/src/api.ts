@@ -3450,8 +3450,8 @@ export function intervalloGol(lambda: number, soglia = 0.7): [number, number] {
 //
 // "Punterei dove tutti i dati sono d'accordo e la percentuale e' misurata, e
 // lascerei le partite incerte." Regola, uguale per scheda e multipla:
-//  - partita DA LASCIARE se forma e quote non sono d'accordo o se la favorita
-//    ha assenze pesanti;
+//  - (dal 14/10/2026 forma e quote in contrasto NON rendono piu' la partita
+//    "da lasciare": resta un avviso; le assenze sono un avviso dal 07/10);
 //  - candidati: quota da 1,40 in su, percentuale MISURATA e stabile nella
 //    tabella scenari (peggiore fra partite vecchie e recenti >= 58%),
 //    coerenti con i gol attesi e con la direzione;
@@ -3521,13 +3521,18 @@ export function analizzaGiocate(x: {
   for (const [m, q] of Object.entries(x.marketOdds || {})) aggiungi(m, { odd: q.odd, stimata: q.estimated });
   for (const m of x.manuali) aggiungi(m, quotaManuale(m, x.odds, x.marketOdds || undefined));
 
-  // Partita da lasciare?
-  let daLasciare: string | null = null;
-  if (x.accordo === false) daLasciare = "forma e quote non sono d'accordo: partita incerta";
+  // Partita da lasciare? FORMA E QUOTE NON D'ACCORDO NON BLOCCA PIU' (14/10/2026,
+  // Rossi): sulle partite finite con il consigliato salvato prima del via, quelle
+  // "da lasciare" per questo motivo avrebbero vinto il 65,2% (253) contro il 59,4%
+  // delle giocate (631), alla stessa quota; con il contrasto la favorita delle
+  // quote vince di piu' (segno +4,8 punti sul motore, 334 partite): di solito e'
+  // la forma a sbagliare. Resta un avviso.
+  const daLasciare: string | null = null;
   // Le assenze NON bloccano (07/10/2026, Croazia-Spagna: la Spagna con 4
   // assenti ha vinto lo stesso): il conteggio non dice se sono titolari.
   // Restano un avviso; la notizia vera la valuta il Pronostico AI.
   const avvisi: string[] = [];
+  if (x.accordo === false) avvisi.push("forma e quote non sono d'accordo: valgono le quote (in questi casi la favorita delle quote vince più spesso del previsto)");
   const favAssenti = x.direzione === "1" ? x.assentiCasa : x.direzione === "2" ? x.assentiOspite : 0;
   if (favAssenti >= 3) avvisi.push(`la favorita (${x.direzione === "1" ? x.casa : x.ospite}) ha ${favAssenti} assenti: se sono titolari il Pronostico AI può cambiare la giocata`);
 

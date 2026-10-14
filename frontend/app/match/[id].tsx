@@ -898,7 +898,7 @@ export default function MatchDetail() {
           descrivi(match.squadra1, match.squadra2, pr?.pesata_casa);
           descrivi(match.squadra2, match.squadra1, pr?.pesata_ospite);
           if (pr?.accordo === true) frasi.push({ t: "Forma e quote sono d'accordo ✓" });
-          else if (pr?.accordo === false) frasi.push({ t: `Forma e quote NON sono d'accordo: ${pr.motivi.join("; ")}. Partita più incerta.`, avviso: true });
+          else if (pr?.accordo === false) frasi.push({ t: `Forma e quote NON sono d'accordo: ${pr.motivi.join("; ")}. Valgono le quote: in questi casi la favorita delle quote vince più spesso del previsto.`, avviso: true });
           const ass: string[] = [];
           if ((pr?.assenti_casa ?? 0) >= 3) ass.push(`${match.squadra1} con ${pr!.assenti_casa} assenti`);
           if ((pr?.assenti_ospite ?? 0) >= 3) ass.push(`${match.squadra2} con ${pr!.assenti_ospite} assenti`);
@@ -947,7 +947,7 @@ export default function MatchDetail() {
                 ))}
               </View>
               {pr?.accordo === false && !lettura?.pro ? (
-                <Text style={[styles.golTesto, styles.golAvviso]}>{"⚠ Partita incerta: qui il Pronostico AI può aiutare (tasto in alto)."}</Text>
+                <Text style={[styles.golTesto, styles.golAvviso]}>{"⚠ Forma e quote non concordano: il Pronostico AI può dire se c'è una notizia che spiega la differenza (tasto in alto)."}</Text>
               ) : null}
               {lettura?.pro ? (
                 <View style={styles.letturaAI}>

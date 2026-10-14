@@ -149,6 +149,29 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-14 — "Forma e quote non d'accordo" non rende più la partita "da lasciare"
+
+Richiesta di Rossi dopo le misure del 14/10: sulle partite finite con il
+consigliato salvato prima del via, le "da lasciare" (sempre per questo motivo)
+avrebbero vinto il 65,2% (253) contro il 59,4% delle giocate (631), alla
+stessa quota; con il contrasto la favorita delle quote vince più del motore
+(segno +4,8 punti, doppia chance +7,3, 334 partite). Di solito sbaglia la forma.
+
+- `analizzaGiocate` (frontend/src/api.ts): `daLasciare` resta sempre null per
+  questo motivo; il contrasto diventa un avviso ("valgono le quote").
+- Testi della scheda (`[id].tsx`, `letturaProgramma.ts` frasi): non più
+  "Partita più incerta" ma "Valgono le quote...". Il testo per l'AI
+  (`out.testo`) NON è cambiato.
+- Bot (`suggerisci-multipla.ts`): il contrasto non toglie più la partita dalla
+  multipla, resta un avviso.
+- Non toccato: la regola "contro i risultati" sulla proposta del Pronostico AI.
+- Ricalcolati e salvati i consigliati delle 11 partite di oggi non iniziate che
+  erano "da lasciare". Prima: tag git `prima-da-lasciare-2026-10-14`, copia
+  di progetti in `Remoto\backup\2026-10-14`, consigliati e pick_finale delle
+  partite non giocate in `Remoto\backup\2026-10-14-database\`.
+- Stesso giorno: `scripts/test-regole.mts` (test scenario + lettura AI sulle
+  partite future, sola lettura, attività pianificate "PronoBlast - Test regole").
+
 ### 2026-10-13 — Notizie Google News: solo quelle della squadra
 
 - `notizieSquadre.ts`: `notiziaPertinente` scarta i titoli non sportivi
