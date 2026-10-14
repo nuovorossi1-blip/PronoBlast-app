@@ -72,7 +72,13 @@ export function decidi(m: any, d: any) {
   const assFav = Number(casaFav ? d?.prog?.assenti_casa : d?.prog?.assenti_ospite);
   const avvisoGol = Number.isFinite(assFav) && assFav >= 5;
   let semaforo: "verde" | "giallo" | "rosso" | "grigio", motivo: string, candidati: string[];
+  // "Non perde" (14/10/2026, Roma-Real: direzione 2 ma risultati 1-2, 1-1, 2-2): la squadra della
+  // direzione non perde in nessuno dei 3 risultati -> lettura coerente con la doppia chance, non incoerente.
+  const nonPerde = ["1", "2"].includes(dir) && ris.length === 3 && ris.every((r) => (dir === "1" ? r[0] >= r[1] : r[1] >= r[0]));
   if (!l) { semaforo = "grigio"; motivo = "senza lettura AI: solo scenario"; candidati = scenario === "Equilibrio" ? [F.dc, "X oppure GG"] : [F.dcO15, F.segno, F.combo]; }
+  else if (coerente === false && nonPerde && dir === favDir) {
+    semaforo = "giallo"; motivo = "lettura 'la favorita non perde' (vince o pareggia nei suoi risultati)"; candidati = [F.dcO15, F.dc, F.combo];
+  }
   else if (coerente === false || (["1", "2"].includes(dir) && dir !== favDir)) {
     semaforo = "rosso"; motivo = coerente === false ? "lettura incoerente (direzione diversa dai suoi risultati)" : "lettura contro il bookmaker"; candidati = ["O2.5", "GG"];
   } else if (dir === "nessuna" || dir === "" || dir === "x") {
