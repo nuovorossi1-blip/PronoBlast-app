@@ -172,6 +172,9 @@ codice + `.md` insieme -> costruisce.
   richiesta a parte e spingeva giu' la scheda. Ora `regole` e' dentro la risposta di `/lettura`
   (tutti i percorsi, lettura salvata compresa) e si salva nella stessa memoria del consigliato:
   compare insieme a lui. `/regole` resta per le prove a mano.
+- Il riquadro compare solo PRIMA del via (server e scheda): ricalcolato a partita finita con le
+  regole v2, nate anche guardando quei risultati, sembrava sempre giusto (Lask-Liverpool O2.5
+  'verde' accanto all'U3.5 perso del consigliato). Per le partite giocate vale il test.
 - Valutazione del test spostata dalle 04:30 alle 16:30: i risultati arrivano il
   giorno dopo verso le 14:45.
 

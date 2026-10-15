@@ -8,6 +8,10 @@ import { decidi } from "./lib/regolePronostico";
  *  e spingeva giu' la scheda). Mai blocca la lettura. */
 function regoleDi(m: any, n: any, programma?: any) {
   try {
+    // Partita iniziata o finita: niente. Ricalcolate dopo, con regole nate anche guardando i risultati,
+    // sembrerebbero sempre giuste (Lask-Liverpool: O2.5 'verde' a partita finita, 15/10/2026).
+    const inizio = inizioPartitaMs(m?.day, m?.time);
+    if (m?.result || (inizio !== null && inizio <= Date.now())) return null;
     if (!(Number(m?.odd_1) > 1 && Number(m?.odd_x) > 1 && Number(m?.odd_2) > 1)) return null;
     return decidi(m, { ai: n?.lettura_ai, pro: n?.lettura_pro, prog: programma ?? n?.programma });
   } catch { return null; }

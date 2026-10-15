@@ -222,7 +222,10 @@ export default function MatchDetail() {
   }, [id]);
   // Pronostico regole (15/10/2026, in prova): arriva dentro la lettura (stessa memoria del
   // consigliato), cosi' compare insieme a lui e non sposta la scheda dopo qualche secondo.
-  const regole: PronosticoRegole | null = lettura?.regole ?? null;
+  // Solo prima del via: ricalcolato a partita iniziata sembrerebbe sempre giusto (anche dalla memoria).
+  const inizioRegole = match ? inizioPartitaMs(match.day, match.time) : null;
+  const regole: PronosticoRegole | null = match && !match.result && (inizioRegole === null || inizioRegole > Date.now())
+    ? (lettura?.regole ?? null) : null;
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);
