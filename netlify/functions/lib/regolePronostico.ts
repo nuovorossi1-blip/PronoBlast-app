@@ -19,11 +19,11 @@
  * Il contrasto forma/quote NON esclude (la favorita va meglio, +4,8). Mai mercati larghi di ripiego.
  */
 import { rowToOdds } from "./supabaseRest";
-import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis } from "./clusterEngine";
+import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis, estimateMarketOdd } from "./clusterEngine";
 import { evaluateMarket } from "./marketEval";
 import { getScenarioNote } from "../../../frontend/src/api";
 
-export const VERSIONE_REGOLE = 3;
+export const VERSIONE_REGOLE = 4;
 
 /** Campionati con media 2,5 gol o meno (almeno 40 partite nell'archivio, misura del 15/10/2026). */
 export const LEGHE_POCHI_GOL = new Set([
@@ -59,14 +59,14 @@ export function decidi(m: any, d: any) {
   const cat = quoteCatalogo(odds);
   const voce = (mk: string): VoceRegole | null => {
     const reale = REALI[mk] ? Number(m[REALI[mk]]) || null : null;
-    const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? null;
+    const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? estimateMarketOdd(mk, odds) ?? null;
     if (!quota) return null;
     const p = g.reduce((s: number, c: any) => s + (vinceRegole(mk, c.home, c.away) ? c.p : 0), 0);
     return { mk, quota, stimata: mk === "X oppure GG" || !reale, p: +p.toFixed(4) };
   };
   const F = casaFav
-    ? { segno: "1", dc: "1X", dcO15: "DC 1X + O1.5", mg13: "MG 1-3 casa", mg24: "MG 2-4 casa", mg12: "MG 1-2 casa", combo: "MG 1-3 casa + MG 0-2 ospite", u45: "1 + U4.5" }
-    : { segno: "2", dc: "X2", dcO15: "DC X2 + O1.5", mg13: "MG 1-3 ospite", mg24: "MG 2-4 ospite", mg12: "MG 1-2 ospite", combo: "MG 0-2 casa + MG 1-3 ospite", u45: "2 + U4.5" };
+    ? { segnoO15: "1 + O1.5", segnoO25: "1 + O2.5", segno: "1", dc: "1X", dcO15: "DC 1X + O1.5", mg13: "MG 1-3 casa", mg24: "MG 2-4 casa", mg12: "MG 1-2 casa", combo: "MG 1-3 casa + MG 0-2 ospite", u45: "1 + U4.5" }
+    : { segnoO15: "2 + O1.5", segnoO25: "2 + O2.5", segno: "2", dc: "X2", dcO15: "DC X2 + O1.5", mg13: "MG 1-3 ospite", mg24: "MG 2-4 ospite", mg12: "MG 1-2 ospite", combo: "MG 0-2 casa + MG 1-3 ospite", u45: "2 + U4.5" };
   const favDir = casaFav ? "1" : "2";
   // Lettura AI: quella "Pro" se c'e', altrimenti la gratis
   const l = d?.pro?.direzione ? d.pro : d?.ai;
@@ -133,6 +133,18 @@ export function decidi(m: any, d: any) {
       else if (!sfSegna) { mappa = ["GG", F.dcO15]; perche = "segnano poco tutte e due: niente segno"; }
     }
     if (mappa?.length) { candidati = mappa; avvisi.push(`forma: ${perche}`); }
+  }
+  // VERSIONE 4: COPPE EUROPEE (15/10/2026, Rossi: "considera che sono partite di coppa"). Archivio
+  // Champions/Europa/Conference, alle quote GIOCABILI (da 1,40, quote stimate dall'app): favorita a 1,35
+  // o meno: segno + O2.5 56% @1,72 (resa -6%), segno + O1.5 57%, segno + U4.5 53%, MG 1-3 favorita 54%:
+  // niente conviene davvero (le grandi fanno goleada); 1,36-1,55: segno + O1.5 59% @1,76 (+2%), segno 64%
+  // @1,49; 1,56-1,85: segno 63% @1,71 (+8%), segno + Over 33-42%, MG 1-3 favorita sempre sotto 1,40.
+  if (COPPE_EUROPEE.test(lega) && semaforo !== "rosso" && favQ <= 1.85) {
+    // La mappa della forma (v3) non vale qui: la sostituisce la misura sulle coppe.
+    for (let i = avvisi.length - 1; i >= 0; i--) if (avvisi[i].startsWith("forma: ")) avvisi.splice(i, 1);
+    if (favQ <= 1.35) { candidati = [F.segnoO25, F.segnoO15]; avvisi.push("coppa europea, favorita fortissima: 1 + Over, ma nelle coppe a queste quote niente ha vantaggio (1 + Over 2,5 al 56%)"); }
+    else if (favQ <= 1.55) { candidati = [F.segnoO15, F.segno, F.mg13]; avvisi.push("coppa europea, favorita forte: 1 + Over 1,5 (coppe: 59% a 1,76)"); }
+    else { candidati = [F.segno, F.mg13]; avvisi.push("coppa europea, favorita leggera: segno secco (coppe: 63% a 1,71; 1 + Over solo 33-42%)"); }
   }
   if (avvisoGol) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
   else if (fortInCoppa && Number.isFinite(assFav) && assFav >= 5) avvisi.push(`favorita forte in coppa: ${assFav} assenti ma l'Over resta (segnano comunque)`);

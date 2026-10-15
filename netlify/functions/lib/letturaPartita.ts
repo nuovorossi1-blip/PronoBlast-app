@@ -15,7 +15,7 @@
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
-import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
+import { structuralAnalysis, quoteCatalogo, contraddice, estimateMarketOdd } from "./clusterEngine";
 import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
@@ -309,8 +309,15 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   try { voci = (nota && tab) ? tab.scenari[chiaveScenario(nota)] ?? null : null; } catch { /* senza tabella niente consigliato */ }
   const totAtteso = (pr.forma_casa != null ? (st.lambda_home + pr.forma_casa) / 2 : st.lambda_home)
     + (pr.forma_ospite != null ? (st.lambda_away + pr.forma_ospite) / 2 : st.lambda_away);
+  // Coppe europee (15/10/2026): servono anche segno + O1.5 / O2.5, che il catalogo non ha (quota stimata).
+  const coppaEuropea = /^(EUCHL|EUEL|EUCONFL)/.test(String(m.manifestazione || "").toUpperCase());
+  const marketOdds: Record<string, { odd: number; estimated: boolean }> = quoteCatalogo(odds);
+  if (coppaEuropea) for (const mk of ["1 + O1.5", "2 + O1.5", "1 + O2.5", "2 + O2.5"]) {
+    const q = estimateMarketOdd(mk, odds);
+    if (q && q > 1) marketOdds[mk] = { odd: Math.round(q * 100) / 100, estimated: true };
+  }
   const a = analizzaGiocate({
-    odds, marketOdds: quoteCatalogo(odds),
+    odds, marketOdds, coppaEuropea,
     ranking: (s.ranking || []).map((r: any) => ({ market: r.market, coverage: r.coverage })),
     voci, manuali: nota?.markets || [], totAtteso,
     direzione: letturaGol(st.lambda_home, st.lambda_away).direzione,

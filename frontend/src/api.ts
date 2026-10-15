@@ -3516,6 +3516,8 @@ export function analizzaGiocate(x: {
   favNonPerde?: boolean;
   /** Scenario (getScenarioNote): serve per la partita "molto aperta" (15/10/2026). */
   scenario?: string | null;
+  /** Champions, Europa o Conference League (15/10/2026): regole e misure delle coppe. */
+  coppaEuropea?: boolean;
 }): AnalisiGiocate {
   const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
   const pc = (p: number) => `${Math.round(p * 100)}%`;
@@ -3573,6 +3575,31 @@ export function analizzaGiocate(x: {
   const sfavorita = q1 > q2 ? "CASA" : q2 > q1 ? "OSPITE" : null;
   const golSfavorita = (m: string) => sfavorita !== null && new RegExp(`^MG \\d-\\d ${sfavorita}$`).test(m.trim().toUpperCase());
   let migliorSfavorita = 0;
+  // COPPE EUROPEE (15/10/2026, Rossi: "considera che sono partite di coppa"). Archivio Champions/Europa/
+  // Conference, frequenze reali alle quote GIOCABILI (da 1,40): favorita a 1,35 o meno: segno + O1.5 57%
+  // (30), segno + O2.5 56% (72), MG 1-3 favorita 54%, segno + U4.5 53% (le grandi fanno goleada; il Poisson
+  // dell'app gonfia gli MG della favorita: griglia tagliata a 6 gol); 1,36-1,55: segno + O1.5 59% @1,76
+  // (51), segno 64% @1,49 (39); 1,56-1,85: segno 63% @1,71 (79), segno + Over 33-42%; GG con favorita 37-47%.
+  // Queste misure sostituiscono la tabella scenari per quei mercati (campioni piccoli ma specifici: non si
+  // applica la regola dei 300); segno + U4.5, GG e, con la favorita fortissima, gli MG della favorita
+  // non sono candidati.
+  const favQc = Math.min(q1, q2);
+  const fasciaCoppa = x.coppaEuropea && sfavorita && favQc <= 1.85 ? (favQc <= 1.35 ? "fortissima" : favQc <= 1.55 ? "forte" : "leggera") : null;
+  const lato = sfavorita === "CASA" ? "OSPITE" : "CASA", segnoF = sfavorita === "CASA" ? "2" : "1";
+  const misureCoppa: Record<string, [number, number]> = fasciaCoppa === "fortissima" ? { [`${segnoF} + O1.5`]: [0.57, 30], [`${segnoF} + O2.5`]: [0.56, 72] }
+    : fasciaCoppa === "forte" ? { [`${segnoF} + O1.5`]: [0.59, 51], [segnoF]: [0.64, 39] }
+    : fasciaCoppa === "leggera" ? { [segnoF]: [0.63, 79] } : {};
+  const misuraCoppa = new Set<RigaGiocata>();
+  const escluseCoppa = (m: string) => {
+    if (!fasciaCoppa) return false;
+    const k = normalizeMarket(m).toUpperCase();
+    if (k === `${segnoF} + U4.5` || k === "GG") return true;
+    return fasciaCoppa === "fortissima" && new RegExp(`^MG \\d-\\d ${lato}$`).test(k);
+  };
+  if (fasciaCoppa) for (const r of righe) {
+    const v = misureCoppa[normalizeMarket(r.market).toUpperCase()];
+    if (v) { r.misurata = { pA: v[0], pB: v[0], n: v[1] }; misuraCoppa.add(r); }
+  }
   // LINEA DEI 2,5 GOL (15/10/2026, analisi delle partite finite, Rossi: ok): O2.5, U2.5, MG 1-3
   // totali, MG 3-6 totali e le combinazioni "+ O2.5" da consigliati hanno vinto il 49-52% contro il
   // 63% dichiarato (resa -22/-26%); la prima alternativa fuori linea il 66%. Non sono piu' candidati.
@@ -3600,6 +3627,7 @@ export function analizzaGiocate(x: {
     if (p < 0.55) continue;
     if (golSfavorita(r.market)) { migliorSfavorita = Math.max(migliorSfavorita, p * r.quota); continue; }
     if (linea25(r.market)) continue;
+    if (escluseCoppa(r.market)) continue;
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
@@ -3617,7 +3645,7 @@ export function analizzaGiocate(x: {
   // massimo probabilita' x quota pesca spesso la cella stimata troppo alta per caso: questi
   // consigliati hanno vinto il 53% contro il 62,5% dichiarato (162 partite, resa -20%); da 300
   // in su il dichiarato e' giusto. La partita diventa da lasciare (seNonLasciata la conserva).
-  if (primo?.misurata && primo.misurata.n < 300) {
+  if (primo?.misurata && primo.misurata.n < 300 && !misuraCoppa.has(primo)) {
     daLasciare = `percentuale d'archivio misurata su poche partite (${primo.misurata.n}): non affidabile`;
   }
   const consigliato = daLasciare ? null : primo;
@@ -3628,7 +3656,9 @@ export function analizzaGiocate(x: {
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
     if (r.consigliato && migliorSfavorita > 0 && x.favNonPerde && /^DC .* \+ O1\.5$/i.test(r.market.trim())) r.perche = "★ consigliato: la lettura AI dice che la favorita non perde (al posto dei gol della sfavorita).";
+    else if (r.consigliato && misuraCoppa.has(r)) r.perche = `★ consigliato: nelle coppe europee, con questa favorita, esce il ${pc(r.misurata!.pA)} (${r.misurata!.n} partite).`;
     else if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    else if (escluseCoppa(r.market) && r.quota >= 1.4) r.perche = "coppa europea: con questa favorita esce meno del previsto (goleade, o GG raro).";
     else if (golSfavorita(r.market) && r.quota >= 1.4) r.perche = "gol della squadra sfavorita: da consigliati hanno vinto il 49% contro il 60% promesso (45 partite).";
     else if (linea25(r.market) && r.quota >= 1.4) r.perche = "sulla linea dei 2,5 gol: da consigliati hanno vinto il 49-52% contro il 63% promesso (91 partite).";
     else if (r === primo && daLasciare) r.perche = `sarebbe stata la giocata, ma la percentuale viene da sole ${r.misurata?.n ?? "?"} partite d'archivio: da lasciare.`;

@@ -149,6 +149,19 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Coppe europee: regole e misure proprie (consigliato + Pronostico regole v4)
+
+Archivio Champions/Europa/Conference alle quote giocabili (da 1,40; prova-coppe.mts): favorita <=1,35
+segno + O2.5 56% @1,72 (resa -6%), segno + O1.5 57%, MG 1-3 favorita 54%, segno + U4.5 53%; 1,36-1,55
+segno + O1.5 59% @1,76 (+2%), segno 64%; 1,56-1,85 segno 63% @1,71 (+8%), segno + Over 33-42%.
+- `analizzaGiocate` (`coppaEuropea`): per quei mercati le misure delle coppe sostituiscono la tabella
+  scenari (esenti dalla regola dei 300); segno + U4.5 e GG della favorita esclusi; con favorita
+  <=1,35 esclusi anche gli MG della favorita. `consigliatoDi` aggiunge segno + O1.5/O2.5 stimati.
+- Pronostico regole v4: candidati per fascia della favorita nelle coppe (sostituiscono la mappa forma).
+- Limite noto: il Pronostico AI puo' rimettere una giocata esclusa (Benfica e Brann: MG 1-3 casa
+  "cambiato" dall'AI) - difetto C dell'audit, da correggere.
+- Ripristino: tag `prima-coppe-2026-10-15` + copia consigliati.
+
 ### 2026-10-15 — Scheda partita piu' semplice: Cosa giocare, Scenario, Lettura AI, Dettagli
 
 Rossi: "io utente cosa devo vedere appena apro la partita?". Solo come si vede, nessun dato tolto:
