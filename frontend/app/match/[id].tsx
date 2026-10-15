@@ -787,34 +787,43 @@ export default function MatchDetail() {
           );
         })()}
 
-        {/* ============ LETTURA AI (sempre aperta, 15/10/2026): risultati probabili, direzione,
-            gol e notizie del Pronostico AI (se fatto) o della lettura AI gratis ============ */}
+        {/* ============ LETTURA AI (sempre aperta): la gratis c'e' sempre; il Pronostico AI (a pagamento)
+            si aggiunge sopra, non la sostituisce (16/10/2026, Rossi). ============ */}
         {(() => {
-          const l = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : lettura?.ai;
           const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
+          const blocco = (l: any, titolo: string, vecchia: boolean, nota: string) => (
+            <>
+              <Text style={styles.golTitolo}>{titolo}</Text>
+              {l.risultati_probabili?.length ? (
+                <Text style={styles.golTesto}>Risultati probabili: <Text style={{ fontWeight: "900" }}>{l.risultati_probabili.join(" · ")}</Text></Text>
+              ) : null}
+              <Text style={styles.golTesto}>
+                {`Direzione: ${l.direzione === "1" ? match.squadra1 : l.direzione === "2" ? match.squadra2 : l.direzione ? "nessun vincitore" : "–"} · gol: ${match.squadra1} ${l.gol_casa} · ${match.squadra2} ${l.gol_ospite} · totale ${l.gol_totali}`}
+              </Text>
+              {l.mercato ? <Text style={styles.golTesto}>{`Giocata proposta: ${l.mercato}`}</Text> : null}
+              {l.lettura ? <Text style={styles.golTesto}>{l.lettura}</Text> : null}
+              {l.notizia ? (
+                <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${l.notizia}${l.notizia_verificata ? " (verificata nei dati)" : ""}`}</Text>
+              ) : (
+                <Text style={styles.golPic}>Nessuna notizia particolare trovata.</Text>
+              )}
+              {vecchia ? <Text style={styles.golPic}>{nota}</Text> : null}
+            </>
+          );
           return (
             <View style={[styles.golBox, { marginTop: 12 }]}>
-              <Text style={styles.golTitolo}>{l ? `LETTURA AI · ${nomeModello(l.modello)}${l === lettura?.pro ? " (Pronostico AI)" : " (gratis)"}` : "LETTURA AI"}</Text>
-              {l ? (
+              {lettura?.pro ? (
+                <View style={{ marginBottom: 12 }}>
+                  {blocco(lettura.pro, `PRONOSTICO AI · ${nomeModello(lettura.pro.modello)}`, !!lettura.pro_vecchia, "Fatto con quote diverse da quelle di adesso.")}
+                </View>
+              ) : null}
+              {lettura?.ai ? blocco(lettura.ai, `LETTURA AI · ${nomeModello(lettura.ai.modello)} (gratis)`, !!lettura.ai_vecchia, "Fatta con le quote di prima: si rifà da sola.") : (
                 <>
-                  {l.risultati_probabili?.length ? (
-                    <Text style={styles.golTesto}>Risultati probabili: <Text style={{ fontWeight: "900" }}>{l.risultati_probabili.join(" · ")}</Text></Text>
-                  ) : null}
-                  <Text style={styles.golTesto}>
-                    {`Direzione: ${l.direzione === "1" ? match.squadra1 : l.direzione === "2" ? match.squadra2 : l.direzione ? "nessun vincitore" : "–"} · gol: ${match.squadra1} ${l.gol_casa} · ${match.squadra2} ${l.gol_ospite} · totale ${l.gol_totali}`}
+                  <Text style={styles.golTitolo}>LETTURA AI (gratis)</Text>
+                  <Text style={styles.golPic}>
+                    {letturaInCorso ? "La lettura AI sta arrivando…" : "Lettura AI gratis non disponibile: partita già iniziata, oppure modelli gratis occupati."}
                   </Text>
-                  {l.lettura ? <Text style={styles.golTesto}>{l.lettura}</Text> : null}
-                  {l.notizia ? (
-                    <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${l.notizia}${(l as any).notizia_verificata ? " (verificata nei dati)" : ""}`}</Text>
-                  ) : (
-                    <Text style={styles.golPic}>Nessuna notizia particolare trovata.</Text>
-                  )}
-                  {l === lettura?.ai && lettura?.ai_vecchia ? <Text style={styles.golPic}>{"Fatta con le quote di prima: si rifà da sola."}</Text> : null}
                 </>
-              ) : (
-                <Text style={styles.golPic}>
-                  {letturaInCorso ? "La lettura AI sta arrivando…" : "Lettura AI non disponibile: partita già iniziata, oppure modelli gratis occupati. Puoi usare il Pronostico AI in alto."}
-                </Text>
               )}
             </View>
           );

@@ -71,18 +71,20 @@ export default async (req: Request): Promise<Response> => {
     if (!dati) return jsonResponse({ programma: null, ai: null, pro: null });
     let ai = dati.numeri?.lettura_ai ?? null;
     let pro = dati.numeri?.lettura_pro ?? null;
+    // Dossier vero (non la riga con le sole letture AI, creata prima del giro delle 6: 16/10/2026).
+    const haDossier = !!dati.numeri && Object.keys(dati.numeri).some((k) => k !== "lettura_ai" && k !== "lettura_pro");
     const inizio = inizioPartitaMs(dati.match.day, dati.match.time);
     const daGiocare = !dati.match.result && (inizio === null || inizio > Date.now());
     let nuovaAI = false;
-    if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && letturaDaRifare(dati.numeri, dati.match)) {
+    if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && letturaDaRifare(dati.numeri, dati.match)) {
       const nuova = await generaLetturaAI(id, dati);
       if (nuova) { ai = nuova; nuovaAI = true; }
     }
     // Il consigliato e la lettura del programma si salvano (anche per partite
     // gia' iniziate: si salvano con le quote della partita, che non cambiano piu').
     // Pronostico unico (15/10/2026): si rifa' solo se manca o con una lettura AI nuova.
-    let consigliato = dati.numeri ? consigliatoValido(dati.numeri, dati.match) : null;
-    if (dati.numeri && (!consigliato || nuovaAI)) {
+    let consigliato = haDossier ? consigliatoValido(dati.numeri, dati.match) : null;
+    if (haDossier && (!consigliato || nuovaAI)) {
       try { consigliato = await consigliatoDi(id, { ...dati, numeri: { ...dati.numeri, lettura_ai: ai } }); } catch { /* lo rifa' il giro */ }
     }
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
@@ -95,12 +97,12 @@ export default async (req: Request): Promise<Response> => {
         const oraQ = firmaQuote(dati.match);
         if (pro?.quote && !quoteCambiate(pro.quote, oraQ)) {
           const { testo: _tt, ...prog } = dati.programma;
-          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: !!dati.numeri, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true, regole: regoleDi(dati.match, dati.numeri, prog) });
+          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: haDossier, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true, regole: regoleDi(dati.match, dati.numeri, prog) });
         }
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
         // Il consigliato salvato (schedina, multipla) segue il Pronostico AI.
-        try {
+        if (haDossier) try {
           const c = await consigliatoDi(id, { ...dati, numeri: { ...(dati.numeri || {}), lettura_pro: pro } });
           await applicaCambioInSchedina(id, c);
         } catch { /* si rifa' col giro */ }
@@ -108,7 +110,7 @@ export default async (req: Request): Promise<Response> => {
         const nuova = await generaLetturaAI(id, dati);
         if (nuova) {
           ai = nuova;
-          if (daGiocare && dati.numeri) {
+          if (daGiocare && haDossier) {
             try { consigliato = await consigliatoDi(id, { ...dati, numeri: { ...dati.numeri, lettura_ai: ai } }); } catch { /* resta il salvato */ }
           }
         }
@@ -118,7 +120,7 @@ export default async (req: Request): Promise<Response> => {
     const { testo: _t, ...programma } = dati.programma;
     const ora = firmaQuote(dati.match);
     return jsonResponse({
-      programma, ai, pro, consigliato, dossier: !!dati.numeri,
+      programma, ai, pro, consigliato, dossier: haDossier,
       // Le letture fatte prima del 07/10 non hanno le quote salvate: non si sa.
       ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora),
       pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora),

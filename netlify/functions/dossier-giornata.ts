@@ -16,7 +16,7 @@ import { legaCopertaDaFotmob } from "./lib/fotmobLeghe";
  * niente), quindi il lavoro costa zero crediti.
  *
  * CHI LO AVVIA. L'orologio in Supabase (pg_cron, docs/database.sql sez. 7):
- *  - alle 6 per tutte le partite del giorno;
+ *  - alle 6 per tutte le partite del giorno (e quelle del giorno dopo fra 0:00 e 6:30, 16/10/2026);
  *  - alle 13, dopo l'aggiornamento quote automatico delle 12, per quelle
  *    caricate nel frattempo (le altre hanno gia' un dossier fresco e si saltano);
  *  - ogni minuto, SOLO mentre il dossier e' in corso e nessun passo sta
@@ -178,6 +178,10 @@ export default async (req: Request): Promise<Response> => {
       if (occupato) return jsonResponse({ ok: false, motivo: "un passo sta gia' lavorando", stato: attuale }, 409);
       const giorno = url.searchParams.get("giorno") || oggiRoma();
       const tutte: any[] = await pgGetAll(`matches?day=eq.${giorno}&result=is.null&select=id,day,time,selected,manifestazione`, "time.asc,id.asc");
+      // PARTITE DELLA NOTTE (16/10/2026, Rossi: "partite dell'una, non vedo il dossier"): quelle del giorno
+      // dopo fra mezzanotte e le 6:30 iniziano prima del giro delle 6 e non avevano mai il dossier.
+      const domani = new Date(Date.parse(`${giorno}T12:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+      tutte.push(...await pgGetAll(`matches?day=eq.${domani}&time=lt.06:30&result=is.null&select=id,day,time,selected,manifestazione`, "time.asc,id.asc").catch(() => []));
       const ora = Date.now();
       // PRIORITA' (07/10/2026): con 100-1000 partite al giorno e 1000 letture
       // gratis, prima la schedina, poi i campionati principali, poi l'orario.

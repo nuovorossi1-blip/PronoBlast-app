@@ -302,8 +302,15 @@ export async function contestoPartitaSalvato(
   if (daSalvare) {
     const { ricerche, da_archivio, cercato_il, ...contesto } = ctx;
     const base = { match_id: p.id, contesto, crediti: (ricerche || 0) * 2, created_at: new Date().toISOString() };
+    // Le letture AI fatte prima del dossier restano (16/10/2026); il consigliato si rifa' col dossier.
+    let letture: Record<string, unknown> = {};
     try {
-      await pgPost("dossier_web", { ...base, numeri, fonti_dati: (ctx.fonti_dati || []).join("+") || null },
+      const vecchi = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(p.id)}&select=numeri`))?.[0]?.numeri;
+      if (vecchi?.lettura_ai) letture.lettura_ai = vecchi.lettura_ai;
+      if (vecchi?.lettura_pro) letture.lettura_pro = vecchi.lettura_pro;
+    } catch { letture = {}; }
+    try {
+      await pgPost("dossier_web", { ...base, numeri: { ...((numeri as any) || {}), ...letture }, fonti_dati: (ctx.fonti_dati || []).join("+") || null },
         "resolution=merge-duplicates,return=minimal");
     } catch {
       // colonne `numeri`/`fonti_dati` non ancora create: si salva la riga base

@@ -149,6 +149,14 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-16 — Letture AI salvate anche senza dossier, dossier per le partite notturne, lettura gratis sempre visibile
+
+- `generaLetturaAI`: senza riga `dossier_web` la crea con la sola lettura (`contesto: {compattato, solo_letture}`, colonna NOT NULL; "compattato" fa rifare il dossier vero). Prima la lettura non si salvava: uscendo e rientrando spariva.
+- `webSearch` (salvataggio dossier): tiene `lettura_ai` / `lettura_pro` gia' presenti.
+- `lettura.ts`: lettura gratis automatica anche senza dossier; consigliato e `dossier` solo con dossier vero (`haDossier`).
+- `dossier-giornata`: il giro del giorno prende anche le partite del giorno dopo fra 0:00 e 6:30 (prima non avevano mai dossier, consigliato ne' lettura).
+- Scheda: la lettura gratis si vede sempre; il Pronostico AI si aggiunge sopra (con la giocata proposta), non la sostituisce.
+
 ### 2026-10-16 — Scheda: con "Nessuna giocata" il perche'
 
 - Riquadro del pronostico: se non c'e' giocata, le 4 migliori da 1,40 con percentuale (archivio o stima) e motivo dello scarto (Hoffenheim-Besiktas: GG e Over 2,5 @1,45 solo stima 64%, nessuna misura in archivio). Solo visualizzazione.

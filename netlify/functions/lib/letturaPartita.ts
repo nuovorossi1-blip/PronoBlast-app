@@ -185,6 +185,11 @@ export async function generaLetturaAI(
       const numeri = (await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}&select=numeri`))[0]?.numeri ?? x.numeri;
       if (numeri) {
         await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, { numeri: { ...numeri, [pro ? "lettura_pro" : "lettura_ai"]: l } });
+      } else {
+        // Dossier non ancora fatto (16/10/2026, Rossi: "esco e rientro e la lettura scompare"): si crea la
+        // riga con la sola lettura; `contesto` "compattato" (obbligatorio, senza testo) fa rifare il dossier
+        // vero al giro, che tiene le letture (webSearch).
+        await pgPost("dossier_web", { match_id: matchId, contesto: { compattato: true, solo_letture: true }, numeri: { [pro ? "lettura_pro" : "lettura_ai"]: l } }, "resolution=merge-duplicates,return=minimal");
       }
       return l;
     } catch (e) {
