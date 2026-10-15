@@ -1,5 +1,5 @@
 import { pgGet, pgGetAll, jsonResponse } from "./lib/supabaseRest";
-import { esitoMercato } from "../../frontend/src/api";
+import { esitoMercato, inizioPartitaMs } from "../../frontend/src/api";
 
 /**
  * GET /pagella-consigliato — STIAMO ANDANDO NELLA DIREZIONE GIUSTA?
@@ -13,6 +13,9 @@ import { esitoMercato } from "../../frontend/src/api";
  *  3. Partite "da lasciare": la giocata che si sarebbe fatta, avrebbe vinto?
  *  4. Lettura AI gratis e Pronostico AI: direzione, gol totali, risultato.
  *  5. Multiple messe in Schedina dalla multipla.
+ * SOLO PREPARTITA (15/10/2026, audit): consigliati e letture contano solo se
+ * salvati prima del calcio d'inizio (`quando`); prima entravano anche 288
+ * consigliati calcolati a partita iniziata o finita.
  */
 type Conto = { n: number; vinte: number; resa: number | null };
 const conto = (): Conto & { _q: number; _nq: number } => ({ n: 0, vinte: 0, resa: null, _q: 0, _nq: 0 });
@@ -24,7 +27,7 @@ export default async (_req: Request): Promise<Response> => {
     const partite: Record<string, any> = {};
     for (let i = 0; i < ids.length; i += 80) {
       const pezzo = ids.slice(i, i + 80).map((x) => `"${x}"`).join(",");
-      for (const m of await pgGet(`matches?id=in.(${pezzo})&result=not.is.null&select=id,day,squadra1,squadra2,result`)) partite[m.id] = m;
+      for (const m of await pgGet(`matches?id=in.(${pezzo})&result=not.is.null&select=id,day,time,squadra1,squadra2,result`)) partite[m.id] = m;
     }
     const esito = (m: string | null | undefined, r: string) => (m ? esitoMercato(m, r) : null);
     const segna = (c: ReturnType<typeof conto>, e: string | null, quota?: number | null) => {
@@ -46,15 +49,18 @@ export default async (_req: Request): Promise<Response> => {
       if (r.length === 2 && r[0] <= h + a && h + a <= r[1]) x.tot_ok++;
       if ((l.risultati_probabili || []).map((s: string) => s.replace(/\s/g, "")).includes(`${h}-${a}`)) x.ris_ok++;
     };
-    let partiteMisurate = 0;
+    let partiteMisurate = 0, dopoIlVia = 0;
     for (const d of dossier) {
       const m = partite[d.match_id];
       if (!m) continue;
       const r = String(m.result);
       const [h, a] = r.split("-").map(Number);
       if (isNaN(h) || isNaN(a)) continue;
-      partiteMisurate++;
+      const inizio = inizioPartitaMs(m.day, m.time);
+      const prima = (x: any) => inizio != null && !!x?.quando && Date.parse(x.quando) < inizio;
       const c = d.numeri.consigliato;
+      if (!prima(c)) { dopoIlVia++; continue; }
+      partiteMisurate++;
       if (c.market) {
         segna(cons, esito(c.market, r), c.quota);
         if (c.ai === "confermato") segna(confermati, esito(c.market, r), c.quota);
@@ -69,8 +75,8 @@ export default async (_req: Request): Promise<Response> => {
         }
       }
       if (c.daLasciare && c.lasciata_market) segna(lasciate, esito(c.lasciata_market, r), c.lasciata_quota);
-      leggi("Lettura AI gratis", d.numeri.lettura_ai, h, a);
-      if (d.numeri.lettura_pro) leggi(`Pronostico AI · ${String(d.numeri.lettura_pro.modello || "").replace(" (OpenRouter)", "")}`, d.numeri.lettura_pro, h, a);
+      if (prima(d.numeri.lettura_ai)) leggi("Lettura AI gratis", d.numeri.lettura_ai, h, a);
+      if (prima(d.numeri.lettura_pro)) leggi(`Pronostico AI · ${String(d.numeri.lettura_pro.modello || "").replace(" (OpenRouter)", "")}`, d.numeri.lettura_pro, h, a);
     }
     // Multiple messe in Schedina
     const multiple = { n: 0, vinte: 0, finite: 0, quote_vinte: [] as number[] };
@@ -94,6 +100,7 @@ export default async (_req: Request): Promise<Response> => {
     const fine = (c: ReturnType<typeof conto>): Conto => ({ n: c.n, vinte: c.vinte, resa: c._nq ? Math.round(((c._q - c._nq) / c._nq) * 1000) / 10 : null });
     return jsonResponse({
       partite_misurate: partiteMisurate,
+      escluse_dopo_il_via: dopoIlVia,
       consigliato: fine(cons),
       confermati_ai: fine(confermati),
       cambi_ai: cambi,

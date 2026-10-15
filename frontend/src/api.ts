@@ -1185,7 +1185,7 @@ export type EsitoMercatoAI = {
   market: string | null;
   quota: number | null;
   stimata: boolean;
-  motivo: "non ammesso" | "senza quota" | "fuori scala" | "contro i risultati" | null;
+  motivo: "non ammesso" | "senza quota" | "fuori scala" | "contro i risultati" | `esclusa dalle regole: ${string}` | null;
   tradotto_da?: string | null;
 };
 
@@ -3492,6 +3492,8 @@ export type AnalisiGiocate = {
   /** La giocata che sarebbe stata consigliata se la partita non fosse "da lasciare" (per la pagella). */
   seNonLasciata: RigaGiocata | null;
   manuali?: string[];
+  /** Perche' la giocata e' esclusa dalle regole (vale anche per il Pronostico AI), o null. */
+  esclusa?: (market: string) => string | null;
 };
 
 const segnoBase = (m: string) => m.trim().toUpperCase().replace(/^DC\s+/, "");
@@ -3594,6 +3596,9 @@ export function analizzaGiocate(x: {
     if (!fasciaCoppa) return false;
     const k = normalizeMarket(m).toUpperCase();
     if (k === `${segnoF} + U4.5` || k === "GG") return true;
+    // Stessa prova (15/10/2026, alle quote da 1,40): MG 2-4 totali 55% / 63% / 52% (resa -15 / -5 / -22%),
+    // combo con l'MG della favorita ("MG 1-3 casa + MG 0-2 ospite") 49% / 60% / 64% (resa -26 / -10 / -6%).
+    if (k === "MG 2-4 TOTALI" || new RegExp(`MG \\d-\\d ${lato} \\+ MG|MG \\d-\\d (CASA|OSPITE) \\+ MG \\d-\\d ${lato}$`).test(k)) return true;
     return fasciaCoppa === "fortissima" && new RegExp(`^MG \\d-\\d ${lato}$`).test(k);
   };
   if (fasciaCoppa) for (const r of righe) {
@@ -3678,12 +3683,26 @@ export function analizzaGiocate(x: {
   righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
-  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali };
+  // REGOLE INDEROGABILI ANCHE PER L'AI (15/10/2026, audit difetto C, Rossi: ok): il Pronostico AI
+  // non puo' rimettere una giocata che queste regole escludono (Lech-Leverkusen GG + O2.5, Benfica e
+  // Brann MG 1-3 in coppa). Partite finite, consigliato salvato prima del via: cambi dell'AI verso
+  // giocate ammesse 15/18 vinte, verso giocate oggi escluse 6/11 (resa -8%).
+  const esclusa = (m: string): string | null => {
+    if (golSfavorita(m)) return "gol della squadra sfavorita";
+    if (linea25(m)) return "sulla linea dei 2,5 gol";
+    if (escluseCoppa(m)) return "coppa europea: con questa favorita esce meno del previsto";
+    const r = righe.find((y) => normalizeMarket(y.market) === normalizeMarket(m));
+    if (r?.misurata && r.misurata.n < 300 && !misuraCoppa.has(r)) return `archivio con poche partite (${r.misurata.n})`;
+    return null;
+  };
+  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali, esclusa };
 }
 
 // PAGELLA DEL CONSIGLIATO (07/10/2026), vedi pagella-consigliato.ts.
 export type PagellaConsigliato = {
   partite_misurate: number;
+  /** Partite finite con il consigliato salvato dopo il calcio d'inizio: non contano (15/10/2026). */
+  escluse_dopo_il_via?: number;
   consigliato: { n: number; vinte: number; resa: number | null };
   confermati_ai: { n: number; vinte: number; resa: number | null };
   cambi_ai: { n: number; ai_vinte: number; numeri_vinte: number; esempi: string[] };

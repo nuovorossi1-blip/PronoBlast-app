@@ -149,6 +149,20 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Regole inderogabili anche per il Pronostico AI (audit C) + pagella solo prepartita
+
+- `analizzaGiocate` restituisce `esclusa(market)`: MG sfavorita, linea 2,5, esclusioni coppe, archivio < 300.
+  `consigliatoDi`: una proposta AI esclusa non diventa il consigliato (prova la salita, che salta le escluse;
+  altrimenti `proposta_scartata` "esclusa dalle regole: ..."). Prova sull'archivio (prima del via): cambi AI verso
+  giocate ammesse 15/18, verso giocate oggi escluse 6/11 (resa -8%). Benfica, Brann, Brighton: ora nessuna giocata.
+- Coppe (favorita <= 1,85): escluse anche MG 2-4 totali (55/63/52%, resa -15/-5/-22%) e combo con l'MG della
+  favorita (resa -26/-10/-6%), che la salita AI proponeva al posto dell'MG escluso.
+- Salvataggio: senza giocata `pick_finale` si svuota (prima restava la vecchia in Schedina).
+- `pagella-consigliato`: contano solo consigliato e letture salvati prima del via (`quando`); nuovo campo
+  `escluse_dopo_il_via` (288). Consigliato prepartita: 587, 59,3%, resa -8,1%.
+- Backup: tag `prima-regole-ai-2026-10-15` + `Remotoackup6-10-15-database\pronoblast-consigliati-prima-regole-ai.json`.
+  Ricalcolo 101 non iniziate: 87 uguali, 6 cambiate, 8 nessuna/da lasciare.
+
 ### 2026-10-15 — Coppe europee: regole e misure proprie (consigliato + Pronostico regole v4)
 
 Archivio Champions/Europa/Conference alle quote giocabili (da 1,40; prova-coppe.mts): favorita <=1,35

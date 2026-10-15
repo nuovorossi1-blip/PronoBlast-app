@@ -57,7 +57,7 @@ export default function PagellaConsigliatoPagina() {
         {d ? (
           <>
             <Text style={styles.intro}>
-              {`Partite finite misurate: ${d.partite_misurate}. I dati si salvano dal 07/10/2026; con poche partite i numeri cambiano molto, servono almeno 50-100 partite per fidarsi.`}
+              {`Partite finite misurate: ${d.partite_misurate} (solo pronostici salvati prima del calcio d'inizio${d.escluse_dopo_il_via ? `; escluse ${d.escluse_dopo_il_via} salvate dopo` : ""}). I dati si salvano dal 07/10/2026; con poche partite i numeri cambiano molto, servono almeno 50-100 partite per fidarsi.`}
             </Text>
 
             <Text style={styles.sez}>1. IL CONSIGLIATO</Text>

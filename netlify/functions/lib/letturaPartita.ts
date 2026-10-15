@@ -252,6 +252,7 @@ export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>
   let best: RigaGiocata | null = null, bestP = -1;
   for (const r of a.righe) {
     if (!(r.quota >= 1.40) || r.quota > QUOTA_MAX_AI + 1e-9 || isMercatoVietato(r.market)) continue;
+    if (a.esclusa?.(r.market)) continue; // regole inderogabili anche per l'AI (15/10/2026)
     const seg = r.market.trim().toUpperCase().replace(/^DC\s+/, "");
     if (dir === "2" && /^(1|1X)(\s|$|\+)|^1 (DNB|AH)/.test(seg)) continue;
     if (dir === "1" && /^(2|X2)(\s|$|\+)|^2 (DNB|AH)/.test(seg)) continue;
@@ -342,7 +343,11 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
     if (pro.notizia_verificata && pro.mercato) {
-      const v = mercatoAIValido(pro.mercato, a, nota?.markets, pro.risultati_probabili);
+      const v0 = mercatoAIValido(pro.mercato, a, nota?.markets, pro.risultati_probabili);
+      // Regole inderogabili anche per l'AI (15/10/2026, audit difetto C): una giocata esclusa
+      // dalle regole non torna per la notizia; si prova la salita, altrimenti decidono i numeri.
+      const esclusaAI = v0.ok && v0.market ? a.esclusa?.(v0.market) ?? null : null;
+      const v = esclusaAI ? { ...v0, ok: false, motivo: `esclusa dalle regole: ${esclusaAI}` } : v0;
       // Probabilita' della giocata nuova (13/10/2026): prima restavano quelle
       // della giocata dei numeri, o 0 se i numeri dicevano "da lasciare".
       const probDi = (market: string) => {
@@ -372,8 +377,9 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
         // con i suoi stessi risultati probabili l'AI si contraddice: niente
         // salita guidata da lei, decidono i numeri (Viking-Bayern: la sua
         // lettura "pochi gol" portava a MG 1-3 Bayern).
-        const salita = v.motivo === "fuori scala" ? salitaDaProposta(pro, a) : null;
-        const perche = v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
+        const salita = v.motivo === "fuori scala" || esclusaAI ? salitaDaProposta(pro, a) : null;
+        const perche = esclusaAI ? `esclusa dalle regole: ${esclusaAI}`
+          : v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
         if (salita && (!out.market || normalizeMarket(salita.market) !== normalizeMarket(out.market))) {
           out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
           out.ai = "cambiato"; out.notizia = pro.notizia || null;
@@ -410,8 +416,9 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
       // UN SOLO CONSIGLIATO (13/10/2026, Rossi): la giocata in lista e in
       // Schedina (pick_finale) e' questa, la stessa della scheda e del bot.
       const giocata = giocataDelConsigliato(out);
-      if (giocata && !partitaIniziata(m)) {
-        await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}&result=is.null`, giocata);
+      // Senza giocata si svuota (15/10/2026): prima restava la vecchia (Benfica-Celtic MG 1-3 casa).
+      if (!partitaIniziata(m)) {
+        await pgPatch(`matches?id=eq.${encodeURIComponent(matchId)}&result=is.null`, giocata ?? { pick_finale: null, pick_finale_prob: null });
       }
     } catch (e) {
       console.error("[consigliato] salvataggio", e);
