@@ -3541,7 +3541,7 @@ export function analizzaGiocate(x: {
   // delle giocate (631), alla stessa quota; con il contrasto la favorita delle
   // quote vince di piu' (segno +4,8 punti sul motore, 334 partite): di solito e'
   // la forma a sbagliare. Resta un avviso.
-  const daLasciare: string | null = null;
+  let daLasciare: string | null = null;
   // Le assenze NON bloccano (07/10/2026, Croazia-Spagna: la Spagna con 4
   // assenti ha vinto lo stesso): il conteggio non dice se sono titolari.
   // Restano un avviso; la notizia vera la valuta il Pronostico AI.
@@ -3569,6 +3569,10 @@ export function analizzaGiocate(x: {
   const sfavorita = q1 > q2 ? "CASA" : q2 > q1 ? "OSPITE" : null;
   const golSfavorita = (m: string) => sfavorita !== null && new RegExp(`^MG \\d-\\d ${sfavorita}$`).test(m.trim().toUpperCase());
   let migliorSfavorita = 0;
+  // LINEA DEI 2,5 GOL (15/10/2026, analisi delle partite finite, Rossi: ok): O2.5, U2.5, MG 1-3
+  // totali, MG 3-6 totali e le combinazioni "+ O2.5" da consigliati hanno vinto il 49-52% contro il
+  // 63% dichiarato (resa -22/-26%); la prima alternativa fuori linea il 66%. Non sono piu' candidati.
+  const linea25 = (m: string) => /^(O2\.5|U2\.5|MG 1-3 TOTALI|MG 3-6 TOTALI)$|\+ O2\.5$/.test(normalizeMarket(m).toUpperCase());
 
   // Candidati e punteggio
   for (const r of righe) {
@@ -3579,6 +3583,7 @@ export function analizzaGiocate(x: {
     const p = r.stima != null ? Math.min(pm, r.stima) : pm;
     if (p < 0.55) continue;
     if (golSfavorita(r.market)) { migliorSfavorita = Math.max(migliorSfavorita, p * r.quota); continue; }
+    if (linea25(r.market)) continue;
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
@@ -3592,6 +3597,13 @@ export function analizzaGiocate(x: {
       if (p != null) { dc.punteggio = p * dc.quota; primo = dc; }
     }
   }
+  // ARCHIVIO CON POCHE PARTITE (15/10/2026, Rossi: ok): con meno di 300 partite misurate il
+  // massimo probabilita' x quota pesca spesso la cella stimata troppo alta per caso: questi
+  // consigliati hanno vinto il 53% contro il 62,5% dichiarato (162 partite, resa -20%); da 300
+  // in su il dichiarato e' giusto. La partita diventa da lasciare (seNonLasciata la conserva).
+  if (primo?.misurata && primo.misurata.n < 300) {
+    daLasciare = `percentuale d'archivio misurata su poche partite (${primo.misurata.n}): non affidabile`;
+  }
   const consigliato = daLasciare ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
@@ -3602,6 +3614,8 @@ export function analizzaGiocate(x: {
     if (r.consigliato && migliorSfavorita > 0 && x.favNonPerde && /^DC .* \+ O1\.5$/i.test(r.market.trim())) r.perche = "★ consigliato: la lettura AI dice che la favorita non perde (al posto dei gol della sfavorita).";
     else if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
     else if (golSfavorita(r.market) && r.quota >= 1.4) r.perche = "gol della squadra sfavorita: da consigliati hanno vinto il 49% contro il 60% promesso (45 partite).";
+    else if (linea25(r.market) && r.quota >= 1.4) r.perche = "sulla linea dei 2,5 gol: da consigliati hanno vinto il 49-52% contro il 63% promesso (91 partite).";
+    else if (r === primo && daLasciare) r.perche = `sarebbe stata la giocata, ma la percentuale viene da sole ${r.misurata?.n ?? "?"} partite d'archivio: da lasciare.`;
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
@@ -3618,7 +3632,7 @@ export function analizzaGiocate(x: {
   righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
-  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? candidati[0] ?? null : null, manuali: x.manuali };
+  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali };
 }
 
 // PAGELLA DEL CONSIGLIATO (07/10/2026), vedi pagella-consigliato.ts.

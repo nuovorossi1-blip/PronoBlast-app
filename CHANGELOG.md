@@ -149,6 +149,21 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Consigliato: niente linea dei 2,5 gol, da lasciare con archivio sotto 300 partite
+
+Dall'analisi delle partite finite (agente, report `Desktop\report-analisi pronosblast\difetti-consigliato-2026-10-15.md`), con l'ok di Rossi:
+- `analizzaGiocate`: O2.5, U2.5, MG 1-3 totali, MG 3-6 totali e le combinazioni `+ O2.5` non sono piu'
+  candidati (da consigliati 49-52% contro 63% dichiarato, resa -22/-26%; la prima alternativa fuori
+  linea 66%).
+- Se la giocata scelta ha la percentuale d'archivio misurata su meno di 300 partite, la partita e'
+  "da lasciare" con il motivo (53% contro 62,5% dichiarato, 162 partite, resa -20%; da 300 in su
+  il dichiarato e' giusto). `seNonLasciata` conserva la giocata. `daLasciare` torna `let`.
+- Prova sulle 587 finite (con la regola del Multigol): giocate 465, vinte 64,9%, resa +1,0%
+  (prima 59,3%, -8,1%). Attenzione: regole trovate sugli stessi dati, l'effetto reale sara' minore.
+- Ricalcolati i 93 consigliati delle partite non iniziate: 68 uguali, 6 cambiati, 19 ora da lasciare
+  (nessuna in Schedina). Ripristino: tag `prima-linea25-archivio-2026-10-15` + copia in
+  `Remoto\backup\2026-10-15-database\`.
+
 ### 2026-10-15 — Consigliato: niente Multigol della squadra sfavorita
 
 `analizzaGiocate` (api.ts): `MG x-y casa/ospite` sulla squadra con la quota piu' alta non e'
