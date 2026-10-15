@@ -149,6 +149,12 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-16 — Scheda: con "Nessuna giocata" il perche'
+
+- Riquadro del pronostico: se non c'e' giocata, le 4 migliori da 1,40 con percentuale (archivio o stima) e motivo dello scarto (Hoffenheim-Besiktas: GG e Over 2,5 @1,45 solo stima 64%, nessuna misura in archivio). Solo visualizzazione.
+- La scheda passa anche `xoggAI` ad `analizzaGiocate`, come il server.
+- Provata e NON applicata (16/10): "da lasciare solo con forma e quote in disaccordo + giocate solo stima". 973 finite: oggi 63,4% resa -2,8%; proposta 61,9% resa -5,1%. Le partite in disaccordo vincono il 66,9% (+2,2%), le solo stima il 58,8% (-14%).
+
 ### 2026-10-16 — Un solo elenco di giocate per numeri e AI
 
 Rossi: "perche' esce MG casa 1-2 se non e' fra i mercati ammessi?". Il consigliato dei numeri sceglieva fra tutte le giocate d'archivio; l'AI solo fra elenco generale + scenario.

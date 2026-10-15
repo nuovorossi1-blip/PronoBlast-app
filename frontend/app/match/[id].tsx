@@ -627,6 +627,13 @@ export default function MatchDetail() {
           if (ris.length !== 3 || !(q1 > 1 && q2 > 1) || q1 === q2) return false;
           return ris.every((r) => (q1 < q2 ? r[0] >= r[1] : r[1] >= r[0]));
         })(),
+        // Come xoggDaAI() del server (16/10/2026): X oppure GG proposto dall'AI con risultati coerenti.
+        xoggAI: (() => {
+          const l = lettura?.pro as any;
+          if (!l?.mercato || !/^x\s+(oppure|o)\s+gg$/i.test(String(l.mercato).trim())) return false;
+          const ris = (l.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number)).filter((r: number[]) => r.length === 2 && r.every(Number.isFinite));
+          return ris.length === 3 && ris.every(([c, o]: number[]) => c === o || (c > 0 && o > 0));
+        })(),
       });
     } catch {
       return null;
@@ -700,7 +707,20 @@ export default function MatchDetail() {
                   {cs.quota != null ? <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{`   @${q2(cs.quota)}${cs.stimata ? "*" : ""}`}</Text> : null}
                 </Text>
               ) : (
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>Nessuna giocata da 1,40 con questi numeri</Text>
+                <View>
+                  <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>Nessuna giocata da 1,40 con questi numeri</Text>
+                  {/* Il perche' (16/10/2026, Rossi: "perche' non valuta GG, Over?"): le migliori da 1,40 e il motivo dello scarto. */}
+                  {(analisi?.righe ?? [])
+                    .filter((r) => r.quota >= 1.4 && (r.misurata || r.stima != null))
+                    .sort((x, y) => (y.misurata ? Math.min(y.misurata.pA, y.misurata.pB) : y.stima ?? 0) - (x.misurata ? Math.min(x.misurata.pA, x.misurata.pB) : x.stima ?? 0))
+                    .slice(0, 4)
+                    .map((r, i) => (
+                      <Text key={i} style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
+                        {`✗ ${r.nome || nomeMk(r.market)} @${q2(r.quota)}${r.stimata ? "*" : ""}`}
+                        <Text style={{ color: colors.textDim }}>{` — ${r.misurata ? `archivio ${Math.round(Math.min(r.misurata.pA, r.misurata.pB) * 100)}%` : `stima ${Math.round((r.stima ?? 0) * 100)}%`}: ${r.perche ?? ""}`}</Text>
+                      </Text>
+                    ))}
+                </View>
               )}
               {cs.market && p != null && conv !== null ? (
                 <Text style={{ color: colors.text, fontSize: 14, marginTop: 8, fontWeight: "700" }}>
