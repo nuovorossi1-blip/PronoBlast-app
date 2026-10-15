@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { daGiocare } from "@/src/api";
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -220,6 +220,15 @@ export default function MatchDetail() {
     api.formaGol(id).then((r) => { if (vivo) setForma(r?.forma ?? null); }).catch(() => {});
     return () => { vivo = false; };
   }, [id]);
+  // Pronostico regole (15/10/2026, in prova): si ricalcola quando arriva o cambia la lettura AI.
+  const [regole, setRegole] = useState<PronosticoRegole | null>(null);
+  const firmaLetturaRegole = `${lettura?.ai?.direzione ?? ""}|${(lettura?.ai?.risultati_probabili ?? []).join(",")}|${lettura?.pro?.direzione ?? ""}|${(lettura?.pro?.risultati_probabili ?? []).join(",")}`;
+  useEffect(() => {
+    if (!id) return;
+    let vivo = true;
+    api.regole(id).then((r) => { if (vivo) setRegole(r?.regole ?? null); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [id, firmaLetturaRegole, match?.odds]);
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);
@@ -643,6 +652,50 @@ export default function MatchDetail() {
             </View>
           )}
         </View>
+
+        {/* ============ PRONOSTICO REGOLE (15/10/2026, Rossi, in prova) ============
+            Scenario + lettura AI -> semaforo e giocata semplice per fascia
+            (netlify/functions/lib/regolePronostico.ts). Accanto al consigliato,
+            non lo sostituisce: il test giornaliero dice quale dei due vince. */}
+        {regole ? (() => {
+          const col = regole.semaforo === "verde" ? colors.success : regole.semaforo === "giallo" ? colors.warning : regole.semaforo === "rosso" ? colors.danger : colors.textDim;
+          const nomeSem = regole.semaforo === "verde" ? "VERDE" : regole.semaforo === "giallo" ? "GIALLO" : regole.semaforo === "rosso" ? "ROSSO" : "SENZA LETTURA";
+          const altre = Object.entries(regole.fasce).filter(([, v]) => v && v.mk !== regole.scelta?.mk) as [string, { mk: string; quota: number; stimata: boolean; p: number }][];
+          return (
+            <View style={{ marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: col, backgroundColor: colors.card }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>PRONOSTICO REGOLE · IN PROVA</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: col, marginRight: 6 }} />
+                  <Text style={{ color: col, fontSize: 12, fontWeight: "800" }}>{nomeSem}</Text>
+                </View>
+              </View>
+              {regole.scelta ? (
+                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>
+                  {regole.scelta.mk} @{regole.scelta.quota.toFixed(2)}{regole.scelta.stimata ? "*" : ""}
+                  <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}>  {Math.round(regole.scelta.p * 100)}%</Text>
+                </Text>
+              ) : (
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginTop: 6 }}>Da saltare: nessuna giocata semplice fra 1,40 e 1,95</Text>
+              )}
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                {regole.scenario} · {regole.lettura ? `lettura AI ${regole.lettura.dir === "nessuna" ? "senza direzione" : regole.lettura.dir}${regole.lettura.ris?.length ? ` (${regole.lettura.ris.join(", ")})` : ""}` : "senza lettura AI"}
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{regole.motivo.replace(/ -> esclusa$/, "")}</Text>
+              {regole.avvisi.map((a) => (
+                <Text key={a} style={{ color: colors.warning, fontSize: 12, marginTop: 2 }}>⚠ {a}</Text>
+              ))}
+              {altre.length ? (
+                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
+                  Altre fasce: {altre.map(([f, v]) => `${f} ${v.mk} @${v.quota.toFixed(2)}${v.stimata ? "*" : ""}`).join(" · ")}
+                </Text>
+              ) : null}
+              {(regole.scelta?.stimata || altre.some(([, v]) => v.stimata)) ? (
+                <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>* quota stimata: controllala sul bookmaker</Text>
+              ) : null}
+            </View>
+          );
+        })() : null}
 
         {/* ============ IL CONSIGLIATO (07/10/2026, Rossi) ============
             "Punterei dove tutti i dati sono d'accordo e la percentuale e'

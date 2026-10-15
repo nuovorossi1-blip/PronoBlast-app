@@ -520,6 +520,8 @@ export const api = {
       opz.genera ? { method: "POST" } : undefined,
     ),
   formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),
+  /** "Pronostico regole" (scenario + lettura AI, in prova dal 15/10/2026): accanto al consigliato, non lo sostituisce. */
+  regole: (id: string) => netlifyReq<{ regole: PronosticoRegole | null }>(`/regole?matchId=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),
   setResult: (id: string, result: string) =>
@@ -3351,6 +3353,16 @@ export type ConsigliatoSalvato = {
   quote?: QuoteFirma | any; quando?: string;
   tabella_versione?: string | null;
   tradotto_da?: string | null;
+};
+
+/** Risposta di /regole (netlify/functions/lib/regolePronostico.ts). */
+export type PronosticoRegole = {
+  versione: number;
+  scenario: string; favorita: string; favQ: number;
+  lettura: { modello: string | null; dir: string; ris: string[] } | null;
+  semaforo: "verde" | "giallo" | "rosso" | "grigio"; motivo: string; avvisi: string[];
+  fasce: Record<string, { mk: string; quota: number; stimata: boolean; p: number } | null>;
+  scelta: { mk: string; quota: number; stimata: boolean; p: number } | null;
 };
 
 export type RispostaLettura = {

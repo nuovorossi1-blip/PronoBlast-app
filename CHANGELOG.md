@@ -149,6 +149,28 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — "Pronostico regole" nella scheda (in prova) e Gemini nel test giornaliero
+
+- `netlify/functions/lib/regolePronostico.ts`: la decisione del test regole
+  (scenario + lettura AI → semaforo → giocata semplice per fascia) spostata qui
+  da `scripts/test-regole.mts`, che ora la importa. Versione 2: favorita forte
+  (quota ≤ 1,50) in Champions/Europa/Conference non perde l'Over per 5+ assenti
+  (archivio: favorite forti in coppa ~2,8 gol a partita; Liverpool 3-6 a Linz
+  con 6 assenti); campionati con media ≤ 2,5 gol (`LEGHE_POCHI_GOL`, misura
+  15/10) senza MG 2-4 della favorita né O2.5 (favorita 2+ gol −9,4 sulle quote).
+- Funzione `/regole?matchId=` (sola lettura) e riquadro "PRONOSTICO REGOLE · IN
+  PROVA" nella scheda partita sopra il consigliato: semaforo, giocata, scenario,
+  lettura, avvisi, altre fasce. **Non sostituisce il consigliato** né tocca
+  Schedina, multipla o bot.
+- `test-regole.mts gemini`: una volta al giorno (attività "PronoBlast - Test
+  regole (gemini)", 11:30) Gemini 3.8 Flash via agy riceve SOLO i nomi delle
+  partite principali di oggi (max 10) e sceglie un mercato da 1,40 a 1,80;
+  salvato in `server-locale/test-regole/gemini-AAAA-MM-GG.jsonl`, valutato nel
+  riepilogo insieme a regole, consigliato e Schedina. agy gira con `--sandbox`
+  e senza permessi per i comandi (solo ricerca web).
+- Valutazione del test spostata dalle 04:30 alle 16:30: i risultati arrivano il
+  giorno dopo verso le 14:45.
+
 ### 2026-10-14 — Dossier: raccolta di peso assenti, allenatore e portiere (solo dati)
 
 `fotmobDossier.ts`: per ogni squadra si legge anche la pagina squadra FotMob

@@ -1,0 +1,124 @@
+/**
+ * PRONOSTICO REGOLE: scenario + lettura AI (14/10/2026, Rossi). Nessun effetto collaterale.
+ *
+ * Il metodo deciso il 14/10 (Desktop\report-analisi pronosblast\regole-per-scenario.md). Lo usano
+ * il test giornaliero (scripts/test-regole.mts) e la scheda partita (funzione /regole), accanto al
+ * consigliato SENZA sostituirlo: si decide dopo il test quale dei due vale.
+ *
+ * Semaforo (misure del 14/10 su 1.435 partite con dossier):
+ *  - verde: lettura AI coerente e con la stessa direzione del bookmaker -> direzione (tabella scenario);
+ *  - giallo: lettura senza direzione -> Equilibrio: X o GG; altrimenti doppia chance (+ O1.5);
+ *    anche "la favorita non perde" (risultati con vittorie e pareggi) -> doppia chance;
+ *  - rosso: lettura incoerente (direzione diversa dai suoi 3 risultati) o contro il bookmaker ->
+ *    niente favorita, solo gol (O2.5, GG), altrimenti esclusa;
+ *  - avviso gol: favorita con 5+ assenti -> niente GG/Over (GG -11, O2.5 -9 sulle quote), TRANNE
+ *    favorita forte (quota 1,50 o meno) nelle coppe europee: segna quasi 3 gol a partita anche
+ *    senza titolari (versione 2, 15/10: Liverpool 6 assenti, 3-6 a Linz);
+ *  - campionato da pochi gol (media 2,5 o meno nell'archivio): niente "la favorita segna 2+"
+ *    (MG 2-4 favorita) ne' Over 2,5: favorita 2+ gol -9,4, Over -3,7 sulle quote (versione 2).
+ * Il contrasto forma/quote NON esclude (la favorita va meglio, +4,8). Mai mercati larghi di ripiego.
+ */
+import { rowToOdds } from "./supabaseRest";
+import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis } from "./clusterEngine";
+import { evaluateMarket } from "./marketEval";
+import { getScenarioNote } from "../../../frontend/src/api";
+
+export const VERSIONE_REGOLE = 2;
+
+/** Campionati con media 2,5 gol o meno (almeno 40 partite nell'archivio, misura del 15/10/2026). */
+export const LEGHE_POCHI_GOL = new Set([
+  "ARG1", "ARG2", "ARG3", "URU1", "URU2", "FIN1", "SCO2", "PAR1", "EGI1", "POR2", "FRA3",
+  "COL1", "COL2", "ING4", "CIL2", "TUR2", "BRA2", "BRA3", "EURONLG", "ECU1",
+]);
+const COPPE_EUROPEE = /^(EUCHL|EUEL|EUCONFL)/;
+
+export const FASCE = [{ nome: "1,40", da: 1.40, a: 1.50 }, { nome: "1,50", da: 1.50, a: 1.60 }, { nome: "1,60", da: 1.60, a: 1.75 }, { nome: "1,75", da: 1.75, a: 1.96 }];
+const REALI: Record<string, string> = { "1": "odd_1", X: "odd_x", "2": "odd_2", "1X": "odd_1x", X2: "odd_x2", "12": "odd_12", "O1.5": "odd_o15", "O2.5": "odd_o25", "U2.5": "odd_u25", "U3.5": "odd_u35", GG: "odd_gg", NG: "odd_ng" };
+
+export const vinceRegole = (mk: string, h: number, a: number): boolean | null =>
+  /^x\s+(oppure|o)\s+gg$/i.test(mk.trim()) ? h === a || (h > 0 && a > 0) : evaluateMarket(mk, h, a);
+
+const risultati = (l: any): number[][] => (l?.risultati_probabili || [])
+  .map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number)).filter((x: number[]) => x.length === 2 && x.every(Number.isFinite));
+
+export type VoceRegole = { mk: string; quota: number; stimata: boolean; p: number };
+export type Semaforo = "verde" | "giallo" | "rosso" | "grigio";
+
+/**
+ * m = riga di `matches` (con squadra1/2, manifestazione e quote);
+ * d = { ai: numeri.lettura_ai, pro: numeri.lettura_pro, prog: numeri.programma }.
+ */
+export function decidi(m: any, d: any) {
+  const odds: any = rowToOdds(m);
+  const st: any = (structuralAnalysis(odds, 1.4) as any).structure;
+  const nota = getScenarioNote(odds, st);
+  const casaFav = Number(m.odd_1) <= Number(m.odd_2), favQ = Math.min(Number(m.odd_1), Number(m.odd_2));
+  let scenario = nota?.scenario || "senza scenario";
+  if (scenario === "Gap Tecnico") scenario += favQ <= 1.35 ? " - favorita fortissima" : " - favorita netta";
+  const g = fullDistribution({} as any, 10, deriveLambdas(odds) as [number, number]);
+  const cat = quoteCatalogo(odds);
+  const voce = (mk: string): VoceRegole | null => {
+    const reale = REALI[mk] ? Number(m[REALI[mk]]) || null : null;
+    const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? null;
+    if (!quota) return null;
+    const p = g.reduce((s: number, c: any) => s + (vinceRegole(mk, c.home, c.away) ? c.p : 0), 0);
+    return { mk, quota, stimata: mk === "X oppure GG" || !reale, p: +p.toFixed(4) };
+  };
+  const F = casaFav
+    ? { segno: "1", dc: "1X", dcO15: "DC 1X + O1.5", mg13: "MG 1-3 casa", mg24: "MG 2-4 casa", mg12: "MG 1-2 casa", combo: "MG 1-3 casa + MG 0-2 ospite", u45: "1 + U4.5" }
+    : { segno: "2", dc: "X2", dcO15: "DC X2 + O1.5", mg13: "MG 1-3 ospite", mg24: "MG 2-4 ospite", mg12: "MG 1-2 ospite", combo: "MG 0-2 casa + MG 1-3 ospite", u45: "2 + U4.5" };
+  const favDir = casaFav ? "1" : "2";
+  // Lettura AI: quella "Pro" se c'e', altrimenti la gratis
+  const l = d?.pro?.direzione ? d.pro : d?.ai;
+  const dir = String(l?.direzione || "").trim().toLowerCase();
+  const ris = risultati(l);
+  const vC = ris.filter((r) => r[0] > r[1]).length, vO = ris.filter((r) => r[1] > r[0]).length;
+  const dirRis = vC >= 2 ? "1" : vO >= 2 ? "2" : "nessuna";
+  const coerente = !l ? null : ris.length < 3 ? null : (dir === "nessuna" || dir === "" ? dirRis === "nessuna" : dir === dirRis);
+  const assFav = Number(casaFav ? d?.prog?.assenti_casa : d?.prog?.assenti_ospite);
+  const lega = String(m.manifestazione || "").toUpperCase().trim();
+  const fortInCoppa = favQ <= 1.5 && COPPE_EUROPEE.test(lega);
+  const avvisoGol = Number.isFinite(assFav) && assFav >= 5 && !fortInCoppa;
+  const pochiGol = LEGHE_POCHI_GOL.has(lega);
+  let semaforo: Semaforo, motivo: string, candidati: string[];
+  // "Non perde" (14/10/2026, Roma-Real: direzione 2 ma risultati 1-2, 1-1, 2-2): la squadra della
+  // direzione non perde in nessuno dei 3 risultati -> lettura coerente con la doppia chance, non incoerente.
+  const nonPerde = ["1", "2"].includes(dir) && ris.length === 3 && ris.every((r) => (dir === "1" ? r[0] >= r[1] : r[1] >= r[0]));
+  if (!l) { semaforo = "grigio"; motivo = "senza lettura AI: solo scenario"; candidati = scenario === "Equilibrio" ? [F.dc, "X oppure GG"] : [F.dcO15, F.segno, F.combo]; }
+  else if (coerente === false && nonPerde && dir === favDir) {
+    semaforo = "giallo"; motivo = "lettura 'la favorita non perde' (vince o pareggia nei suoi risultati)"; candidati = [F.dcO15, F.dc, F.combo];
+  }
+  else if (coerente === false || (["1", "2"].includes(dir) && dir !== favDir)) {
+    semaforo = "rosso"; motivo = coerente === false ? "lettura incoerente (direzione diversa dai suoi risultati)" : "lettura contro il bookmaker"; candidati = ["O2.5", "GG"];
+  } else if (dir === "nessuna" || dir === "" || dir === "x") {
+    semaforo = "giallo"; motivo = "lettura senza direzione"; candidati = scenario === "Equilibrio" ? ["X oppure GG", "GG", F.dc] : [F.dcO15, F.dc, F.combo];
+  } else {
+    semaforo = "verde"; motivo = "lettura coerente e d'accordo con il bookmaker";
+    candidati = scenario === "Equilibrio" ? [F.dc, "MG 2-4 totali", F.segno]
+      : scenario === "Progressione" ? [F.dcO15, F.segno, F.combo, F.mg24]
+      : scenario.endsWith("favorita netta") ? [F.segno, F.dcO15, F.mg24, "O2.5"]
+      : [F.mg13, F.mg24, F.u45, "NG"];
+  }
+  const avvisi: string[] = [];
+  if (avvisoGol) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
+  else if (fortInCoppa && Number.isFinite(assFav) && assFav >= 5) avvisi.push(`favorita forte in coppa: ${assFav} assenti ma l'Over resta (segnano comunque)`);
+  if (pochiGol) { candidati = candidati.filter((c) => c !== F.mg24 && c !== "O2.5"); avvisi.push("campionato da pochi gol: niente MG 2-4 della favorita né Over 2,5"); }
+  const voci = candidati.map(voce).filter((v): v is VoceRegole => !!v);
+  const fasce: Record<string, VoceRegole | null> = {};
+  for (const f of FASCE) {
+    const dentro = voci.filter((v) => v.quota >= f.da && v.quota < f.a);
+    fasce[f.nome] = dentro.sort((a, b) => b.p - a.p || candidati.indexOf(a.mk) - candidati.indexOf(b.mk))[0] ?? null;
+  }
+  const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is VoceRegole => !!v).sort((a, b) => b.p - a.p);
+  const scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
+  return {
+    versione: VERSIONE_REGOLE,
+    scenario, favorita: casaFav ? m.squadra1 : m.squadra2, favQ,
+    lettura: l ? { modello: l.modello ?? null, dir: dir || "n/d", ris: l.risultati_probabili ?? [] } : null,
+    coerente, assentiFavorita: Number.isFinite(assFav) ? assFav : null, avvisoGol, pochiGol, avvisi,
+    semaforo, motivo: scelta ? motivo : `${motivo}; nessuna giocata delle regole fra 1,40 e 1,95 -> esclusa`,
+    candidati, fasce, scelta,
+  };
+}
+
+export type DecisioneRegole = ReturnType<typeof decidi>;

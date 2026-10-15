@@ -72,6 +72,7 @@ import upload_skipped from "../netlify/functions/upload-skipped";
 import dossier_giornata from "../netlify/functions/dossier-giornata";
 import forma_gol from "../netlify/functions/forma-gol";
 import tabella_scenari from "../netlify/functions/tabella-scenari";
+import regole from "../netlify/functions/regole";
 import lettura from "../netlify/functions/lettura";
 import pagella_consigliato from "../netlify/functions/pagella-consigliato";
 
@@ -129,6 +130,7 @@ const ROUTES: Record<string, Handler> = {
   "dossier-giornata": dossier_giornata,
   "forma-gol": forma_gol,
   "tabella-scenari": tabella_scenari,
+  regole,
   "lettura": lettura,
   "pagella-consigliato": pagella_consigliato,
 };

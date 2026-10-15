@@ -173,6 +173,10 @@
       "destination": "/api/tabella-scenari"
     },
     {
+      "source": "/regole",
+      "destination": "/api/regole"
+    },
+    {
       "source": "/lettura",
       "destination": "/api/lettura"
     },

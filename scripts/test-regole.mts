@@ -8,6 +8,8 @@
  *    (consigliato e Schedina). Le foto non si riscrivono: sono quello che si sapeva prima.
  *  - "valuta": il giorno dopo confronta con i risultati (regole contro app) e aggiorna il riepilogo.
  *
+ * La decisione e' in netlify/functions/lib/regolePronostico.ts (la stessa della scheda partita).
+ * Le foto hanno 'versione': dalla 2 (15/10) favorita forte in coppa e campionati da pochi gol.
  * Semaforo (misure del 14/10 su 1.435 partite con dossier):
  *  - verde: lettura AI coerente e con la stessa direzione del bookmaker -> direzione (tabella scenario);
  *  - giallo: lettura senza direzione -> Equilibrio: X o GG; altrimenti doppia chance (+ O1.5);
@@ -19,95 +21,23 @@
  * Uso (dalla cartella server-locale, per avere le variabili):
  *   npx tsx --env-file=.env ../scripts/test-regole.mts fotografa [--ore=3]
  *   npx tsx --env-file=.env ../scripts/test-regole.mts valuta [--giorno=AAAA-MM-GG]
+ *   npx tsx --env-file=.env ../scripts/test-regole.mts gemini [--forza]   (una volta al giorno, vedi gemini())
  * Uscita: server-locale/test-regole/ (foto-AAAA-MM-GG.jsonl, report-AAAA-MM-GG.md, riepilogo.md).
  */
 import { mkdirSync, existsSync, readFileSync, appendFileSync, writeFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { pgGet, rowToOdds } from "../netlify/functions/lib/supabaseRest";
-import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis } from "../netlify/functions/lib/clusterEngine";
-import { evaluateMarket } from "../netlify/functions/lib/marketEval";
-import { getScenarioNote, inizioPartitaMs } from "../frontend/src/api";
+import { pgGet } from "../netlify/functions/lib/supabaseRest";
+import { spawn } from "node:child_process";
+import { inizioPartitaMs, normalizeMarket } from "../frontend/src/api";
+import { leagueTier, isPartitaMinore } from "../netlify/functions/lib/leagueTier";
+import { parseLeagueLabel } from "../netlify/functions/lib/leagueContext";
+import { decidi, vinceRegole as vince } from "../netlify/functions/lib/regolePronostico";
+export { decidi };
 
 const DIR = fileURLToPath(new URL("../server-locale/test-regole/", import.meta.url));
 mkdirSync(DIR, { recursive: true });
 const arg = (k: string, d: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
 const giornoRoma = (ms: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rome" }).format(new Date(ms));
-const FASCE = [{ nome: "1,40", da: 1.40, a: 1.50 }, { nome: "1,50", da: 1.50, a: 1.60 }, { nome: "1,60", da: 1.60, a: 1.75 }, { nome: "1,75", da: 1.75, a: 1.96 }];
-const REALI: Record<string, string> = { "1": "odd_1", X: "odd_x", "2": "odd_2", "1X": "odd_1x", X2: "odd_x2", "12": "odd_12", "O1.5": "odd_o15", "O2.5": "odd_o25", "U2.5": "odd_u25", "U3.5": "odd_u35", GG: "odd_gg", NG: "odd_ng" };
-const vince = (mk: string, h: number, a: number): boolean | null =>
-  /^x\s+(oppure|o)\s+gg$/i.test(mk.trim()) ? h === a || (h > 0 && a > 0) : evaluateMarket(mk, h, a);
-const risultati = (l: any): number[][] => (l?.risultati_probabili || [])
-  .map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number)).filter((x: number[]) => x.length === 2 && x.every(Number.isFinite));
-
-type Voce = { mk: string; quota: number; stimata: boolean; p: number };
-
-/** La decisione con le regole del 14/10. Nessun effetto collaterale. */
-export function decidi(m: any, d: any) {
-  const odds: any = rowToOdds(m);
-  const st: any = (structuralAnalysis(odds, 1.4) as any).structure;
-  const nota = getScenarioNote(odds, st);
-  const casaFav = Number(m.odd_1) <= Number(m.odd_2), favQ = Math.min(Number(m.odd_1), Number(m.odd_2));
-  let scenario = nota?.scenario || "senza scenario";
-  if (scenario === "Gap Tecnico") scenario += favQ <= 1.35 ? " - favorita fortissima" : " - favorita netta";
-  const g = fullDistribution({} as any, 10, deriveLambdas(odds) as [number, number]);
-  const cat = quoteCatalogo(odds);
-  const voce = (mk: string): Voce | null => {
-    const reale = REALI[mk] ? Number(m[REALI[mk]]) || null : null;
-    const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? null;
-    if (!quota) return null;
-    const p = g.reduce((s: number, c: any) => s + (vince(mk, c.home, c.away) ? c.p : 0), 0);
-    return { mk, quota, stimata: mk === "X oppure GG" || !reale, p: +p.toFixed(4) };
-  };
-  const F = casaFav
-    ? { segno: "1", dc: "1X", dcO15: "DC 1X + O1.5", mg13: "MG 1-3 casa", mg24: "MG 2-4 casa", mg12: "MG 1-2 casa", combo: "MG 1-3 casa + MG 0-2 ospite", u45: "1 + U4.5" }
-    : { segno: "2", dc: "X2", dcO15: "DC X2 + O1.5", mg13: "MG 1-3 ospite", mg24: "MG 2-4 ospite", mg12: "MG 1-2 ospite", combo: "MG 0-2 casa + MG 1-3 ospite", u45: "2 + U4.5" };
-  const favDir = casaFav ? "1" : "2";
-  // Lettura AI: quella "Pro" se c'e', altrimenti la gratis
-  const l = d?.pro?.direzione ? d.pro : d?.ai;
-  const dir = String(l?.direzione || "").trim().toLowerCase();
-  const ris = risultati(l);
-  const vC = ris.filter((r) => r[0] > r[1]).length, vO = ris.filter((r) => r[1] > r[0]).length;
-  const dirRis = vC >= 2 ? "1" : vO >= 2 ? "2" : "nessuna";
-  const coerente = !l ? null : ris.length < 3 ? null : (dir === "nessuna" || dir === "" ? dirRis === "nessuna" : dir === dirRis);
-  const assFav = Number(casaFav ? d?.prog?.assenti_casa : d?.prog?.assenti_ospite);
-  const avvisoGol = Number.isFinite(assFav) && assFav >= 5;
-  let semaforo: "verde" | "giallo" | "rosso" | "grigio", motivo: string, candidati: string[];
-  // "Non perde" (14/10/2026, Roma-Real: direzione 2 ma risultati 1-2, 1-1, 2-2): la squadra della
-  // direzione non perde in nessuno dei 3 risultati -> lettura coerente con la doppia chance, non incoerente.
-  const nonPerde = ["1", "2"].includes(dir) && ris.length === 3 && ris.every((r) => (dir === "1" ? r[0] >= r[1] : r[1] >= r[0]));
-  if (!l) { semaforo = "grigio"; motivo = "senza lettura AI: solo scenario"; candidati = scenario === "Equilibrio" ? [F.dc, "X oppure GG"] : [F.dcO15, F.segno, F.combo]; }
-  else if (coerente === false && nonPerde && dir === favDir) {
-    semaforo = "giallo"; motivo = "lettura 'la favorita non perde' (vince o pareggia nei suoi risultati)"; candidati = [F.dcO15, F.dc, F.combo];
-  }
-  else if (coerente === false || (["1", "2"].includes(dir) && dir !== favDir)) {
-    semaforo = "rosso"; motivo = coerente === false ? "lettura incoerente (direzione diversa dai suoi risultati)" : "lettura contro il bookmaker"; candidati = ["O2.5", "GG"];
-  } else if (dir === "nessuna" || dir === "" || dir === "x") {
-    semaforo = "giallo"; motivo = "lettura senza direzione"; candidati = scenario === "Equilibrio" ? ["X oppure GG", "GG", F.dc] : [F.dcO15, F.dc, F.combo];
-  } else {
-    semaforo = "verde"; motivo = "lettura coerente e d'accordo con il bookmaker";
-    candidati = scenario === "Equilibrio" ? [F.dc, "MG 2-4 totali", F.segno]
-      : scenario === "Progressione" ? [F.dcO15, F.segno, F.combo, F.mg24]
-      : scenario.endsWith("favorita netta") ? [F.segno, F.dcO15, F.mg24, "O2.5"]
-      : [F.mg13, F.mg24, F.u45, "NG"];
-  }
-  if (avvisoGol) candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c));
-  const voci = candidati.map(voce).filter((v): v is Voce => !!v);
-  const fasce: Record<string, Voce | null> = {};
-  for (const f of FASCE) {
-    const dentro = voci.filter((v) => v.quota >= f.da && v.quota < f.a);
-    fasce[f.nome] = dentro.sort((a, b) => b.p - a.p || candidati.indexOf(a.mk) - candidati.indexOf(b.mk))[0] ?? null;
-  }
-  const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is Voce => !!v).sort((a, b) => b.p - a.p);
-  const scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
-  return {
-    scenario, favorita: casaFav ? m.squadra1 : m.squadra2, favQ,
-    lettura: l ? { modello: l.modello ?? null, dir: dir || "n/d", ris: l.risultati_probabili ?? [] } : null,
-    coerente, assentiFavorita: Number.isFinite(assFav) ? assFav : null, avvisoGol,
-    semaforo, motivo: scelta ? motivo : `${motivo}; nessuna giocata delle regole fra 1,40 e 1,95 -> esclusa`,
-    candidati, fasce, scelta,
-  };
-}
-
 const fotoFile = (giorno: string) => `${DIR}foto-${giorno}.jsonl`;
 const leggiFoto = (giorno: string): any[] => existsSync(fotoFile(giorno))
   ? readFileSync(fotoFile(giorno), "utf8").split("\n").filter(Boolean).map((r) => JSON.parse(r)) : [];
@@ -191,6 +121,22 @@ async function valuta() {
       if (f.app.schedina) conta(tot.schedina, vince(f.app.schedina, h, a));
     }
   }
+  // Gemini (dal 15/10): tutte le sue scelte e, sulle stesse partite, Gemini contro le regole
+  const gem = nuovoConto(), stesseGem = nuovoConto(), stesseReg = nuovoConto(); let gemSalta = 0;
+  const fotoPerId = new Map<string, any>();
+  for (const file of readdirSync(DIR).filter((x) => /^foto-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x))) for (const f of leggiFoto(file.slice(5, 15))) fotoPerId.set(f.id, f);
+  for (const file of readdirSync(DIR).filter((x) => /^gemini-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
+    const gs = readFileSync(`${DIR}${file}`, "utf8").split("\n").filter(Boolean).map((r) => JSON.parse(r));
+    const ris = new Map<string, string>();
+    if (gs.length) for (const r of await pgGet(`matches?id=in.(${gs.map((g) => g.id).join(",")})&select=id,result`)) if (/^\d+-\d+$/.test(String(r.result ?? "").trim())) ris.set(r.id, r.result.trim());
+    for (const g of gs) {
+      const r = ris.get(g.id); if (!r) continue; const [h, a] = r.split("-").map(Number);
+      if (!g.mk) { gemSalta++; continue; }
+      const ok = vince(g.mk, h, a); conta(gem, ok, g.quota);
+      const f = fotoPerId.get(g.id);
+      if (f?.scelta) { conta(stesseGem, ok, g.quota); conta(stesseReg, vince(f.scelta.mk, h, a), f.scelta.quota); }
+    }
+  }
   const t = (o: Record<string, Conto>) => Object.entries(o).sort().map(([k, c]) => `| ${k} | ${pc(c)} | ${qm(c)} |`).join("\n");
   writeFileSync(`${DIR}riepilogo.md`, [
     `# Test regole · riepilogo (${giorniN} giorni con risultati, aggiornato ${new Date().toISOString().slice(0, 16)})`, "",
@@ -199,12 +145,69 @@ async function valuta() {
     `| App: consigliato | ${pc(tot.consigliato)} | ${qm(tot.consigliato)} |`,
     `| App: Schedina (pick_finale) | ${pc(tot.schedina)} | - |`,
     `| Escluse dalle regole: come e' andata la Schedina | ${pc(tot.escluse)} | - |`,
-    `| App "da lasciare": se giocate | ${pc(tot.dalasciare)} | - |`, "",
+    `| App "da lasciare": se giocate | ${pc(tot.dalasciare)} | - |`,
+    `| Gemini (solo i nomi delle partite, ricerca web) | ${pc(gem)} | ${qm(gem)} |`, "",
+    `Sulle stesse partite: Gemini ${pc(stesseGem)} (quota media ${qm(stesseGem)}) · Regole ${pc(stesseReg)} (quota media ${qm(stesseReg)}) · Gemini ha saltato ${gemSalta} partite finite.`,
+    "Quote di Gemini: quelle che dice di aver trovato lui. Per guadagnare alla quota media 1,60 serve vincere almeno il 63%.", "",
     "## Regole per semaforo", "| Semaforo | Vinte | Quota media |", "|---|---|---|", t(perSem), "",
     "## Regole per scenario", "| Scenario | Vinte | Quota media |", "|---|---|---|", t(perScen), "",
     "## Regole per fascia (la migliore di ogni fascia)", "| Fascia | Vinte | Quota media |", "|---|---|---|", t(perFascia), "",
   ].join("\n"));
   console.log(`[test-regole] riepilogo: regole ${pc(tot.regole)}, consigliato ${pc(tot.consigliato)}, schedina ${pc(tot.schedina)}`);
+}
+
+/**
+ * GEMINI NEL TEST (15/10/2026, Rossi: "ho dato a Gemini solo i nomi delle partite e le ha prese tutte").
+ * Una volta al giorno si passano a Gemini 3.8 Flash (agy, abbonamento dell'utente: nessun costo API)
+ * SOLO i nomi delle partite principali di oggi non iniziate, come ha fatto l'utente; lui cerca sul web
+ * e sceglie un mercato semplice da 1,40 a 1,80. Le sue scelte si salvano prima del via e si valutano
+ * con le altre. Il testo mandato contiene solo squadre, campionato e ora (niente dati privati).
+ */
+const MAX_GEMINI = 10;
+async function gemini() {
+  const ora = Date.now(), oggi = giornoRoma(ora);
+  const file = `${DIR}gemini-${oggi}.jsonl`;
+  if (existsSync(file) && !process.argv.includes("--forza")) { console.log(`[test-regole] gemini: ${oggi} gia' fatto`); return; }
+  const partite = (await pgGet(`matches?day=eq.${oggi}&result=is.null&select=id,day,time,manifestazione,squadra1,squadra2,odd_1,odd_x,odd_2`))
+    .filter((m: any) => { const i = inizioPartitaMs(m.day, m.time); return i !== null && i > ora + 30 * 60_000 && m.odd_1 && !isPartitaMinore(m.manifestazione, m.squadra1, m.squadra2); })
+    .map((m: any) => ({ ...m, livello: leagueTier(m.manifestazione) }))
+    .filter((m: any) => m.livello <= 2)
+    .sort((a: any, b: any) => a.livello - b.livello || String(a.time).localeCompare(String(b.time)))
+    .slice(0, MAX_GEMINI);
+  if (!partite.length) { console.log(`[test-regole] gemini: nessuna partita principale da giocare oggi`); return; }
+  const elenco = partite.map((m: any, i: number) => `${i + 1}. ${m.squadra1} - ${m.squadra2} (${parseLeagueLabel(m.manifestazione) || m.manifestazione}), ore ${m.time}`).join("\n");
+  const prompt = `Partite di calcio di oggi ${oggi.split("-").reverse().join("/")}:\n${elenco}\n\n`
+    + "Usa SOLO la ricerca web: non eseguire comandi, non leggere ne' creare file. Analizza ogni partita con la ricerca web (forma, assenti, notizie, quote) e dammi un pronostico per ciascuna, con un mercato semplice da quota 1,40 a 1,80. "
+    + "Se una partita non ti convince scrivi \"salta\" come mercato.\n"
+    + "Rispondi SOLO con JSON: [{\"n\":1,\"mercato\":\"...\",\"quota\":1.55,\"motivo\":\"una frase\"}]. "
+    + "Mercati ammessi, scritti cosi': 1, X, 2, 1X, X2, 12, O1.5, O2.5, O3.5, U2.5, U3.5, GG, NG, combinazioni con + (es. \"X2 + O2.5\", \"1 + GG\"), Multigol (es. \"MG 2-4 ospite\", \"MG 1-3 casa\", \"MG 2-4 totali\").";
+  const cwd = `${DIR}agy`; mkdirSync(cwd, { recursive: true });
+  const agy = `${process.env.LOCALAPPDATA}\\agy\\bin\\agy.exe`;
+  const t0 = Date.now();
+  const testo: string = await new Promise((ok) => {
+    const p = spawn(agy, ["--model", "gemini-3.8-flash-high", "--output-format", "text", "--print-timeout", "1500s", "--sandbox", "-p", prompt], { cwd });
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d)); p.stderr.on("data", (d) => (err += d));
+    p.stdin.end();
+    p.on("close", (c) => { if (c || !out.trim()) console.error(`[test-regole] gemini: agy uscito con ${c}: ${err.slice(-500)}`); ok(out); });
+    p.on("error", (e) => { console.error("[test-regole] gemini:", e.message); ok(""); });
+  });
+  const json = testo.match(/\[[\s\S]*\]/)?.[0];
+  let scelte: any[] = [];
+  try { scelte = json ? JSON.parse(json) : []; } catch { /* sotto */ }
+  if (!Array.isArray(scelte) || !scelte.length) { console.error(`[test-regole] gemini: risposta non leggibile: ${testo.slice(0, 300)}`); return; }
+  const pulisci = (mk: string) => String(mk || "").trim().replace(/\bno\s*gol\b/i, "NG").replace(/^gol$/i, "GG").replace(/\bmultigol\b/i, "MG").replace(/\s+-\s+(?=GG|NG|O\d|U\d)/i, " + ");
+  for (const s of scelte) {
+    const m = partite[Number(s?.n) - 1]; if (!m) continue;
+    const grezzo = String(s?.mercato ?? "");
+    const mk = /^salta$/i.test(grezzo.trim()) ? null : normalizeMarket(pulisci(grezzo));
+    const valutabile = mk ? vince(mk, 1, 1) !== null : false;
+    appendFileSync(file, JSON.stringify({
+      foto: new Date(ora).toISOString(), id: m.id, day: m.day, time: m.time, lega: m.manifestazione, casa: m.squadra1, ospite: m.squadra2,
+      modello: "gemini-3.8-flash-high (agy)", mercato_scritto: grezzo, mk: valutabile ? mk : null, quota: Number(s?.quota) || null, motivo: String(s?.motivo ?? "").slice(0, 300),
+    }) + "\n");
+  }
+  console.log(`[test-regole] gemini ${oggi}: ${scelte.length} scelte su ${partite.length} partite in ${Math.round((Date.now() - t0) / 1000)} s`);
 }
 
 /** Controllo a mano su partite gia' giocate: la decisione (con i dati salvati ora) e il risultato. Non salva niente. */
@@ -224,5 +227,6 @@ const modo = process.argv[2];
 if (modo === "fotografa") await fotografa();
 else if (modo === "valuta") await valuta();
 else if (modo === "prova") await prova();
-else { console.log("uso: test-regole.mts fotografa [--ore=3] | valuta [--giorno=AAAA-MM-GG] | prova --ids=id1,id2"); }
+else if (modo === "gemini") await gemini();
+else { console.log("uso: test-regole.mts fotografa [--ore=3] | valuta [--giorno=AAAA-MM-GG] | prova --ids=id1,id2 | gemini [--forza]"); }
 process.exit(0);
