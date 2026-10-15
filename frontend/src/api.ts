@@ -520,8 +520,6 @@ export const api = {
       opz.genera ? { method: "POST" } : undefined,
     ),
   formaGol: (id: string) => netlifyReq<{ forma: FormaGol | null }>(`/forma-gol?matchId=${encodeURIComponent(id)}`),
-  /** "Pronostico regole" (scenario + lettura AI, in prova dal 15/10/2026): accanto al consigliato, non lo sostituisce. */
-  regole: (id: string) => netlifyReq<{ regole: PronosticoRegole | null }>(`/regole?matchId=${encodeURIComponent(id)}`),
   predict: (id: string, force?: boolean) =>
     netlifyReq<Prediction>(`/ai-predict?matchId=${encodeURIComponent(id)}${force ? "&force=true" : ""}`, { method: "POST" }),
   setResult: (id: string, result: string) =>
@@ -3376,6 +3374,8 @@ export type RispostaLettura = {
   ai_vecchia?: boolean; pro_vecchia?: boolean;
   /** Il consigliato SALVATO (lo stesso di schedina e multipla). */
   consigliato?: ConsigliatoSalvato | null;
+  /** Pronostico regole (in prova dal 15/10/2026): accanto al consigliato, non lo sostituisce. */
+  regole?: PronosticoRegole | null;
 };
 
 /**

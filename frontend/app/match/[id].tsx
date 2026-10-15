@@ -220,15 +220,9 @@ export default function MatchDetail() {
     api.formaGol(id).then((r) => { if (vivo) setForma(r?.forma ?? null); }).catch(() => {});
     return () => { vivo = false; };
   }, [id]);
-  // Pronostico regole (15/10/2026, in prova): si ricalcola quando arriva o cambia la lettura AI.
-  const [regole, setRegole] = useState<PronosticoRegole | null>(null);
-  const firmaLetturaRegole = `${lettura?.ai?.direzione ?? ""}|${(lettura?.ai?.risultati_probabili ?? []).join(",")}|${lettura?.pro?.direzione ?? ""}|${(lettura?.pro?.risultati_probabili ?? []).join(",")}`;
-  useEffect(() => {
-    if (!id) return;
-    let vivo = true;
-    api.regole(id).then((r) => { if (vivo) setRegole(r?.regole ?? null); }).catch(() => {});
-    return () => { vivo = false; };
-  }, [id, firmaLetturaRegole, match?.odds]);
+  // Pronostico regole (15/10/2026, in prova): arriva dentro la lettura (stessa memoria del
+  // consigliato), cosi' compare insieme a lui e non sposta la scheda dopo qualche secondo.
+  const regole: PronosticoRegole | null = lettura?.regole ?? null;
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);

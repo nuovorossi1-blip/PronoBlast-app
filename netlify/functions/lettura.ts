@@ -1,6 +1,17 @@
 import { jsonResponse, pgGet } from "./lib/supabaseRest";
 import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
+import { decidi } from "./lib/regolePronostico";
+
+/** Pronostico regole (15/10/2026, in prova) dentro la risposta: arriva e si salva in memoria
+ *  insieme al consigliato, senza una richiesta in piu' (sul telefono il riquadro arrivava dopo
+ *  e spingeva giu' la scheda). Mai blocca la lettura. */
+function regoleDi(m: any, n: any, programma?: any) {
+  try {
+    if (!(Number(m?.odd_1) > 1 && Number(m?.odd_x) > 1 && Number(m?.odd_2) > 1)) return null;
+    return decidi(m, { ai: n?.lettura_ai, pro: n?.lettura_pro, prog: programma ?? n?.programma });
+  } catch { return null; }
+}
 
 /**
  * GET  /lettura?matchId=<uuid>[&auto=1]  -> lettura del programma + letture AI salvate.
@@ -22,7 +33,7 @@ export default async (req: Request): Promise<Response> => {
     // senza consigliato). Se le quote sono cambiate si passa al calcolo.
     if (req.method === "GET") {
       try {
-        const [m] = await pgGet(`matches?id=eq.${encodeURIComponent(id)}&select=id,day,time,result,odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`);
+        const [m] = await pgGet(`matches?id=eq.${encodeURIComponent(id)}&select=*`);
         const [d] = m ? await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(id)}&select=numeri`) : [];
         const n = d?.numeri;
         const ora = m ? firmaQuote(m) : null;
@@ -37,6 +48,7 @@ export default async (req: Request): Promise<Response> => {
             programma: n.programma, ai, pro, consigliato: n.consigliato, dossier: true, salvata: true,
             ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora!),
             pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora!),
+            regole: regoleDi(m, n),
           });
         }
       } catch { /* si va al calcolo completo */ }
@@ -70,7 +82,7 @@ export default async (req: Request): Promise<Response> => {
         const oraQ = firmaQuote(dati.match);
         if (pro?.quote && !quoteCambiate(pro.quote, oraQ)) {
           const { testo: _tt, ...prog } = dati.programma;
-          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: !!dati.numeri, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true });
+          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: !!dati.numeri, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true, regole: regoleDi(dati.match, dati.numeri, prog) });
         }
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
@@ -91,6 +103,7 @@ export default async (req: Request): Promise<Response> => {
       // Le letture fatte prima del 07/10 non hanno le quote salvate: non si sa.
       ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora),
       pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora),
+      regole: regoleDi(dati.match, { ...(dati.numeri || {}), lettura_ai: ai, lettura_pro: pro }, programma),
     });
   } catch (e: any) {
     return jsonResponse({ error: e?.message || String(e) }, 502);

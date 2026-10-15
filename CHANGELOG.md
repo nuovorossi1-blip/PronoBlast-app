@@ -168,6 +168,10 @@ codice + `.md` insieme -> costruisce.
   salvato in `server-locale/test-regole/gemini-AAAA-MM-GG.jsonl`, valutato nel
   riepilogo insieme a regole, consigliato e Schedina. agy gira con `--sandbox`
   e senza permessi per i comandi (solo ricerca web).
+- Correzione stesso giorno (video dell'utente dal telefono): il riquadro arrivava ~4 s dopo con una
+  richiesta a parte e spingeva giu' la scheda. Ora `regole` e' dentro la risposta di `/lettura`
+  (tutti i percorsi, lettura salvata compresa) e si salva nella stessa memoria del consigliato:
+  compare insieme a lui. `/regole` resta per le prove a mano.
 - Valutazione del test spostata dalle 04:30 alle 16:30: i risultati arrivano il
   giorno dopo verso le 14:45.
 
