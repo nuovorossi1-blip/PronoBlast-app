@@ -275,6 +275,19 @@ export function partitaIniziata(m: { result?: string | null; day?: string | null
   return inizio !== null && inizio <= Date.now();
 }
 
+/**
+ * La lettura AI (Pronostico AI se c'e', altrimenti la gratis) dice che la favorita delle quote
+ * non perde: vince o pareggia in tutti e 3 i suoi risultati (15/10/2026, Roma-Real 1-2, 1-1, 2-2).
+ */
+export function favoritaNonPerde(m: any, numeri: any): boolean {
+  const l = numeri?.lettura_pro?.risultati_probabili?.length ? numeri.lettura_pro : numeri?.lettura_ai;
+  const ris = (l?.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number))
+    .filter((r: number[]) => r.length === 2 && r.every(Number.isFinite));
+  const q1 = Number(m?.odd_1), q2 = Number(m?.odd_2);
+  if (ris.length !== 3 || !(q1 > 1 && q2 > 1) || q1 === q2) return false;
+  return ris.every((r: number[]) => (q1 < q2 ? r[0] >= r[1] : r[1] >= r[0]));
+}
+
 export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true): Promise<ConsigliatoSalvato | null> {
   const x = dati ?? (await datiLettura(matchId));
   if (!x) return null;
@@ -304,6 +317,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     casa: m.squadra1, ospite: m.squadra2,
     pesataCasa: pr.pesata_casa, pesataOspite: pr.pesata_ospite, accordo: pr.accordo,
     assentiCasa: pr.assenti_casa, assentiOspite: pr.assenti_ospite,
+    favNonPerde: favoritaNonPerde(m, x.numeri),
   });
   const c = a.consigliato;
   const out: ConsigliatoSalvato = {

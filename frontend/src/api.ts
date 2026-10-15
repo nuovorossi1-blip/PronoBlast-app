@@ -3510,6 +3510,8 @@ export function analizzaGiocate(x: {
   pesataOspite: { fatti: number; subiti: number } | null | undefined;
   accordo: boolean | null | undefined;
   assentiCasa: number; assentiOspite: number;
+  /** La lettura AI dice "la favorita delle quote non perde" (vince o pareggia in tutti e 3 i suoi risultati). */
+  favNonPerde?: boolean;
 }): AnalisiGiocate {
   const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
   const pc = (p: number) => `${Math.round(p * 100)}%`;
@@ -3558,6 +3560,16 @@ export function analizzaGiocate(x: {
         : { nome: x.ospite, contro: x.casa, f: x.pesataOspite.fatti })
     : null;
 
+  // GOL DELLA SFAVORITA (15/10/2026, Rossi, Roma-Real 3-4: consigliato MG 1-2 Roma perso).
+  // Sulle partite finite i consigliati "Multigol della squadra sfavorita" hanno vinto 22 su 45
+  // (49%) contro il 60% dichiarato; quelli sulla favorita il 64% (90). Non sono piu' candidati.
+  // Se il migliore era uno di questi e la lettura AI dice che la favorita non perde, si gioca la
+  // doppia chance della favorita + Over 1.5 (Roma-Real: DC X2 + O1.5, vinta).
+  const q1 = Number((x.odds as any).odd_1), q2 = Number((x.odds as any).odd_2);
+  const sfavorita = q1 > q2 ? "CASA" : q2 > q1 ? "OSPITE" : null;
+  const golSfavorita = (m: string) => sfavorita !== null && new RegExp(`^MG \\d-\\d ${sfavorita}$`).test(m.trim().toUpperCase());
+  let migliorSfavorita = 0;
+
   // Candidati e punteggio
   for (const r of righe) {
     if (isMercatoVietato(r.market)) continue;
@@ -3566,17 +3578,30 @@ export function analizzaGiocate(x: {
     if (pm < 0.58) continue;
     const p = r.stima != null ? Math.min(pm, r.stima) : pm;
     if (p < 0.55) continue;
+    if (golSfavorita(r.market)) { migliorSfavorita = Math.max(migliorSfavorita, p * r.quota); continue; }
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
-  const consigliato = daLasciare ? null : candidati[0] ?? null;
+  let primo = candidati[0] ?? null;
+  if (migliorSfavorita > (primo?.punteggio ?? 0) && x.favNonPerde && sfavorita) {
+    const dc = righe.find((r) => normalizeMarket(r.market) === normalizeMarket(sfavorita === "CASA" ? "DC X2 + O1.5" : "DC 1X + O1.5"));
+    // Tetto QUOTA_MAX_AI: sopra, la quota stimata di una doppia chance + Over e' poco affidabile.
+    if (dc && dc.quota >= 1.4 && dc.quota <= QUOTA_MAX_AI) {
+      const p = dc.misurata ? Math.min(dc.misurata.pA, dc.misurata.pB) : dc.stima;
+      // Non entra in `candidati`: spesso non ha la misura d'archivio (solo stima) e li' si legge `misurata`.
+      if (p != null) { dc.punteggio = p * dc.quota; primo = dc; }
+    }
+  }
+  const consigliato = daLasciare ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
 
   // Il perche' di ogni riga
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
-    if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    if (r.consigliato && migliorSfavorita > 0 && x.favNonPerde && /^DC .* \+ O1\.5$/i.test(r.market.trim())) r.perche = "★ consigliato: la lettura AI dice che la favorita non perde (al posto dei gol della sfavorita).";
+    else if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    else if (golSfavorita(r.market) && r.quota >= 1.4) r.perche = "gol della squadra sfavorita: da consigliati hanno vinto il 49% contro il 60% promesso (45 partite).";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;

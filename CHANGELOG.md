@@ -149,6 +149,20 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Consigliato: niente Multigol della squadra sfavorita
+
+`analizzaGiocate` (api.ts): `MG x-y casa/ospite` sulla squadra con la quota piu' alta non e'
+piu' candidato (Roma-Real 3-4: MG 1-2 Roma perso). Sulle partite finite questi consigliati
+avevano vinto 25/49 (51%) contro il ~60% dichiarato; quelli sulla favorita ~64%. Se il
+migliore era uno di questi e la lettura AI (Pro, se c'e', altrimenti gratis) dice che la
+favorita non perde (`favoritaNonPerde` in letturaPartita.ts: vince o pareggia nei 3
+risultati) si consiglia `DC <favorita> + O1.5` (quota 1,40-`QUOTA_MAX_AI`); altrimenti la
+giocata successiva. Prova sulle 49 finite: 35/46 vinte (76%) a quota media 1,60 (3 senza
+consigliato). Ricalcolati e salvati i 14 consigliati delle partite del 15/10 non iniziate
+(nessuna in Schedina). Ripristino: tag `prima-mg-sfavorita-2026-10-15` + copia in
+`Remoto\backup\2026-10-15-database\`. Primo avvio con un errore (la doppia chance senza misura
+d'archivio entrava nella lista che legge `misurata`): corretto dopo ~1,5 minuti, nessun errore nel log.
+
 ### 2026-10-15 — "Pronostico regole" nella scheda (in prova) e Gemini nel test giornaliero
 
 - `netlify/functions/lib/regolePronostico.ts`: la decisione del test regole

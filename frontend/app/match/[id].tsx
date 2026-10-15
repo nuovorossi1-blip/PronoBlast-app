@@ -611,6 +611,14 @@ export default function MatchDetail() {
         casa: match.squadra1, ospite: match.squadra2,
         pesataCasa: pr?.pesata_casa, pesataOspite: pr?.pesata_ospite, accordo: pr?.accordo ?? null,
         assentiCasa: pr?.assenti_casa ?? 0, assentiOspite: pr?.assenti_ospite ?? 0,
+        // Come favoritaNonPerde() del server (letturaPartita.ts, 15/10/2026)
+        favNonPerde: (() => {
+          const l = lettura?.pro?.risultati_probabili?.length ? lettura.pro : lettura?.ai;
+          const ris = (l?.risultati_probabili || []).map((r) => String(r).replace(/\s/g, "").split("-").map(Number)).filter((r) => r.length === 2 && r.every(Number.isFinite));
+          const q1 = Number(match.odds?.odd_1), q2 = Number(match.odds?.odd_2);
+          if (ris.length !== 3 || !(q1 > 1 && q2 > 1) || q1 === q2) return false;
+          return ris.every((r) => (q1 < q2 ? r[0] >= r[1] : r[1] >= r[0]));
+        })(),
       });
     } catch {
       return null;
