@@ -121,22 +121,28 @@ async function valuta() {
       if (f.app.schedina) conta(tot.schedina, vince(f.app.schedina, h, a));
     }
   }
-  // Gemini (dal 15/10): tutte le sue scelte e, sulle stesse partite, Gemini contro le regole
-  const gem = nuovoConto(), stesseGem = nuovoConto(), stesseReg = nuovoConto(); let gemSalta = 0;
+  // Gemini (dal 15/10): tutte le sue scelte e, sulle stesse partite, Gemini contro le regole.
+  // "gemini-" = agy da riga di comando (11:30); "gemini-chat-" = la chat dell'utente (versione piu' recente),
+  // incollata a mano con gli stessi soli nomi delle partite.
   const fotoPerId = new Map<string, any>();
   for (const file of readdirSync(DIR).filter((x) => /^foto-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x))) for (const f of leggiFoto(file.slice(5, 15))) fotoPerId.set(f.id, f);
-  for (const file of readdirSync(DIR).filter((x) => /^gemini-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
-    const gs = readFileSync(`${DIR}${file}`, "utf8").split("\n").filter(Boolean).map((r) => JSON.parse(r));
-    const ris = new Map<string, string>();
-    if (gs.length) for (const r of await pgGet(`matches?id=in.(${gs.map((g) => g.id).join(",")})&select=id,result`)) if (/^\d+-\d+$/.test(String(r.result ?? "").trim())) ris.set(r.id, r.result.trim());
-    for (const g of gs) {
-      const r = ris.get(g.id); if (!r) continue; const [h, a] = r.split("-").map(Number);
-      if (!g.mk) { gemSalta++; continue; }
-      const ok = vince(g.mk, h, a); conta(gem, ok, g.quota);
-      const f = fotoPerId.get(g.id);
-      if (f?.scelta) { conta(stesseGem, ok, g.quota); conta(stesseReg, vince(f.scelta.mk, h, a), f.scelta.quota); }
+  const valutaGemini = async (re: RegExp) => {
+    const gem = nuovoConto(), stesseGem = nuovoConto(), stesseReg = nuovoConto(); let gemSalta = 0;
+    for (const file of readdirSync(DIR).filter((x) => re.test(x)).sort()) {
+      const gs = readFileSync(`${DIR}${file}`, "utf8").split("\n").filter(Boolean).map((r) => JSON.parse(r));
+      const ris = new Map<string, string>();
+      if (gs.length) for (const r of await pgGet(`matches?id=in.(${gs.map((g) => g.id).join(",")})&select=id,result`)) if (/^\d+-\d+$/.test(String(r.result ?? "").trim())) ris.set(r.id, r.result.trim());
+      for (const g of gs) {
+        const r = ris.get(g.id); if (!r) continue; const [h, a] = r.split("-").map(Number);
+        if (!g.mk) { gemSalta++; continue; }
+        const ok = vince(g.mk, h, a); conta(gem, ok, g.quota);
+        const f = fotoPerId.get(g.id);
+        if (f?.scelta) { conta(stesseGem, ok, g.quota); conta(stesseReg, vince(f.scelta.mk, h, a), f.scelta.quota); }
+      }
     }
-  }
+    return { gem, stesseGem, stesseReg, gemSalta };
+  };
+  const ga = await valutaGemini(/^gemini-\d{4}-\d{2}-\d{2}\.jsonl$/), gc = await valutaGemini(/^gemini-chat-\d{4}-\d{2}-\d{2}\.jsonl$/);
   const t = (o: Record<string, Conto>) => Object.entries(o).sort().map(([k, c]) => `| ${k} | ${pc(c)} | ${qm(c)} |`).join("\n");
   writeFileSync(`${DIR}riepilogo.md`, [
     `# Test regole · riepilogo (${giorniN} giorni con risultati, aggiornato ${new Date().toISOString().slice(0, 16)})`, "",
@@ -146,8 +152,9 @@ async function valuta() {
     `| App: Schedina (pick_finale) | ${pc(tot.schedina)} | - |`,
     `| Escluse dalle regole: come e' andata la Schedina | ${pc(tot.escluse)} | - |`,
     `| App "da lasciare": se giocate | ${pc(tot.dalasciare)} | - |`,
-    `| Gemini (solo i nomi delle partite, ricerca web) | ${pc(gem)} | ${qm(gem)} |`, "",
-    `Sulle stesse partite: Gemini ${pc(stesseGem)} (quota media ${qm(stesseGem)}) · Regole ${pc(stesseReg)} (quota media ${qm(stesseReg)}) · Gemini ha saltato ${gemSalta} partite finite.`,
+    `| Gemini Flash da agy (solo i nomi, ricerca web) | ${pc(ga.gem)} | ${qm(ga.gem)} |`,
+    `| Gemini chat dell'utente (solo i nomi) | ${pc(gc.gem)} | ${qm(gc.gem)} |`, "",
+    `Sulle stesse partite · Gemini agy ${pc(ga.stesseGem)} (quota ${qm(ga.stesseGem)}) contro regole ${pc(ga.stesseReg)} (quota ${qm(ga.stesseReg)}), saltate ${ga.gemSalta} · Gemini chat ${pc(gc.stesseGem)} (quota ${qm(gc.stesseGem)}) contro regole ${pc(gc.stesseReg)} (quota ${qm(gc.stesseReg)}).`,
     "Quote di Gemini: quelle che dice di aver trovato lui. Per guadagnare alla quota media 1,60 serve vincere almeno il 63%.", "",
     "## Regole per semaforo", "| Semaforo | Vinte | Quota media |", "|---|---|---|", t(perSem), "",
     "## Regole per scenario", "| Scenario | Vinte | Quota media |", "|---|---|---|", t(perScen), "",
