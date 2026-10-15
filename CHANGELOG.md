@@ -157,7 +157,7 @@ Richiesta di Rossi: "voglio il pronostico delle 11, un unico pronostico, che pu�
 - Pronostico unico: `consigliatoValido` non scarta più il salvato per quote o tabella scenari nuove; i ricalcoli di massa (quote, tabella) fanno solo i mancanti; si rifà solo con una lettura AI nuova (lettura.ts, dossier-giornata.ts, lavori.ts).
 - `verdettoServer`: con il consigliato salvato vale solo quello (anche senza giocata); niente scritture dopo il calcio d'inizio.
 - Scheda: il riquadro in alto mostra il consigliato (lo stesso di elenco e Schedina) col pallino verde/giallo/rosso (p archivio × quota), anche a partita iniziata ("prima del via"). Il Pronostico regole resta solo nel test giornaliero.
-- Dati: consigliati del 15/10 rimessi dalla copia 11:16 (`Remotoackup6-10-15-database\pronoblast-consigliati-prima-mg-sfavorita.json`), combo vietate sostituite dalla prima alternativa; stato precedente in `pronoblast-consigliati-15-10-prima-ripristino-11.json`. Tag di ritorno: `prima-ritorno-11-2026-10-15`.
+- Dati: consigliati del 15/10 rimessi dalla copia 11:16 (`Remoto\backup\2026-10-15-database\pronoblast-consigliati-prima-mg-sfavorita.json`), combo vietate sostituite dalla prima alternativa; stato precedente in `pronoblast-consigliati-15-10-prima-ripristino-11.json`. Tag di ritorno: `prima-ritorno-11-2026-10-15`.
 
 ### 2026-10-15 — Pronostico regole v5: "vince N su 10" con la percentuale d'archivio
 
