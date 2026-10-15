@@ -3353,14 +3353,17 @@ export type ConsigliatoSalvato = {
   tradotto_da?: string | null;
 };
 
+/** Una giocata del Pronostico regole. p: archivio (n >= 300) o misura delle coppe; se mancano, il modello (15/10/2026). */
+export type VoceRegole = { mk: string; quota: number; stimata: boolean; p: number; fonte?: "archivio" | "coppe" | "modello"; n?: number | null; modello?: number };
+
 /** Risposta di /regole (netlify/functions/lib/regolePronostico.ts). */
 export type PronosticoRegole = {
   versione: number;
   scenario: string; favorita: string; favQ: number;
   lettura: { modello: string | null; dir: string; ris: string[] } | null;
   semaforo: "verde" | "giallo" | "rosso" | "grigio"; motivo: string; avvisi: string[];
-  fasce: Record<string, { mk: string; quota: number; stimata: boolean; p: number } | null>;
-  scelta: { mk: string; quota: number; stimata: boolean; p: number } | null;
+  fasce: Record<string, VoceRegole | null>;
+  scelta: VoceRegole | null;
   /** Le ragioni in parole semplici (✓ a favore, ✗ esclusioni o dubbi). */
   ragioni?: { ok: boolean; t: string }[];
 };
@@ -3487,6 +3490,19 @@ export type RigaGiocata = {
   consigliato?: boolean;
 };
 
+/**
+ * Misure delle coppe europee (15/10/2026, prova-coppe.mts, quote da 1,40): mercato -> [probabilita', partite].
+ * Le usano il consigliato (analizzaGiocate) e il Pronostico regole. Vuoto fuori dalle coppe o con favorita oltre 1,85.
+ */
+export function misureCoppaPer(q1: number, q2: number, coppaEuropea: boolean): Record<string, [number, number]> {
+  if (!coppaEuropea || !(q1 > 1 && q2 > 1) || q1 === q2) return {};
+  const fq = Math.min(q1, q2), s = q1 < q2 ? "1" : "2";
+  if (fq > 1.85) return {};
+  return fq <= 1.35 ? { [`${s} + O1.5`]: [0.57, 30], [`${s} + O2.5`]: [0.56, 72] }
+    : fq <= 1.55 ? { [`${s} + O1.5`]: [0.59, 51], [s]: [0.64, 39] }
+    : { [s]: [0.63, 79] };
+}
+
 export type AnalisiGiocate = {
   consigliato: RigaGiocata | null; daLasciare: string | null; avvisi: string[]; righe: RigaGiocata[];
   /** La giocata che sarebbe stata consigliata se la partita non fosse "da lasciare" (per la pagella). */
@@ -3588,9 +3604,7 @@ export function analizzaGiocate(x: {
   const favQc = Math.min(q1, q2);
   const fasciaCoppa = x.coppaEuropea && sfavorita && favQc <= 1.85 ? (favQc <= 1.35 ? "fortissima" : favQc <= 1.55 ? "forte" : "leggera") : null;
   const lato = sfavorita === "CASA" ? "OSPITE" : "CASA", segnoF = sfavorita === "CASA" ? "2" : "1";
-  const misureCoppa: Record<string, [number, number]> = fasciaCoppa === "fortissima" ? { [`${segnoF} + O1.5`]: [0.57, 30], [`${segnoF} + O2.5`]: [0.56, 72] }
-    : fasciaCoppa === "forte" ? { [`${segnoF} + O1.5`]: [0.59, 51], [segnoF]: [0.64, 39] }
-    : fasciaCoppa === "leggera" ? { [segnoF]: [0.63, 79] } : {};
+  const misureCoppa = misureCoppaPer(q1, q2, !!x.coppaEuropea);
   const misuraCoppa = new Set<RigaGiocata>();
   const escluseCoppa = (m: string) => {
     if (!fasciaCoppa) return false;

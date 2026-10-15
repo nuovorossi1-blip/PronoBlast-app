@@ -32,6 +32,7 @@ import { inizioPartitaMs, normalizeMarket } from "../frontend/src/api";
 import { leagueTier, isPartitaMinore } from "../netlify/functions/lib/leagueTier";
 import { parseLeagueLabel } from "../netlify/functions/lib/leagueContext";
 import { decidi, vinceRegole as vince } from "../netlify/functions/lib/regolePronostico";
+import { tabellaScenari } from "../netlify/functions/lib/tabellaScenari";
 export { decidi };
 
 const DIR = fileURLToPath(new URL("../server-locale/test-regole/", import.meta.url));
@@ -57,7 +58,7 @@ async function fotografa() {
     // Senza lettura AI si aspetta il giro dopo, finche' mancano almeno 45 minuti
     if (!d?.ai && !d?.pro && inizio - ora > 45 * 60_000) continue;
     let dec: any;
-    try { dec = decidi(m, { ai: d?.ai, pro: d?.pro, prog: d?.prog }); } catch (e: any) { console.error("[test-regole]", m.squadra1, m.squadra2, e?.message); continue; }
+    try { dec = decidi(m, { ai: d?.ai, pro: d?.pro, prog: d?.prog, tab: await tabellaScenari().catch(() => null) }); } catch (e: any) { console.error("[test-regole]", m.squadra1, m.squadra2, e?.message); continue; }
     const c = d?.c ?? null;
     const riga = {
       foto: new Date(ora).toISOString(), id: m.id, day: m.day, time: m.time, lega: m.manifestazione, casa: m.squadra1, ospite: m.squadra2,
@@ -103,6 +104,7 @@ async function valuta() {
   // Riepilogo su tutti i giorni valutabili
   const tot = { regole: nuovoConto(), consigliato: nuovoConto(), schedina: nuovoConto(), escluse: nuovoConto(), dalasciare: nuovoConto() };
   const perSem: Record<string, Conto> = {}, perScen: Record<string, Conto> = {}, perFascia: Record<string, Conto> = {};
+  const perGiud: Record<string, Conto> = {};
   let giorniN = 0;
   for (const file of readdirSync(DIR).filter((x) => /^foto-\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
     const g = file.slice(5, 15); const fs = leggiFoto(g); if (!fs.length) continue;
@@ -114,6 +116,8 @@ async function valuta() {
       if (f.scelta) {
         const ok = vince(f.scelta.mk, h, a);
         conta(tot.regole, ok, f.scelta.quota); conta((perSem[f.semaforo] ??= nuovoConto()), ok, f.scelta.quota); conta((perScen[f.scenario] ??= nuovoConto()), ok, f.scelta.quota);
+        // Giudizio "ne servono" (v5, 15/10/2026): solo foto con la probabilita' d'archivio (campo fonte).
+        if (f.scelta.fonte) { const cv = f.scelta.p * f.scelta.quota; conta((perGiud[cv >= 1 ? "a) quota con margine" : cv >= 0.95 ? "b) nessun vantaggio" : "c) quota bassa"] ??= nuovoConto()), ok, f.scelta.quota); }
       } else if (f.app.schedina) conta(tot.escluse, vince(f.app.schedina, h, a));
       for (const [nome, v] of Object.entries(f.fasce || {})) if (v) conta((perFascia[nome] ??= nuovoConto()), vince((v as any).mk, h, a), (v as any).quota);
       if (f.app.consigliato) conta(tot.consigliato, vince(f.app.consigliato, h, a), f.app.quota);
@@ -157,6 +161,7 @@ async function valuta() {
     `Sulle stesse partite · Gemini agy ${pc(ga.stesseGem)} (quota ${qm(ga.stesseGem)}) contro regole ${pc(ga.stesseReg)} (quota ${qm(ga.stesseReg)}), saltate ${ga.gemSalta} · Gemini chat ${pc(gc.stesseGem)} (quota ${qm(gc.stesseGem)}) contro regole ${pc(gc.stesseReg)} (quota ${qm(gc.stesseReg)}).`,
     "Quote di Gemini: quelle che dice di aver trovato lui. Per guadagnare alla quota media 1,60 serve vincere almeno il 63%.", "",
     "## Regole per semaforo", "| Semaforo | Vinte | Quota media |", "|---|---|---|", t(perSem), "",
+    "## Regole per giudizio (dalla v5: vince N su 10 con l'archivio)", "| Giudizio | Vinte | Quota media |", "|---|---|---|", t(perGiud), "",
     "## Regole per scenario", "| Scenario | Vinte | Quota media |", "|---|---|---|", t(perScen), "",
     "## Regole per fascia (la migliore di ogni fascia)", "| Fascia | Vinte | Quota media |", "|---|---|---|", t(perFascia), "",
   ].join("\n"));
@@ -222,7 +227,7 @@ async function prova() {
   for (const id of arg("ids", "").split(",").filter(Boolean)) {
     const [m] = await pgGet(`matches?id=eq.${id}&select=*`);
     const [d] = await pgGet(`dossier_web?match_id=eq.${id}&select=ai:numeri->lettura_ai,pro:numeri->lettura_pro,prog:numeri->programma`);
-    const dec = decidi(m, d);
+    const dec = decidi(m, { ...d, tab: await tabellaScenari().catch(() => null) });
     const fin = /^\d+-\d+$/.test(String(m.result ?? "").trim());
     const [h, a] = fin ? String(m.result).trim().split("-").map(Number) : [NaN, NaN];
     const es = dec.scelta && fin ? (vince(dec.scelta.mk, h, a) ? "VINTA" : "persa") : "da giocare";

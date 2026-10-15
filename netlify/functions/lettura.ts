@@ -2,6 +2,11 @@ import { jsonResponse, pgGet } from "./lib/supabaseRest";
 import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import { decidi } from "./lib/regolePronostico";
+import { tabellaScenari } from "./lib/tabellaScenari";
+
+// Tabella scenari per la percentuale d'archivio del Pronostico regole (v5): in memoria, aggiornata in sottofondo.
+let tabRegole: any = null;
+tabellaScenari().then((t) => { tabRegole = t; }).catch(() => {});
 
 /** Pronostico regole (15/10/2026, in prova) dentro la risposta: arriva e si salva in memoria
  *  insieme al consigliato, senza una richiesta in piu' (sul telefono il riquadro arrivava dopo
@@ -13,7 +18,8 @@ function regoleDi(m: any, n: any, programma?: any) {
     const inizio = inizioPartitaMs(m?.day, m?.time);
     if (m?.result || (inizio !== null && inizio <= Date.now())) return null;
     if (!(Number(m?.odd_1) > 1 && Number(m?.odd_x) > 1 && Number(m?.odd_2) > 1)) return null;
-    return decidi(m, { ai: n?.lettura_ai, pro: n?.lettura_pro, prog: programma ?? n?.programma });
+    tabellaScenari().then((t) => { tabRegole = t; }).catch(() => {});
+    return decidi(m, { ai: n?.lettura_ai, pro: n?.lettura_pro, prog: programma ?? n?.programma, tab: tabRegole });
   } catch { return null; }
 }
 

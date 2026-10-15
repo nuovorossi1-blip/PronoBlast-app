@@ -708,7 +708,8 @@ export default function MatchDetail() {
               </View>
               {s && conv !== null ? (
                 <Text style={{ color: colors.text, fontSize: 14, marginTop: 8, fontWeight: "700" }}>
-                  {`Vince ${Math.round(s.p * 10)} volte su 10 · a ${q2(s.quota)} ne servono ${(10 / s.quota).toFixed(1).replace(".", ",")}`}
+                  {`Vince ${(s.p * 10).toFixed(1).replace(".", ",").replace(",0", "")} volte su 10 · a ${q2(s.quota)} ne servono ${(10 / s.quota).toFixed(1).replace(".", ",")}`}
+                  <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: "600" }}>{s.fonte === "archivio" ? `\n(archivio: ${s.n} partite di questo scenario a quote simili)` : s.fonte === "coppe" ? `\n(coppe europee: ${s.n} partite con una favorita così)` : s.fonte === "modello" ? "\n(stima dalle quote: in archivio troppe poche partite)" : ""}</Text>
                   <Text style={{ color: conv >= 1 ? colors.success : conv >= 0.95 ? colors.textMuted : colors.danger, fontWeight: "800" }}>
                     {conv >= 1 ? "\n→ quota con margine" : conv >= 0.95 ? "\n→ va bene in multipla, nessun vantaggio" : "\n→ quota bassa per il rischio"}
                   </Text>

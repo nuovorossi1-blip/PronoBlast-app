@@ -21,9 +21,9 @@
 import { rowToOdds } from "./supabaseRest";
 import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis, estimateMarketOdd } from "./clusterEngine";
 import { evaluateMarket } from "./marketEval";
-import { getScenarioNote } from "../../../frontend/src/api";
+import { getScenarioNote, chiaveScenario, fasciaDellaQuota, normalizeMarket, misureCoppaPer, type VoceRegole } from "../../../frontend/src/api";
 
-export const VERSIONE_REGOLE = 4;
+export const VERSIONE_REGOLE = 5;
 
 /** Campionati con media 2,5 gol o meno (almeno 40 partite nell'archivio, misura del 15/10/2026). */
 export const LEGHE_POCHI_GOL = new Set([
@@ -41,12 +41,16 @@ export const vinceRegole = (mk: string, h: number, a: number): boolean | null =>
 const risultati = (l: any): number[][] => (l?.risultati_probabili || [])
   .map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number)).filter((x: number[]) => x.length === 2 && x.every(Number.isFinite));
 
-export type VoceRegole = { mk: string; quota: number; stimata: boolean; p: number };
+export type { VoceRegole };
 export type Semaforo = "verde" | "giallo" | "rosso" | "grigio";
 
 /**
  * m = riga di `matches` (con squadra1/2, manifestazione e quote);
- * d = { ai: numeri.lettura_ai, pro: numeri.lettura_pro, prog: numeri.programma }.
+ * d = { ai: numeri.lettura_ai, pro: numeri.lettura_pro, prog: numeri.programma, tab?: tabella scenari }.
+ * VERSIONE 5 (15/10/2026, Rossi: ok): la probabilita' di ogni giocata e' quella del consigliato:
+ * misura delle coppe, altrimenti archivio dello scenario alla fascia di quota (con 300 partite o
+ * piu'), altrimenti il modello. Prima era sempre il modello, cioe' le quote del bookmaker: il
+ * giudizio "ne servono" diceva quasi sempre "quota bassa".
  */
 export function decidi(m: any, d: any) {
   const odds: any = rowToOdds(m);
@@ -57,12 +61,23 @@ export function decidi(m: any, d: any) {
   if (scenario === "Gap Tecnico") scenario += favQ <= 1.35 ? " - favorita fortissima" : " - favorita netta";
   const g = fullDistribution({} as any, 10, deriveLambdas(odds) as [number, number]);
   const cat = quoteCatalogo(odds);
+  const lega0 = String(m.manifestazione || "").toUpperCase().trim();
+  const coppa = misureCoppaPer(Number(m.odd_1), Number(m.odd_2), COPPE_EUROPEE.test(lega0));
+  let vociTab: Record<string, any[]> | null = null;
+  try { vociTab = d?.tab && nota ? d.tab.scenari?.[chiaveScenario(nota)] ?? null : null; } catch { vociTab = null; }
   const voce = (mk: string): VoceRegole | null => {
     const reale = REALI[mk] ? Number(m[REALI[mk]]) || null : null;
     const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? estimateMarketOdd(mk, odds) ?? null;
     if (!quota) return null;
-    const p = g.reduce((s: number, c: any) => s + (vinceRegole(mk, c.home, c.away) ? c.p : 0), 0);
-    return { mk, quota, stimata: mk === "X oppure GG" || !reale, p: +p.toFixed(4) };
+    const modello = +g.reduce((s: number, c: any) => s + (vinceRegole(mk, c.home, c.away) ? c.p : 0), 0).toFixed(4);
+    const base = { mk, quota, stimata: mk === "X oppure GG" || !reale, modello };
+    const k = normalizeMarket(mk);
+    const mc = coppa[k.toUpperCase()];
+    if (mc) return { ...base, p: mc[0], fonte: "coppe", n: mc[1] };
+    const f = fasciaDellaQuota(quota);
+    const v = f !== null && vociTab ? (vociTab[f.toFixed(2)] || []).find((t: any) => normalizeMarket(String(t.market).replace(/\s+fisso$/i, "")) === k) : null;
+    if (v && v.nA + v.nB >= 300) return { ...base, p: +Math.min(v.pA, v.pB).toFixed(4), fonte: "archivio", n: v.nA + v.nB };
+    return { ...base, p: modello, fonte: "modello", n: null };
   };
   const F = casaFav
     ? { segnoO15: "1 + O1.5", segnoO25: "1 + O2.5", segno: "1", dc: "1X", dcO15: "DC 1X + O1.5", mg13: "MG 1-3 casa", mg24: "MG 2-4 casa", mg12: "MG 1-2 casa", combo: "MG 1-3 casa + MG 0-2 ospite", u45: "1 + U4.5" }
@@ -153,9 +168,9 @@ export function decidi(m: any, d: any) {
   const fasce: Record<string, VoceRegole | null> = {};
   for (const f of FASCE) {
     const dentro = voci.filter((v) => v.quota >= f.da && v.quota < f.a);
-    fasce[f.nome] = dentro.sort((a, b) => b.p - a.p || candidati.indexOf(a.mk) - candidati.indexOf(b.mk))[0] ?? null;
+    fasce[f.nome] = dentro.sort((a, b) => (b.modello ?? b.p) - (a.modello ?? a.p) || candidati.indexOf(a.mk) - candidati.indexOf(b.mk))[0] ?? null;
   }
-  const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is VoceRegole => !!v).sort((a, b) => b.p - a.p);
+  const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is VoceRegole => !!v).sort((a, b) => (b.modello ?? b.p) - (a.modello ?? a.p));
   const scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
   // Le ragioni in parole semplici per il riquadro "Cosa giocare" della scheda (15/10/2026).
   const risTxt = l?.risultati_probabili?.length ? ` (${l.risultati_probabili.join(", ")})` : "";

@@ -149,6 +149,18 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Pronostico regole v5: "vince N su 10" con la percentuale d'archivio
+
+- `regolePronostico.decidi(m, d)`: con `d.tab` (tabella scenari) ogni voce ha `p` = misura delle coppe
+  (`misureCoppaPer`, esportata da api.ts e usata anche da analizzaGiocate), altrimenti archivio dello scenario
+  alla fascia di quota con n >= 300, altrimenti il modello; campi `fonte`, `n`, `modello`. La SCELTA resta
+  ordinata col modello: con l'archivio cambiavano 38 giocate su 1.188 e andavano peggio (60,5% -> 50,0%).
+- Prova (1.188 finite, lettura AI prima del via, in campione): giudizio "con margine" 87 partite 72,4% resa
+  +24,7%, "nessun vantaggio" 127 63,0% +1,3%, "quota bassa" 974 62,2% -2,1% (col modello: 17 / 56 / 1.115).
+- Scheda: sotto "Vince N su 10" la fonte (archivio / coppe / stima dalle quote). /lettura, /regole e il test
+  passano la tabella; il riepilogo del test ha la sezione "Regole per giudizio".
+- Backup: tag `prima-regole-archivio-2026-10-15`.
+
 ### 2026-10-15 — Regole inderogabili anche per il Pronostico AI (audit C) + pagella solo prepartita
 
 - `analizzaGiocate` restituisce `esclusa(market)`: MG sfavorita, linea 2,5, esclusioni coppe, archivio < 300.
