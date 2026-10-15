@@ -173,8 +173,8 @@ export async function verdettoDiPartita(
     // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
     // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
     const s: any = (structural as any)?.structure;
-    // Mai combo con il segno secco o con 12 (15/10/2026, Rossi: solo 1X / X2).
-    const ok = grezzo.filter((v) => !/^(DC )?(1|2|12) \+ /i.test(String(v.market).trim()));
+    // Mai combo con il segno secco o con 12 + Over (15-16/10/2026, Rossi; 1 + U4.5 resta).
+    const ok = grezzo.filter((v) => !/^(DC )?(1|2|12) \+ O/i.test(String(v.market).trim()));
     return s ? ok.filter((v) => ammessoDallaStruttura(v.market, s)) : ok;
   };
 

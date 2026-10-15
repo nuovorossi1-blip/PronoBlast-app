@@ -3536,6 +3536,8 @@ export function analizzaGiocate(x: {
   scenario?: string | null;
   /** Champions, Europa o Conference League (15/10/2026): regole e misure delle coppe. */
   coppaEuropea?: boolean;
+  /** Il Pronostico AI propone X oppure GG e i suoi 3 risultati sono pareggi o gol di tutte e due (16/10/2026). */
+  xoggAI?: boolean;
 }): AnalisiGiocate {
   const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
   const pc = (p: number) => `${Math.round(p * 100)}%`;
@@ -3587,9 +3589,16 @@ export function analizzaGiocate(x: {
   // RITORNO AL CONSIGLIATO DELLE 11 (15/10/2026 sera, Rossi: "voglio il pronostico delle 11, un
   // unico pronostico, niente scarti"): tolte le regole del 15/10 (Multigol della sfavorita, linea dei
   // 2,5 gol, archivio sotto 300 partite, coppe europee), che lasciavano 43 partite su 116 senza giocata.
-  // Restano fuori le combo con il segno secco o con 12 (1 + Over, 2 + Over, 12 + Over...): le
-  // combinazioni si giocano solo con la doppia chance direzionale 1X / X2.
-  const comboVietata = (m: string) => /^(DC )?(1|2|12) \+ /.test(normalizeMarket(m).toUpperCase());
+  // Restano fuori le combo con il segno secco o con 12 + Over (1 + O1.5, 2 + O2.5, 12 + O1.5...);
+  // 1 + U4.5 resta (16/10/2026, Rossi).
+  const comboVietata = (m: string) => /^(DC )?(1|2|12) \+ O/.test(normalizeMarket(m).toUpperCase());
+  // UN SOLO ELENCO PER NUMERI E AI (16/10/2026, Rossi: "perche' esce MG casa 1-2 se non e' fra i mercati
+  // ammessi?"): il consigliato sceglie fra elenco generale (VERDICT_WHITELIST) + mercati dello scenario,
+  // piu' X oppure GG quando l'AI lo propone e i suoi 3 risultati sono pareggi o gol di tutte e due.
+  // Se nessuna giocata dell'elenco passa le soglie, resta la migliore (mai senza pronostico).
+  // Prova sulle finite (666): 60,4% -> 60,8%, resa -6,5% -> -6,2%; X oppure GG dall'AI 17, 70,6%.
+  const elenco = [...(x.manuali || []), ...(x.xoggAI ? ["X oppure GG"] : [])];
+  const nelElenco = (m: string) => isMercatoAmmesso(m, elenco);
 
   // Candidati e punteggio
   for (const r of righe) {
@@ -3603,7 +3612,7 @@ export function analizzaGiocate(x: {
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
-  const primo = candidati[0] ?? null;
+  const primo = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
   const consigliato = daLasciare ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
@@ -3612,7 +3621,8 @@ export function analizzaGiocate(x: {
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
     if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
-    else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12: le combo si giocano solo con 1X o X2.";
+    else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
+    else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
@@ -3630,7 +3640,7 @@ export function analizzaGiocate(x: {
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
   // Anche il Pronostico AI non puo' proporre le combo con il segno secco o con 12 (15/10/2026).
-  const esclusa = (m: string): string | null => (comboVietata(m) ? "combo con il segno secco o con 12 (solo 1X / X2)" : null);
+  const esclusa = (m: string): string | null => (comboVietata(m) ? "combo con il segno secco o con 12 + Over" : null);
   return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali, esclusa };
 }
 

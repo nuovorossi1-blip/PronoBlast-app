@@ -149,6 +149,15 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-16 — Un solo elenco di giocate per numeri e AI
+
+Rossi: "perche' esce MG casa 1-2 se non e' fra i mercati ammessi?". Il consigliato dei numeri sceglieva fra tutte le giocate d'archivio; l'AI solo fra elenco generale + scenario.
+- `analizzaGiocate`: il consigliato e' il primo candidato nell'elenco (VERDICT_WHITELIST + mercati dello scenario + X oppure GG se `xoggAI`); se nessuno, il migliore (mai senza pronostico).
+- `xoggDaAI` (letturaPartita): il Pronostico AI propone X oppure GG e i 3 risultati probabili sono pareggi o gol di tutte e due; vale anche per `mercatoAIValido`.
+- Vietate solo le combo segno/12 + Over: 1 + U4.5 resta (consigliato e motore).
+- Prova sulle finite (666, consigliato prima del via): 60,4% -> 60,2%, resa -6,5% -> -7,0% (203 cambiate): effetto neutro, scelta per coerenza.
+- Dati: 23 pronostici del 15/10 cambiati (copia prima: `pronoblast-consigliati-15-10-prima-elenco-unico.json` in backup 2026-10-16-database). Tag: `prima-elenco-unico-2026-10-16`.
+
 ### 2026-10-15 (notte) — Quando puo' cambiare il pronostico
 
 Rossi: "fino a un'ora prima della partita puo' cambiare (AI, quote); dopo solo se cambiano le quote, fino all'inizio; iniziata mai".

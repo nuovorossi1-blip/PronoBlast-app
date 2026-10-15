@@ -289,6 +289,16 @@ export function favoritaNonPerde(m: any, numeri: any): boolean {
   return ris.every((r: number[]) => (q1 < q2 ? r[0] >= r[1] : r[1] >= r[0]));
 }
 
+/** Il Pronostico AI propone X oppure GG e i suoi 3 risultati probabili sono tutti pareggi o gol di
+ *  tutte e due: X oppure GG entra nell'elenco della partita (16/10/2026, Rossi). */
+export function xoggDaAI(numeri: any): boolean {
+  const l = numeri?.lettura_pro;
+  if (!l?.mercato || !/^x\s+(oppure|o)\s+gg$/i.test(String(l.mercato).trim())) return false;
+  const ris = (l.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, "").split("-").map(Number))
+    .filter((r: number[]) => r.length === 2 && r.every(Number.isFinite));
+  return ris.length === 3 && ris.every(([c, o]: number[]) => c === o || (c > 0 && o > 0));
+}
+
 export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true): Promise<ConsigliatoSalvato | null> {
   const x = dati ?? (await datiLettura(matchId));
   if (!x) return null;
@@ -328,6 +338,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     assentiCasa: pr.assenti_casa, assentiOspite: pr.assenti_ospite,
     favNonPerde: favoritaNonPerde(m, x.numeri),
     scenario: nota?.scenario ?? null,
+    xoggAI: xoggDaAI(x.numeri),
   });
   const c = a.consigliato;
   const out: ConsigliatoSalvato = {
@@ -344,7 +355,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
     if (pro.notizia_verificata && pro.mercato) {
-      const v0 = mercatoAIValido(pro.mercato, a, nota?.markets, pro.risultati_probabili);
+      const v0 = mercatoAIValido(pro.mercato, a, [...(nota?.markets || []), ...(xoggDaAI(x.numeri) ? ["X oppure GG"] : [])], pro.risultati_probabili);
       // Regole inderogabili anche per l'AI (15/10/2026, audit difetto C): una giocata esclusa
       // dalle regole non torna per la notizia; si prova la salita, altrimenti decidono i numeri.
       const esclusaAI = v0.ok && v0.market ? a.esclusa?.(v0.market) ?? null : null;
