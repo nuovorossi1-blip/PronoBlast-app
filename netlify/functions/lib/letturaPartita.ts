@@ -299,6 +299,12 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   // la tabella scenari, ne' per un Pronostico AI. Si calcola solo se non
   // c'era (prima volta), con le quote della partita.
   if (partitaIniziata(m) && x.numeri?.consigliato) return x.numeri.consigliato as ConsigliatoSalvato;
+  // ULTIMA ORA (15/10/2026 sera, Rossi: "un'ora prima dell'inizio e' l'ultima volta che puo' cambiare"):
+  // da 60 minuti prima del via il pronostico salvato resta, qualunque cosa venga lanciata (AI, giri,
+  // tabella); cambia ancora solo se cambiano le quote, fino al calcio d'inizio.
+  const salvatoPrima = x.numeri?.consigliato as ConsigliatoSalvato | undefined;
+  const inizioM = inizioPartitaMs(m.day, m.time);
+  if (salvatoPrima && inizioM !== null && Date.now() >= inizioM - 60 * 60 * 1000 && !quoteCambiate(salvatoPrima.quote, firmaQuote(m))) return salvatoPrima;
   const odds: any = rowToOdds(m);
   const s: any = structuralAnalysis(odds, 1.4);
   const st = s.structure;
@@ -423,11 +429,14 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 }
 
 /** Il consigliato salvato, se c'e' ed e' fatto con le quote di adesso e la versione corrente della tabella scenari. */
-// UN UNICO PRONOSTICO (15/10/2026, Rossi: "un unico pronostico, che puo' variare solo se la IA lo fa
-// variare"): il consigliato salvato resta quello. Non si rifa' piu' per quote o tabella scenari
-// cambiate (Salisburgo-Milan: scheda MG 2-4 totali, elenco GG); si rifa' solo con una lettura AI nuova.
-export function consigliatoValido(numeri: any, _match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
-  return numeri?.consigliato ?? null;
+// UN UNICO PRONOSTICO (15/10/2026 sera, Rossi): il consigliato salvato resta finche' non cambiano le
+// quote o non arriva una lettura AI nuova; la tabella scenari aggiornata non lo cambia piu' (prima:
+// Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
+export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
+  const c = numeri?.consigliato;
+  if (!c) return null;
+  if (match && quoteCambiate(c.quote, firmaQuote(match))) return null;
+  return c;
 }
 
 
@@ -483,10 +492,8 @@ export async function ricalcolaConsigliatiQuoteCambiate(giornoDa?: string): Prom
       const numeri = dossierMap.get(m.id);
       const c = numeri?.consigliato;
       const ora = firmaQuote(m);
-      // Pronostico unico (15/10/2026): con le quote nuove non si rifa', solo se manca
-      // (la lettura AI rifatta per le quote nuove lo aggiorna dal giro dossier).
-      const cambiate = !c;
-      void ora;
+      // Si rifa' se manca o se le quote sono cambiate (fino al via: consigliatoDi).
+      const cambiate = !c || quoteCambiate(c.quote, ora);
       if (!cambiate) {
         invariate++;
         continue;

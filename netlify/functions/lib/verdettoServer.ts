@@ -192,7 +192,8 @@ export async function verdettoDiPartita(
   let daScheda = false;
   try {
     const [d] = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(match.id)}&select=numeri`);
-    const c = consigliatoValido(d?.numeri, match);
+    // Il salvato com'e' (pronostico unico): se le quote sono cambiate lo rifa' il giro del consigliato.
+    const c = consigliatoValido(d?.numeri);
     const g = giocataDelConsigliato(c);
     // Pronostico unico (15/10/2026, Rossi): con il consigliato salvato vale SOLO quello, anche
     // quando non ha giocata (prima il motore la riempiva: Benfica MG 3-6, Sunderland O2.5).

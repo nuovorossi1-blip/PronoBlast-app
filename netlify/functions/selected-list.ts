@@ -28,8 +28,7 @@ export default async (): Promise<Response> => {
         const perId: Record<string, any> = {};
         for (const d of dossier) perId[d.match_id] = d.numeri;
         for (const m of matches as any[]) {
-          const riga = rows.find((r: any) => r.id === m.id);
-          m.consigliato = consigliatoValido(perId[m.id], riga);
+          m.consigliato = consigliatoValido(perId[m.id]);
         }
       } catch (e) {
         console.error("[selected-list] consigliato", e);

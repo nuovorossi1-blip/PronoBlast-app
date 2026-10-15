@@ -149,6 +149,13 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 (notte) — Quando puo' cambiare il pronostico
+
+Rossi: "fino a un'ora prima della partita puo' cambiare (AI, quote); dopo solo se cambiano le quote, fino all'inizio; iniziata mai".
+- `consigliatoDi`: da 60 minuti prima del via restituisce il salvato, salvo quote cambiate; dal via sempre il salvato.
+- `consigliatoValido(numeri, match)`: di nuovo da rifare con quote cambiate (non piu' per la tabella scenari); senza `match` (elenco, Schedina, motore) il salvato com'e', cosi' il motore non riempie mai al posto del consigliato.
+- `ricalcolaConsigliatiQuoteCambiate`: di nuovo con quote cambiate. Test 13 aggiornato.
+
 ### 2026-10-15 (sera) — Ritorno al consigliato delle 11:16, pronostico unico
 
 Richiesta di Rossi: "voglio il pronostico delle 11, un unico pronostico, che può variare solo se la IA lo fa variare".

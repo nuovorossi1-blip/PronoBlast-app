@@ -230,7 +230,7 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.equal(persistentLetturaCache.get("mTest", { odd_1: 1.70, odd_x: 3.40, odd_2: 4.20 }), null);
   });
 
-  it("13. Pronostico unico (15/10/2026): il consigliato salvato resta anche con tabella o quote nuove", () => {
+  it("13. Pronostico unico (15/10/2026): il consigliato salvato resta con tabella nuova, si rifa' con quote nuove", () => {
     const match = { odd_1: 1.85, odd_x: 3.40, odd_2: 4.20 };
     const cons = {
       market: "1X", quota: 1.45,
@@ -241,8 +241,10 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.equal(consigliatoValido(numeri, match, "2026-10-10T12:00:00Z|9325")?.market, "1X");
     // Tabella nuova: resta lo stesso (prima veniva rifatto e cambiava: Salisburgo-Milan)
     assert.equal(consigliatoValido(numeri, match, "2026-10-10T15:30:00Z|9335")?.market, "1X");
-    // Quote cambiate: resta lo stesso (lo cambia solo una lettura AI nuova)
-    assert.equal(consigliatoValido(numeri, { odd_1: 1.60, odd_x: 3.80, odd_2: 5.50 })?.market, "1X");
+    // Quote cambiate: da rifare (fino al via; da un'ora prima solo per questo motivo)
+    assert.equal(consigliatoValido(numeri, { odd_1: 1.60, odd_x: 3.80, odd_2: 5.50 }), null);
+    // Senza partita (elenco, Schedina, motore): il salvato com'e'
+    assert.equal(consigliatoValido(numeri)?.market, "1X");
     assert.equal(consigliatoValido({}, match), null);
   });
 
