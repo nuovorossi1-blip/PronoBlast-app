@@ -160,7 +160,7 @@ codice + `.md` insieme -> costruisce.
 - Salvataggio: senza giocata `pick_finale` si svuota (prima restava la vecchia in Schedina).
 - `pagella-consigliato`: contano solo consigliato e letture salvati prima del via (`quando`); nuovo campo
   `escluse_dopo_il_via` (288). Consigliato prepartita: 587, 59,3%, resa -8,1%.
-- Backup: tag `prima-regole-ai-2026-10-15` + `Remotoackup6-10-15-database\pronoblast-consigliati-prima-regole-ai.json`.
+- Backup: tag `prima-regole-ai-2026-10-15` + `Remoto\backup\2026-10-15-database\pronoblast-consigliati-prima-regole-ai.json`.
   Ricalcolo 101 non iniziate: 87 uguali, 6 cambiate, 8 nessuna/da lasciare.
 
 ### 2026-10-15 — Coppe europee: regole e misure proprie (consigliato + Pronostico regole v4)
