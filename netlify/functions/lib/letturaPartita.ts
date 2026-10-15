@@ -318,6 +318,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     pesataCasa: pr.pesata_casa, pesataOspite: pr.pesata_ospite, accordo: pr.accordo,
     assentiCasa: pr.assenti_casa, assentiOspite: pr.assenti_ospite,
     favNonPerde: favoritaNonPerde(m, x.numeri),
+    scenario: nota?.scenario ?? null,
   });
   const c = a.consigliato;
   const out: ConsigliatoSalvato = {

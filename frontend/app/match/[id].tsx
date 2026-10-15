@@ -611,6 +611,7 @@ export default function MatchDetail() {
         casa: match.squadra1, ospite: match.squadra2,
         pesataCasa: pr?.pesata_casa, pesataOspite: pr?.pesata_ospite, accordo: pr?.accordo ?? null,
         assentiCasa: pr?.assenti_casa ?? 0, assentiOspite: pr?.assenti_ospite ?? 0,
+        scenario: nota?.scenario ?? null,
         // Come favoritaNonPerde() del server (letturaPartita.ts, 15/10/2026)
         favNonPerde: (() => {
           const l = lettura?.pro?.risultati_probabili?.length ? lettura.pro : lettura?.ai;

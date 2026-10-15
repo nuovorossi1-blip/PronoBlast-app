@@ -149,6 +149,18 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Partita "molto aperta" e mappa forma per scenario (regole v3)
+
+- Consigliato (`analizzaGiocate`, nuovo parametro `scenario`): in Equilibrio e Progressione, se la
+  forma pesata dice 3,4+ gol ((fatti casa + subiti ospite)/2 + (fatti ospite + subiti casa)/2),
+  O2.5 e MG 3-6 totali restano candidati nonostante l'esclusione della linea 2,5. Partite finite:
+  Equilibrio 95, Over 65% contro 60% delle quote, resa +1,0% a quote reali; Progressione 39, +4,3%.
+- Pronostico regole v3 (`regolePronostico.ts`, in prova): candidati dalla forma per scenario
+  (Equilibrio aperta/chiusa; Gap e Progressione secondo quanto segnano favorita e sfavorita). Campioni
+  24-160: da confermare con il test. Se le giocate della mappa sono sotto 1,40 la partita e' da saltare.
+- Ripristino: tag `prima-forma-scenario-2026-10-15` + copia in `Remoto\backup\2026-10-15-database\`.
+  Ricalcolo dei 90 consigliati non iniziati fatto alle 12:01, insieme alle quote nuove delle 12.
+
 ### 2026-10-15 — Consigliato: niente linea dei 2,5 gol, da lasciare con archivio sotto 300 partite
 
 Dall'analisi delle partite finite (agente, report `Desktop\report-analisi pronosblast\difetti-consigliato-2026-10-15.md`), con l'ok di Rossi:

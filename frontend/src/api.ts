@@ -3512,6 +3512,8 @@ export function analizzaGiocate(x: {
   assentiCasa: number; assentiOspite: number;
   /** La lettura AI dice "la favorita delle quote non perde" (vince o pareggia in tutti e 3 i suoi risultati). */
   favNonPerde?: boolean;
+  /** Scenario (getScenarioNote): serve per la partita "molto aperta" (15/10/2026). */
+  scenario?: string | null;
 }): AnalisiGiocate {
   const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
   const pc = (p: number) => `${Math.round(p * 100)}%`;
@@ -3572,7 +3574,19 @@ export function analizzaGiocate(x: {
   // LINEA DEI 2,5 GOL (15/10/2026, analisi delle partite finite, Rossi: ok): O2.5, U2.5, MG 1-3
   // totali, MG 3-6 totali e le combinazioni "+ O2.5" da consigliati hanno vinto il 49-52% contro il
   // 63% dichiarato (resa -22/-26%); la prima alternativa fuori linea il 66%. Non sono piu' candidati.
-  const linea25 = (m: string) => /^(O2\.5|U2\.5|MG 1-3 TOTALI|MG 3-6 TOTALI)$|\+ O2\.5$/.test(normalizeMarket(m).toUpperCase());
+  // ECCEZIONE "MOLTO APERTA" (15/10/2026, Rossi: "equilibrata chiusa X o GG, aperta Over 2,5 o
+  // MG 3-6"): in Equilibrio e Progressione, se la forma pesata dice 3,4 gol o piu' (fatti di una +
+  // subiti dell'altra, per tutte e due), Over 2.5 e MG 3-6 totali restano candidati. Partite finite
+  // con dossier: Equilibrio 95, Over 65% contro 60% delle quote, resa +1,0% alle quote reali;
+  // Progressione 39, 67% contro 58%, resa +4,3%. Sotto 3,4 l'Over esce il 43-53% (X o GG 63-66%).
+  const golForma = x.pesataCasa && x.pesataOspite
+    ? (x.pesataCasa.fatti + x.pesataOspite.subiti) / 2 + (x.pesataOspite.fatti + x.pesataCasa.subiti) / 2 : null;
+  const moltoAperta = golForma !== null && golForma >= 3.4 && (x.scenario === "Equilibrio" || x.scenario === "Progressione");
+  const linea25 = (m: string) => {
+    const k = normalizeMarket(m).toUpperCase();
+    if (moltoAperta && (k === "O2.5" || k === "MG 3-6 TOTALI")) return false;
+    return /^(O2\.5|U2\.5|MG 1-3 TOTALI|MG 3-6 TOTALI)$|\+ O2\.5$/.test(k);
+  };
 
   // Candidati e punteggio
   for (const r of righe) {

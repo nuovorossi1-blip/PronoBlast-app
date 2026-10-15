@@ -23,7 +23,7 @@ import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structu
 import { evaluateMarket } from "./marketEval";
 import { getScenarioNote } from "../../../frontend/src/api";
 
-export const VERSIONE_REGOLE = 2;
+export const VERSIONE_REGOLE = 3;
 
 /** Campionati con media 2,5 gol o meno (almeno 40 partite nell'archivio, misura del 15/10/2026). */
 export const LEGHE_POCHI_GOL = new Set([
@@ -100,6 +100,40 @@ export function decidi(m: any, d: any) {
       : [F.mg13, F.mg24, F.u45, "NG"];
   }
   const avvisi: string[] = [];
+  // VERSIONE 3 (15/10/2026, Rossi: "dipende dallo scenario e dalla forma: quanti gol possono fare e
+  // subire"). Forma pesata del programma: golFav = (fatti favorita + subiti sfavorita)/2, golSfav al
+  // contrario; partite finite con dossier, campioni da 24 a 160 (da confermare con il test):
+  //  - Equilibrio molto aperta (forma 3,4+ gol): Over 65% contro 60% delle quote -> O2.5 / MG 3-6;
+  //    chiusa (sotto 2,2): X o GG 65%, GG 60% contro 48% delle quote.
+  //  - Gap: favorita tanto (2,2+) e sfavorita segna (1,2+) -> GG 72%; favorita tanto e sfavorita poco
+  //    -> segno + U4.5 63% @1,90; favorita poco (<1,6) e sfavorita poco -> segno 84%; favorita poco e
+  //    sfavorita segna -> MG 1-3 favorita 81%, GG 63%; favorita media -> niente GG ne' MG 2-4 favorita.
+  //  - Progressione: favorita tanto -> segno 76% @1,75; media e sfavorita segna -> MG 2-4 favorita 61%
+  //    @1,87; media e sfavorita poco -> segno 63%; favorita poco e sfavorita poco -> GG 59%, DC + O1.5
+  //    67% (il segno 45%).
+  const pc = d?.prog?.pesata_casa, po = d?.prog?.pesata_ospite;
+  if (semaforo !== "rosso" && pc && po) {
+    const pF = casaFav ? pc : po, pS = casaFav ? po : pc;
+    const golFav = (pF.fatti + pS.subiti) / 2, golSfav = (pS.fatti + pF.subiti) / 2, golTot = golFav + golSfav;
+    const tanto = golFav >= 2.2, poco = golFav < 1.6, sfSegna = golSfav >= 1.2;
+    let mappa: string[] | null = null, perche = "";
+    if (scenario === "Equilibrio") {
+      if (golTot >= 3.4) { mappa = ["O2.5", "MG 3-6 totali", "X oppure GG"]; perche = `partita aperta: la forma dice ${golTot.toFixed(1)} gol`; }
+      else if (golTot < 2.2) { mappa = ["X oppure GG", "GG"]; perche = `partita chiusa: la forma dice ${golTot.toFixed(1)} gol`; }
+    } else if (scenario.startsWith("Gap Tecnico")) {
+      if (tanto && sfSegna) { mappa = ["GG", F.dcO15]; perche = "la favorita segna tanto e la sfavorita segna"; }
+      else if (tanto) { mappa = [F.u45, F.segno]; perche = "la favorita segna tanto, la sfavorita poco"; }
+      else if (poco && !sfSegna) { mappa = [F.segno, F.u45]; perche = "partita bloccata: vince la favorita di misura"; }
+      else if (poco) { mappa = [F.mg13, "GG"]; perche = "la favorita segna poco, la sfavorita segna"; }
+      else { mappa = candidati.filter((c) => c !== "GG" && c !== F.mg24); perche = "forma media: niente GG né MG 2-4 della favorita"; }
+    } else if (scenario === "Progressione") {
+      if (tanto) { mappa = [F.segno, F.dcO15]; perche = "la favorita segna tanto"; }
+      else if (!poco && sfSegna) { mappa = [F.mg24, F.segno]; perche = "la favorita segna, la sfavorita anche"; }
+      else if (!poco) { mappa = [F.segno, F.dcO15]; perche = "la favorita segna, la sfavorita poco"; }
+      else if (!sfSegna) { mappa = ["GG", F.dcO15]; perche = "segnano poco tutte e due: niente segno"; }
+    }
+    if (mappa?.length) { candidati = mappa; avvisi.push(`forma: ${perche}`); }
+  }
   if (avvisoGol) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
   else if (fortInCoppa && Number.isFinite(assFav) && assFav >= 5) avvisi.push(`favorita forte in coppa: ${assFav} assenti ma l'Over resta (segnano comunque)`);
   if (pochiGol) { candidati = candidati.filter((c) => c !== F.mg24 && c !== "O2.5"); avvisi.push("campionato da pochi gol: niente MG 2-4 della favorita né Over 2,5"); }
