@@ -15,7 +15,7 @@
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
-import { structuralAnalysis, quoteCatalogo, contraddice, estimateMarketOdd } from "./clusterEngine";
+import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
 import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
@@ -310,13 +310,8 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   try { voci = (nota && tab) ? tab.scenari[chiaveScenario(nota)] ?? null : null; } catch { /* senza tabella niente consigliato */ }
   const totAtteso = (pr.forma_casa != null ? (st.lambda_home + pr.forma_casa) / 2 : st.lambda_home)
     + (pr.forma_ospite != null ? (st.lambda_away + pr.forma_ospite) / 2 : st.lambda_away);
-  // Coppe europee (15/10/2026): servono anche segno + O1.5 / O2.5, che il catalogo non ha (quota stimata).
   const coppaEuropea = /^(EUCHL|EUEL|EUCONFL)/.test(String(m.manifestazione || "").toUpperCase());
   const marketOdds: Record<string, { odd: number; estimated: boolean }> = quoteCatalogo(odds);
-  if (coppaEuropea) for (const mk of ["1 + O1.5", "2 + O1.5", "1 + O2.5", "2 + O2.5"]) {
-    const q = estimateMarketOdd(mk, odds);
-    if (q && q > 1) marketOdds[mk] = { odd: Math.round(q * 100) / 100, estimated: true };
-  }
   const a = analizzaGiocate({
     odds, marketOdds, coppaEuropea,
     ranking: (s.ranking || []).map((r: any) => ({ market: r.market, coverage: r.coverage })),
@@ -428,13 +423,11 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 }
 
 /** Il consigliato salvato, se c'e' ed e' fatto con le quote di adesso e la versione corrente della tabella scenari. */
-export function consigliatoValido(numeri: any, match: any, versioneAttesa?: string | null): ConsigliatoSalvato | null {
-  const c = numeri?.consigliato;
-  if (!c) return null;
-  if (quoteCambiate(c.quote, firmaQuote(match))) return null;
-  const currentV = versioneAttesa !== undefined ? versioneAttesa : versioneTabellaCorrente();
-  if (currentV && (!c.tabella_versione || c.tabella_versione !== currentV)) return null;
-  return c;
+// UN UNICO PRONOSTICO (15/10/2026, Rossi: "un unico pronostico, che puo' variare solo se la IA lo fa
+// variare"): il consigliato salvato resta quello. Non si rifa' piu' per quote o tabella scenari
+// cambiate (Salisburgo-Milan: scheda MG 2-4 totali, elenco GG); si rifa' solo con una lettura AI nuova.
+export function consigliatoValido(numeri: any, _match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
+  return numeri?.consigliato ?? null;
 }
 
 
@@ -490,7 +483,10 @@ export async function ricalcolaConsigliatiQuoteCambiate(giornoDa?: string): Prom
       const numeri = dossierMap.get(m.id);
       const c = numeri?.consigliato;
       const ora = firmaQuote(m);
-      const cambiate = !c || quoteCambiate(c.quote, ora);
+      // Pronostico unico (15/10/2026): con le quote nuove non si rifa', solo se manca
+      // (la lettura AI rifatta per le quote nuove lo aggiorna dal giro dossier).
+      const cambiate = !c;
+      void ora;
       if (!cambiate) {
         invariate++;
         continue;
@@ -531,7 +527,14 @@ export async function ricalcolaConsigliatiNonGiocate(giornoDa?: string): Promise
       return inizio === null || inizio > now;
     });
     esaminate = nonGiocate.length;
+    // Pronostico unico (15/10/2026): la tabella scenari aggiornata non cambia i consigliati gia' fatti.
+    const conC = new Set<string>();
+    for (let i = 0; i < nonGiocate.length; i += 50) {
+      const lista = nonGiocate.slice(i, i + 50).map((m) => `"${m.id}"`).join(",");
+      for (const d of await pgGet(`dossier_web?match_id=in.(${lista})&select=match_id,c:numeri->consigliato`).catch(() => [])) if (d.c) conC.add(d.match_id);
+    }
     for (const m of nonGiocate) {
+      if (conC.has(m.id)) continue;
       try {
         await consigliatoDi(m.id, undefined, true);
         ricalcolate++;

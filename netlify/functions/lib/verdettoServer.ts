@@ -5,7 +5,7 @@ import { manualeStatsRecenti } from "./manuale";
 import { consigliatoValido, giocataDelConsigliato } from "./letturaPartita";
 import {
   buildFinalVerdict, rankPicks, ammessoDallaStruttura, fusioneInIngresso, verdettoDaAI, pronosticoPostPartita, aiDecide,
-  candidatiManuale, FASCE_AI, consigliatoTraFasce,
+  candidatiManuale, FASCE_AI, consigliatoTraFasce, inizioPartitaMs,
   type VerdictPick, type MatchHistory,
 } from "../../../frontend/src/api";
 
@@ -173,7 +173,9 @@ export async function verdettoDiPartita(
     // Stesso filtro pavimento/tetto che applica la scheda partita (ora formalita':
     // motore e PRE sono gia' filtrati in ingresso; resta per i mercati dell'IA).
     const s: any = (structural as any)?.structure;
-    return s ? grezzo.filter((v) => ammessoDallaStruttura(v.market, s)) : grezzo;
+    // Mai combo con il segno secco o con 12 (15/10/2026, Rossi: solo 1X / X2).
+    const ok = grezzo.filter((v) => !/^(DC )?(1|2|12) \+ /i.test(String(v.market).trim()));
+    return s ? ok.filter((v) => ammessoDallaStruttura(v.market, s)) : ok;
   };
 
   // `verdetto` resta quello della soglia richiesta (lo mostra chi lo chiede);
@@ -192,6 +194,9 @@ export async function verdettoDiPartita(
     const [d] = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(match.id)}&select=numeri`);
     const c = consigliatoValido(d?.numeri, match);
     const g = giocataDelConsigliato(c);
+    // Pronostico unico (15/10/2026, Rossi): con il consigliato salvato vale SOLO quello, anche
+    // quando non ha giocata (prima il motore la riempiva: Benfica MG 3-6, Sunderland O2.5).
+    if (c && !g) { giocata = { pick_finale: null as any, pick_finale_prob: null }; pick = null; daScheda = true; }
     if (g) {
       giocata = g;
       daScheda = true;
@@ -201,7 +206,9 @@ export async function verdettoDiPartita(
     console.error("[verdettoServer] consigliato della scheda", e);
   }
   let salvato = false;
-  if (salva && giocata && !match.result) {
+  // Mai dopo il calcio d'inizio: la giocata e' quella di prima del via (15/10/2026).
+  const inizio = inizioPartitaMs(match.day, match.time);
+  if (salva && giocata && !match.result && (inizio === null || inizio > Date.now())) {
     try {
       await pgPatch(`matches?id=eq.${encodeURIComponent(match.id)}`, giocata);
       salvato = true;

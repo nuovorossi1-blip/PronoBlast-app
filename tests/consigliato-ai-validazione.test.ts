@@ -230,7 +230,7 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
     assert.equal(persistentLetturaCache.get("mTest", { odd_1: 1.70, odd_x: 3.40, odd_2: 4.20 }), null);
   });
 
-  it("13. Ricalcolo versione tabella (Difetto 1): consigliatoValido confronta tabella_versione", () => {
+  it("13. Pronostico unico (15/10/2026): il consigliato salvato resta anche con tabella o quote nuove", () => {
     const match = { odd_1: 1.85, odd_x: 3.40, odd_2: 4.20 };
     const cons = {
       market: "1X", quota: 1.45,
@@ -238,19 +238,12 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
       tabella_versione: "2026-10-10T12:00:00Z|9325",
     };
     const numeri = { consigliato: cons };
-
-    // Con la stessa versione della tabella -> valido
-    const vStessa = consigliatoValido(numeri, match, "2026-10-10T12:00:00Z|9325");
-    assert.notEqual(vStessa, null);
-    assert.equal(vStessa?.market, "1X");
-
-    // Con nuova versione tabella -> INVALIDATO
-    const vNuova = consigliatoValido(numeri, match, "2026-10-10T15:30:00Z|9335");
-    assert.equal(vNuova, null);
-
-    // Consigliato vecchio privo di versione -> INVALIDATO con versione attiva
-    const consSenzaVersione = { market: "1X", quota: 1.45, quote: firmaQuote(match) };
-    assert.equal(consigliatoValido({ consigliato: consSenzaVersione }, match, "2026-10-10T15:30:00Z|9335"), null);
+    assert.equal(consigliatoValido(numeri, match, "2026-10-10T12:00:00Z|9325")?.market, "1X");
+    // Tabella nuova: resta lo stesso (prima veniva rifatto e cambiava: Salisburgo-Milan)
+    assert.equal(consigliatoValido(numeri, match, "2026-10-10T15:30:00Z|9335")?.market, "1X");
+    // Quote cambiate: resta lo stesso (lo cambia solo una lettura AI nuova)
+    assert.equal(consigliatoValido(numeri, { odd_1: 1.60, odd_x: 3.80, odd_2: 5.50 })?.market, "1X");
+    assert.equal(consigliatoValido({}, match), null);
   });
 
   it("14. Vietate SOLO le combo 1/2 + Over; DC 12, U2.5 ecc. restano come prima per i numeri; l'AI resta limitata a elenco + scenario; Dortmund resta MG 2-4 casa", () => {

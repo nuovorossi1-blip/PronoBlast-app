@@ -125,9 +125,11 @@ async function dossierDi(m: any, conteggi: Conteggi, resoconto?: ResocontoDossie
       // Anche RIFATTA se le quote sono cambiate (caricamento delle 15, 18...).
       const r = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(m.id)}&select=numeri`);
       const q = (await pgGet(`matches?id=eq.${encodeURIComponent(m.id)}&select=odd_1,odd_x,odd_2,odd_o25,odd_u25,odd_gg,odd_ng`))[0];
-      if (r[0]?.numeri && q && letturaDaRifare(r[0].numeri, q)) lettura = (await generaLetturaAI(m.id)) ? " + lettura AI" : " (lettura AI non riuscita)";
-      // Il consigliato (schedina e multipla lo leggono da qui).
-      if (r[0]?.numeri && q && !consigliatoValido(r[0].numeri, q)) {
+      let nuovaAI = false;
+      if (r[0]?.numeri && q && letturaDaRifare(r[0].numeri, q)) { nuovaAI = !!(await generaLetturaAI(m.id)); lettura = nuovaAI ? " + lettura AI" : " (lettura AI non riuscita)"; }
+      // Il consigliato (schedina e multipla lo leggono da qui): si fa se manca o con una lettura AI
+      // nuova (pronostico unico, 15/10/2026: cambia solo se lo cambia l'AI).
+      if (r[0]?.numeri && q && (nuovaAI || !consigliatoValido(r[0].numeri, q))) {
         const c = await consigliatoDi(m.id);
         lettura += c?.market ? ` + consigliato ${c.market}` : c?.daLasciare ? " + da lasciare" : "";
       }

@@ -149,6 +149,16 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 (sera) — Ritorno al consigliato delle 11:16, pronostico unico
+
+Richiesta di Rossi: "voglio il pronostico delle 11, un unico pronostico, che può variare solo se la IA lo fa variare".
+- `analizzaGiocate` (frontend/src/api.ts): tolte le regole del 15/10 (Multigol della sfavorita, linea dei 2,5 gol, archivio sotto 300 = da lasciare, coppe europee). Lasciavano 43 partite su 116 senza giocata (alle 11: 5).
+- Vietate le combo con segno secco o con 12 (`1 + O1.5`, `2 + O2.5`, `DC 12 + O1.5`, `DC 12 + U3.5`...): le combo solo con 1X / X2. Vale per consigliato, Pronostico AI (`esclusa`) e motore (`verdettoServer`).
+- Pronostico unico: `consigliatoValido` non scarta più il salvato per quote o tabella scenari nuove; i ricalcoli di massa (quote, tabella) fanno solo i mancanti; si rifà solo con una lettura AI nuova (lettura.ts, dossier-giornata.ts, lavori.ts).
+- `verdettoServer`: con il consigliato salvato vale solo quello (anche senza giocata); niente scritture dopo il calcio d'inizio.
+- Scheda: il riquadro in alto mostra il consigliato (lo stesso di elenco e Schedina) col pallino verde/giallo/rosso (p archivio × quota), anche a partita iniziata ("prima del via"). Il Pronostico regole resta solo nel test giornaliero.
+- Dati: consigliati del 15/10 rimessi dalla copia 11:16 (`Remotoackup6-10-15-database\pronoblast-consigliati-prima-mg-sfavorita.json`), combo vietate sostituite dalla prima alternativa; stato precedente in `pronoblast-consigliati-15-10-prima-ripristino-11.json`. Tag di ritorno: `prima-ritorno-11-2026-10-15`.
+
 ### 2026-10-15 — Pronostico regole v5: "vince N su 10" con la percentuale d'archivio
 
 - `regolePronostico.decidi(m, d)`: con `d.tab` (tabella scenari) ogni voce ha `p` = misura delle coppe

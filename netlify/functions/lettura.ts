@@ -73,14 +73,17 @@ export default async (req: Request): Promise<Response> => {
     let pro = dati.numeri?.lettura_pro ?? null;
     const inizio = inizioPartitaMs(dati.match.day, dati.match.time);
     const daGiocare = !dati.match.result && (inizio === null || inizio > Date.now());
+    let nuovaAI = false;
     if (req.method === "GET" && url.searchParams.get("auto") === "1" && daGiocare && dati.numeri && letturaDaRifare(dati.numeri, dati.match)) {
-      ai = (await generaLetturaAI(id, dati)) ?? ai;
+      const nuova = await generaLetturaAI(id, dati);
+      if (nuova) { ai = nuova; nuovaAI = true; }
     }
     // Il consigliato e la lettura del programma si salvano (anche per partite
     // gia' iniziate: si salvano con le quote della partita, che non cambiano piu').
+    // Pronostico unico (15/10/2026): si rifa' solo se manca o con una lettura AI nuova.
     let consigliato = dati.numeri ? consigliatoValido(dati.numeri, dati.match) : null;
-    if (dati.numeri && (!consigliato || !dati.numeri.programma)) {
-      try { consigliato = await consigliatoDi(id, dati); } catch { /* lo rifa' il giro */ }
+    if (dati.numeri && (!consigliato || nuovaAI)) {
+      try { consigliato = await consigliatoDi(id, { ...dati, numeri: { ...dati.numeri, lettura_ai: ai } }); } catch { /* lo rifa' il giro */ }
     }
     if (req.method === "POST" && url.searchParams.get("genera") === "1") {
       if (url.searchParams.get("pro") === "1") {
@@ -102,7 +105,13 @@ export default async (req: Request): Promise<Response> => {
           await applicaCambioInSchedina(id, c);
         } catch { /* si rifa' col giro */ }
       } else {
-        ai = (await generaLetturaAI(id, dati)) ?? ai;
+        const nuova = await generaLetturaAI(id, dati);
+        if (nuova) {
+          ai = nuova;
+          if (daGiocare && dati.numeri) {
+            try { consigliato = await consigliatoDi(id, { ...dati, numeri: { ...dati.numeri, lettura_ai: ai } }); } catch { /* resta il salvato */ }
+          }
+        }
         if (!ai) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);
       }
     }

@@ -3565,7 +3565,7 @@ export function analizzaGiocate(x: {
   // delle giocate (631), alla stessa quota; con il contrasto la favorita delle
   // quote vince di piu' (segno +4,8 punti sul motore, 334 partite): di solito e'
   // la forma a sbagliare. Resta un avviso.
-  let daLasciare: string | null = null;
+  const daLasciare: string | null = null;
   // Le assenze NON bloccano (07/10/2026, Croazia-Spagna: la Spagna con 4
   // assenti ha vinto lo stesso): il conteggio non dice se sono titolari.
   // Restano un avviso; la notizia vera la valuta il Pronostico AI.
@@ -3584,57 +3584,12 @@ export function analizzaGiocate(x: {
         : { nome: x.ospite, contro: x.casa, f: x.pesataOspite.fatti })
     : null;
 
-  // GOL DELLA SFAVORITA (15/10/2026, Rossi, Roma-Real 3-4: consigliato MG 1-2 Roma perso).
-  // Sulle partite finite i consigliati "Multigol della squadra sfavorita" hanno vinto 22 su 45
-  // (49%) contro il 60% dichiarato; quelli sulla favorita il 64% (90). Non sono piu' candidati.
-  // Se il migliore era uno di questi e la lettura AI dice che la favorita non perde, si gioca la
-  // doppia chance della favorita + Over 1.5 (Roma-Real: DC X2 + O1.5, vinta).
-  const q1 = Number((x.odds as any).odd_1), q2 = Number((x.odds as any).odd_2);
-  const sfavorita = q1 > q2 ? "CASA" : q2 > q1 ? "OSPITE" : null;
-  const golSfavorita = (m: string) => sfavorita !== null && new RegExp(`^MG \\d-\\d ${sfavorita}$`).test(m.trim().toUpperCase());
-  let migliorSfavorita = 0;
-  // COPPE EUROPEE (15/10/2026, Rossi: "considera che sono partite di coppa"). Archivio Champions/Europa/
-  // Conference, frequenze reali alle quote GIOCABILI (da 1,40): favorita a 1,35 o meno: segno + O1.5 57%
-  // (30), segno + O2.5 56% (72), MG 1-3 favorita 54%, segno + U4.5 53% (le grandi fanno goleada; il Poisson
-  // dell'app gonfia gli MG della favorita: griglia tagliata a 6 gol); 1,36-1,55: segno + O1.5 59% @1,76
-  // (51), segno 64% @1,49 (39); 1,56-1,85: segno 63% @1,71 (79), segno + Over 33-42%; GG con favorita 37-47%.
-  // Queste misure sostituiscono la tabella scenari per quei mercati (campioni piccoli ma specifici: non si
-  // applica la regola dei 300); segno + U4.5, GG e, con la favorita fortissima, gli MG della favorita
-  // non sono candidati.
-  const favQc = Math.min(q1, q2);
-  const fasciaCoppa = x.coppaEuropea && sfavorita && favQc <= 1.85 ? (favQc <= 1.35 ? "fortissima" : favQc <= 1.55 ? "forte" : "leggera") : null;
-  const lato = sfavorita === "CASA" ? "OSPITE" : "CASA", segnoF = sfavorita === "CASA" ? "2" : "1";
-  const misureCoppa = misureCoppaPer(q1, q2, !!x.coppaEuropea);
-  const misuraCoppa = new Set<RigaGiocata>();
-  const escluseCoppa = (m: string) => {
-    if (!fasciaCoppa) return false;
-    const k = normalizeMarket(m).toUpperCase();
-    if (k === `${segnoF} + U4.5` || k === "GG") return true;
-    // Stessa prova (15/10/2026, alle quote da 1,40): MG 2-4 totali 55% / 63% / 52% (resa -15 / -5 / -22%),
-    // combo con l'MG della favorita ("MG 1-3 casa + MG 0-2 ospite") 49% / 60% / 64% (resa -26 / -10 / -6%).
-    if (k === "MG 2-4 TOTALI" || new RegExp(`MG \\d-\\d ${lato} \\+ MG|MG \\d-\\d (CASA|OSPITE) \\+ MG \\d-\\d ${lato}$`).test(k)) return true;
-    return fasciaCoppa === "fortissima" && new RegExp(`^MG \\d-\\d ${lato}$`).test(k);
-  };
-  if (fasciaCoppa) for (const r of righe) {
-    const v = misureCoppa[normalizeMarket(r.market).toUpperCase()];
-    if (v) { r.misurata = { pA: v[0], pB: v[0], n: v[1] }; misuraCoppa.add(r); }
-  }
-  // LINEA DEI 2,5 GOL (15/10/2026, analisi delle partite finite, Rossi: ok): O2.5, U2.5, MG 1-3
-  // totali, MG 3-6 totali e le combinazioni "+ O2.5" da consigliati hanno vinto il 49-52% contro il
-  // 63% dichiarato (resa -22/-26%); la prima alternativa fuori linea il 66%. Non sono piu' candidati.
-  // ECCEZIONE "MOLTO APERTA" (15/10/2026, Rossi: "equilibrata chiusa X o GG, aperta Over 2,5 o
-  // MG 3-6"): in Equilibrio e Progressione, se la forma pesata dice 3,4 gol o piu' (fatti di una +
-  // subiti dell'altra, per tutte e due), Over 2.5 e MG 3-6 totali restano candidati. Partite finite
-  // con dossier: Equilibrio 95, Over 65% contro 60% delle quote, resa +1,0% alle quote reali;
-  // Progressione 39, 67% contro 58%, resa +4,3%. Sotto 3,4 l'Over esce il 43-53% (X o GG 63-66%).
-  const golForma = x.pesataCasa && x.pesataOspite
-    ? (x.pesataCasa.fatti + x.pesataOspite.subiti) / 2 + (x.pesataOspite.fatti + x.pesataCasa.subiti) / 2 : null;
-  const moltoAperta = golForma !== null && golForma >= 3.4 && (x.scenario === "Equilibrio" || x.scenario === "Progressione");
-  const linea25 = (m: string) => {
-    const k = normalizeMarket(m).toUpperCase();
-    if (moltoAperta && (k === "O2.5" || k === "MG 3-6 TOTALI")) return false;
-    return /^(O2\.5|U2\.5|MG 1-3 TOTALI|MG 3-6 TOTALI)$|\+ O2\.5$/.test(k);
-  };
+  // RITORNO AL CONSIGLIATO DELLE 11 (15/10/2026 sera, Rossi: "voglio il pronostico delle 11, un
+  // unico pronostico, niente scarti"): tolte le regole del 15/10 (Multigol della sfavorita, linea dei
+  // 2,5 gol, archivio sotto 300 partite, coppe europee), che lasciavano 43 partite su 116 senza giocata.
+  // Restano fuori le combo con il segno secco o con 12 (1 + Over, 2 + Over, 12 + Over...): le
+  // combinazioni si giocano solo con la doppia chance direzionale 1X / X2.
+  const comboVietata = (m: string) => /^(DC )?(1|2|12) \+ /.test(normalizeMarket(m).toUpperCase());
 
   // Candidati e punteggio
   for (const r of righe) {
@@ -3644,29 +3599,11 @@ export function analizzaGiocate(x: {
     if (pm < 0.58) continue;
     const p = r.stima != null ? Math.min(pm, r.stima) : pm;
     if (p < 0.55) continue;
-    if (golSfavorita(r.market)) { migliorSfavorita = Math.max(migliorSfavorita, p * r.quota); continue; }
-    if (linea25(r.market)) continue;
-    if (escluseCoppa(r.market)) continue;
+    if (comboVietata(r.market)) continue;
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
-  let primo = candidati[0] ?? null;
-  if (migliorSfavorita > (primo?.punteggio ?? 0) && x.favNonPerde && sfavorita) {
-    const dc = righe.find((r) => normalizeMarket(r.market) === normalizeMarket(sfavorita === "CASA" ? "DC X2 + O1.5" : "DC 1X + O1.5"));
-    // Tetto QUOTA_MAX_AI: sopra, la quota stimata di una doppia chance + Over e' poco affidabile.
-    if (dc && dc.quota >= 1.4 && dc.quota <= QUOTA_MAX_AI) {
-      const p = dc.misurata ? Math.min(dc.misurata.pA, dc.misurata.pB) : dc.stima;
-      // Non entra in `candidati`: spesso non ha la misura d'archivio (solo stima) e li' si legge `misurata`.
-      if (p != null) { dc.punteggio = p * dc.quota; primo = dc; }
-    }
-  }
-  // ARCHIVIO CON POCHE PARTITE (15/10/2026, Rossi: ok): con meno di 300 partite misurate il
-  // massimo probabilita' x quota pesca spesso la cella stimata troppo alta per caso: questi
-  // consigliati hanno vinto il 53% contro il 62,5% dichiarato (162 partite, resa -20%); da 300
-  // in su il dichiarato e' giusto. La partita diventa da lasciare (seNonLasciata la conserva).
-  if (primo?.misurata && primo.misurata.n < 300 && !misuraCoppa.has(primo)) {
-    daLasciare = `percentuale d'archivio misurata su poche partite (${primo.misurata.n}): non affidabile`;
-  }
+  const primo = candidati[0] ?? null;
   const consigliato = daLasciare ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
@@ -3674,13 +3611,8 @@ export function analizzaGiocate(x: {
   // Il perche' di ogni riga
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
-    if (r.consigliato && migliorSfavorita > 0 && x.favNonPerde && /^DC .* \+ O1\.5$/i.test(r.market.trim())) r.perche = "★ consigliato: la lettura AI dice che la favorita non perde (al posto dei gol della sfavorita).";
-    else if (r.consigliato && misuraCoppa.has(r)) r.perche = `★ consigliato: nelle coppe europee, con questa favorita, esce il ${pc(r.misurata!.pA)} (${r.misurata!.n} partite).`;
-    else if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
-    else if (escluseCoppa(r.market) && r.quota >= 1.4) r.perche = "coppa europea: con questa favorita esce meno del previsto (goleade, o GG raro).";
-    else if (golSfavorita(r.market) && r.quota >= 1.4) r.perche = "gol della squadra sfavorita: da consigliati hanno vinto il 49% contro il 60% promesso (45 partite).";
-    else if (linea25(r.market) && r.quota >= 1.4) r.perche = "sulla linea dei 2,5 gol: da consigliati hanno vinto il 49-52% contro il 63% promesso (91 partite).";
-    else if (r === primo && daLasciare) r.perche = `sarebbe stata la giocata, ma la percentuale viene da sole ${r.misurata?.n ?? "?"} partite d'archivio: da lasciare.`;
+    if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12: le combo si giocano solo con 1X o X2.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
@@ -3697,18 +3629,8 @@ export function analizzaGiocate(x: {
   righe.sort((a, b) => Number(!!b.consigliato) - Number(!!a.consigliato)
     || Number(b.quota >= 1.4) - Number(a.quota >= 1.4)
     || prob(b) - prob(a));
-  // REGOLE INDEROGABILI ANCHE PER L'AI (15/10/2026, audit difetto C, Rossi: ok): il Pronostico AI
-  // non puo' rimettere una giocata che queste regole escludono (Lech-Leverkusen GG + O2.5, Benfica e
-  // Brann MG 1-3 in coppa). Partite finite, consigliato salvato prima del via: cambi dell'AI verso
-  // giocate ammesse 15/18 vinte, verso giocate oggi escluse 6/11 (resa -8%).
-  const esclusa = (m: string): string | null => {
-    if (golSfavorita(m)) return "gol della squadra sfavorita";
-    if (linea25(m)) return "sulla linea dei 2,5 gol";
-    if (escluseCoppa(m)) return "coppa europea: con questa favorita esce meno del previsto";
-    const r = righe.find((y) => normalizeMarket(y.market) === normalizeMarket(m));
-    if (r?.misurata && r.misurata.n < 300 && !misuraCoppa.has(r)) return `archivio con poche partite (${r.misurata.n})`;
-    return null;
-  };
+  // Anche il Pronostico AI non puo' proporre le combo con il segno secco o con 12 (15/10/2026).
+  const esclusa = (m: string): string | null => (comboVietata(m) ? "combo con il segno secco o con 12 (solo 1X / X2)" : null);
   return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali, esclusa };
 }
 

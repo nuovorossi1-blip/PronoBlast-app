@@ -229,7 +229,9 @@ export default function MatchDetail() {
   // Dettagli (consigliato d'archivio, lettura completa): chiusi se c'e' "Cosa giocare", aperti
   // sulle partite iniziate o finite, dove "Cosa giocare" non c'e'.
   const [dettagli, setDettagli] = useState(false);
-  const mostraDettagli = dettagli || !regole;
+  // Il pronostico unico (15/10/2026 sera): il consigliato salvato, anche a partita iniziata o finita.
+  const cosaGiocare = lettura?.consigliato ?? null;
+  const mostraDettagli = dettagli || !cosaGiocare;
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);
@@ -664,78 +666,60 @@ export default function MatchDetail() {
           )}
         </View>
 
-        {/* ============ COSA GIOCARE (15/10/2026, Rossi: "io utente cosa devo vedere appena apro
-            la partita?") ============
-            Un riquadro solo con la decisione del Pronostico regole (scenario + lettura AI + forma,
-            netlify/functions/lib/regolePronostico.ts, in prova), le ragioni a ✓ / ✗, se la quota
-            conviene e il confronto con il consigliato d'archivio, che resta quello di Schedina,
-            multipla e bot finche' il test non dice chi vince. Sotto: scenario e lettura AI sempre
-            aperti; consigliato d'archivio e lettura completa nei Dettagli. */}
-        {regole ? (() => {
-          const col = regole.semaforo === "verde" ? colors.success : regole.semaforo === "giallo" ? colors.warning : regole.semaforo === "rosso" ? colors.danger : colors.textDim;
-          const nomeSem = regole.semaforo === "verde" ? "VERDE" : regole.semaforo === "giallo" ? "GIALLO" : regole.semaforo === "rosso" ? "ROSSO" : "SENZA LETTURA";
-          const altre = Object.entries(regole.fasce).filter(([, v]) => v && v.mk !== regole.scelta?.mk) as [string, { mk: string; quota: number; stimata: boolean; p: number }][];
+        {/* ============ COSA GIOCARE: UN UNICO PRONOSTICO (15/10/2026 sera, Rossi: "un unico
+            pronostico, che puo' variare solo se la IA lo fa variare") ============
+            Il consigliato salvato: lo stesso di elenco, Schedina, multipla e bot. Resta anche a partita
+            iniziata o finita (e' quello di prima del via). Il pallino: probabilita' d'archivio x quota
+            (verde = quota con margine, giallo = nessun vantaggio, rosso = quota bassa per il rischio). */}
+        {cosaGiocare ? (() => {
+          const cs = cosaGiocare;
           const q2 = (x: number) => x.toFixed(2).replace(".", ",");
           const nomeMk = (mk: string) => mk.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
           const spiega = (mk: string) => ({ "1": `vince ${match.squadra1}`, "2": `vince ${match.squadra2}`, X: "pareggio", "1X": `${match.squadra1} non perde`, X2: `${match.squadra2} non perde`, "12": "non finisce pari", GG: "segnano tutte e due", NG: "almeno una non segna", "X oppure GG": "pareggio o segnano tutte e due" } as Record<string, string>)[mk.trim()] ?? null;
-          const s = regole.scelta;
-          const conv = s ? s.p * s.quota : null;
-          const cs = lettura?.consigliato;
+          const p = cs.pA != null && cs.pA > 0 ? Math.min(cs.pA, cs.pB ?? cs.pA) : null;
+          const conv = p != null && cs.quota != null ? p * cs.quota : null;
+          const col = conv === null ? colors.textDim : conv >= 1 ? colors.success : conv >= 0.95 ? colors.warning : colors.danger;
+          const nomeSem = conv === null ? "" : conv >= 1 ? "VERDE" : conv >= 0.95 ? "GIALLO" : "ROSSO";
           const pro = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : null;
           const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
+          const iniziata = !!match.result || (inizioRegole !== null && inizioRegole <= Date.now());
           return (
             <View style={{ marginHorizontal: 16, marginTop: 12, padding: 14, borderRadius: 14, borderWidth: 2, borderColor: col, backgroundColor: colors.card }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", letterSpacing: 0.6 }}>COSA GIOCARE</Text>
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: col, marginRight: 6 }} />
-                  <Text style={{ color: col, fontSize: 12, fontWeight: "800" }}>{nomeSem}{pro ? " · AI ✓" : ""}</Text>
-                </View>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", letterSpacing: 0.6 }}>{iniziata ? "PRONOSTICO (PRIMA DEL VIA)" : "PRONOSTICO"}</Text>
+                {nomeSem ? (
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: col, marginRight: 6 }} />
+                    <Text style={{ color: col, fontSize: 12, fontWeight: "800" }}>{nomeSem}</Text>
+                  </View>
+                ) : null}
               </View>
-              {s ? (
+              {cs.market ? (
                 <Text style={{ color: colors.text, fontSize: 22, fontWeight: "900", marginTop: 6 }}>
-                  {nomeMk(s.mk)}{spiega(s.mk) ? <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: "600" }}>{`  (${spiega(s.mk)})`}</Text> : null}
-                  <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{`   @${q2(s.quota)}${s.stimata ? "*" : ""}`}</Text>
+                  {cs.nome || nomeMk(cs.market)}{spiega(cs.market) ? <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: "600" }}>{`  (${spiega(cs.market)})`}</Text> : null}
+                  {cs.quota != null ? <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{`   @${q2(cs.quota)}${cs.stimata ? "*" : ""}`}</Text> : null}
                 </Text>
               ) : (
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>Da saltare: nessuna giocata semplice fra 1,40 e 1,95</Text>
+                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>Nessuna giocata da 1,40 con questi numeri</Text>
               )}
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4, fontWeight: "700" }}>{`Scenario: ${regole.scenario.toUpperCase()}`}</Text>
-              <View style={{ marginTop: 6, gap: 3 }}>
-                {(regole.ragioni ?? []).map((r, i) => (
-                  <Text key={i} style={{ color: r.ok ? colors.text : colors.warning, fontSize: 14 }}>{`${r.ok ? "✓" : "✗"} ${r.t}`}</Text>
-                ))}
-              </View>
-              {s && conv !== null ? (
+              {cs.market && p != null && conv !== null ? (
                 <Text style={{ color: colors.text, fontSize: 14, marginTop: 8, fontWeight: "700" }}>
-                  {`Vince ${(s.p * 10).toFixed(1).replace(".", ",").replace(",0", "")} volte su 10 · a ${q2(s.quota)} ne servono ${(10 / s.quota).toFixed(1).replace(".", ",")}`}
-                  <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: "600" }}>{s.fonte === "archivio" ? `\n(archivio: ${s.n} partite di questo scenario a quote simili)` : s.fonte === "coppe" ? `\n(coppe europee: ${s.n} partite con una favorita così)` : s.fonte === "modello" ? "\n(stima dalle quote: in archivio troppe poche partite)" : ""}</Text>
-                  <Text style={{ color: conv >= 1 ? colors.success : conv >= 0.95 ? colors.textMuted : colors.danger, fontWeight: "800" }}>
+                  {`Vince ${(p * 10).toFixed(1).replace(".", ",").replace(",0", "")} volte su 10 · a ${q2(cs.quota!)} ne servono ${(10 / cs.quota!).toFixed(1).replace(".", ",")}`}
+                  {cs.n ? <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: "600" }}>{`\n(archivio: ${cs.n} partite simili)`}</Text> : null}
+                  <Text style={{ color: col, fontWeight: "800" }}>
                     {conv >= 1 ? "\n→ quota con margine" : conv >= 0.95 ? "\n→ va bene in multipla, nessun vantaggio" : "\n→ quota bassa per il rischio"}
                   </Text>
                 </Text>
               ) : null}
-              {pro ? (
-                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
-                  {`🤖 Calcolato con il Pronostico AI (${nomeModello(pro.modello)})${pro.notizia ? `: ${pro.notizia}${pro.notizia_verificata ? " (verificata)" : ""}` : ": nessuna notizia nuova"}`}
-                </Text>
-              ) : lettura?.ai ? (
-                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 8 }}>{`Con la lettura AI gratis (${nomeModello(lettura.ai.modello)}). Il tasto Pronostico AI in alto la rifà col modello scelto.`}</Text>
+              {(cs.avvisi ?? []).map((a, i) => (
+                <Text key={i} style={{ color: colors.warning, fontSize: 13, marginTop: 4 }}>{`⚠ ${a}`}</Text>
+              ))}
+              {cs.ai === "cambiato" ? (
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>{`🤖 Cambiato dall'AI${cs.notizia ? `: ${cs.notizia}` : ""}`}</Text>
+              ) : pro ? (
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>{`🤖 Pronostico AI (${nomeModello(pro.modello)}): confermato`}</Text>
               ) : null}
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6 }}>
-                {cs?.market
-                  ? `Archivio (va in Schedina): ${cs.nome || nomeMk(cs.market)} @${cs.quota != null ? q2(cs.quota) : "?"}${s && normalizeMarket(cs.market) === normalizeMarket(s.mk) ? " · d'accordo ✓" : ""}`
-                  : `Archivio (Schedina): nessuna giocata${cs?.daLasciare ? ` · ${cs.daLasciare}` : ""}`}
-              </Text>
-              {altre.length ? (
-                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
-                  Altre fasce: {altre.map(([f, v]) => `${f} ${nomeMk(v.mk)} @${q2(v.quota)}${v.stimata ? "*" : ""}`).join(" · ")}
-                </Text>
-              ) : null}
-              {(s?.stimata || altre.some(([, v]) => v.stimata)) ? (
-                <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>* quota stimata: controllala sul bookmaker</Text>
-              ) : null}
-              <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>In prova dal 15/10: il test giornaliero lo confronta con l'archivio.</Text>
+              {cs.stimata ? <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>* quota stimata: controllala sul bookmaker</Text> : null}
             </View>
           );
         })() : null}
