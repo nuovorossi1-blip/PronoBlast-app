@@ -149,6 +149,22 @@ codice + `.md` insieme -> costruisce.
 
 ## Log (più recente in cima)
 
+### 2026-10-15 — Scheda partita piu' semplice: Cosa giocare, Scenario, Lettura AI, Dettagli
+
+Rossi: "io utente cosa devo vedere appena apro la partita?". Solo come si vede, nessun dato tolto:
+- in alto **COSA GIOCARE**: giocata del Pronostico regole con semaforo, scenario, ragioni ✓/✗
+  (`ragioni` nuovo in `regolePronostico.ts`), "vince N su 10, ne servono M" con giudizio sulla
+  quota, riga del Pronostico AI (modello e notizia) e confronto con il consigliato d'archivio, che
+  resta quello di Schedina/multipla/bot;
+- **SCENARIO** sempre aperto, percentuali alla quota di questa partita (tabella scenari per fascia;
+  senza misura: stima Poisson della partita, con la media di tutte le quote solo come riferimento) e
+  riga della forma;
+- **LETTURA AI** sempre aperta: risultati probabili, direzione, gol, lettura e notizia (Pronostico AI
+  se fatto, altrimenti gratis);
+- **Dettagli** (chiusi; aperti da soli sulle partite iniziate): consigliato d'archivio, che ora
+  elenca le migliori giocate e il motivo quando non ce n'e' una, e la lettura completa del programma.
+- Ripristino: tag `prima-scheda-semplice-2026-10-15`.
+
 ### 2026-10-15 — Partita "molto aperta" e mappa forma per scenario (regole v3)
 
 - Consigliato (`analizzaGiocate`, nuovo parametro `scenario`): in Equilibrio e Progressione, se la

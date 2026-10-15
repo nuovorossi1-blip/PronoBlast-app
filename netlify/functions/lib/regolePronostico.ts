@@ -145,13 +145,26 @@ export function decidi(m: any, d: any) {
   }
   const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is VoceRegole => !!v).sort((a, b) => b.p - a.p);
   const scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
+  // Le ragioni in parole semplici per il riquadro "Cosa giocare" della scheda (15/10/2026).
+  const risTxt = l?.risultati_probabili?.length ? ` (${l.risultati_probabili.join(", ")})` : "";
+  const nomeFav = casaFav ? m.squadra1 : m.squadra2;
+  const ragioni: { ok: boolean; t: string }[] = [{ ok: true, t: `Favorita per le quote: ${nomeFav} a ${favQ.toFixed(2).replace(".", ",")}` }];
+  if (semaforo === "verde") ragioni.push({ ok: true, t: `La lettura AI è d'accordo${risTxt}` });
+  else if (semaforo === "giallo" && motivo.startsWith("lettura 'la favorita non perde'")) ragioni.push({ ok: true, t: `La lettura AI: ${nomeFav} non perde${risTxt}` });
+  else if (semaforo === "giallo") ragioni.push({ ok: false, t: `La lettura AI non dà un vincitore${risTxt}: giocata prudente` });
+  else if (semaforo === "rosso") ragioni.push({ ok: false, t: `${motivo === "lettura contro il bookmaker" ? "La lettura AI va contro le quote" : "La lettura AI si contraddice"}${risTxt}: solo gol` });
+  else ragioni.push({ ok: false, t: "Senza lettura AI: solo scenario" });
+  for (const a of avvisi) {
+    const t = a.replace(/^forma: /, "Forma: ");
+    ragioni.push({ ok: !/niente/.test(a) || /resta/.test(a), t: t.charAt(0).toUpperCase() + t.slice(1) });
+  }
   return {
     versione: VERSIONE_REGOLE,
     scenario, favorita: casaFav ? m.squadra1 : m.squadra2, favQ,
     lettura: l ? { modello: l.modello ?? null, dir: dir || "n/d", ris: l.risultati_probabili ?? [] } : null,
     coerente, assentiFavorita: Number.isFinite(assFav) ? assFav : null, avvisoGol, pochiGol, avvisi,
     semaforo, motivo: scelta ? motivo : `${motivo}; nessuna giocata delle regole fra 1,40 e 1,95 -> esclusa`,
-    candidati, fasce, scelta,
+    candidati, fasce, scelta, ragioni,
   };
 }
 

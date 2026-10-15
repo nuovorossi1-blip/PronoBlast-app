@@ -226,6 +226,10 @@ export default function MatchDetail() {
   const inizioRegole = match ? inizioPartitaMs(match.day, match.time) : null;
   const regole: PronosticoRegole | null = match && !match.result && (inizioRegole === null || inizioRegole > Date.now())
     ? (lettura?.regole ?? null) : null;
+  // Dettagli (consigliato d'archivio, lettura completa): chiusi se c'e' "Cosa giocare", aperti
+  // sulle partite iniziate o finite, dove "Cosa giocare" non c'e'.
+  const [dettagli, setDettagli] = useState(false);
+  const mostraDettagli = dettagli || !regole;
   // Lista delle partite in Schedina: serve a sapere qual e' la prossima.
   const [selList, setSelList] = useState<Match[]>((selectedListCache.get() as Match[]) || []);
   const loadVersion = useRef(0);
@@ -659,56 +663,171 @@ export default function MatchDetail() {
           )}
         </View>
 
-        {/* ============ PRONOSTICO REGOLE (15/10/2026, Rossi, in prova) ============
-            Scenario + lettura AI -> semaforo e giocata semplice per fascia
-            (netlify/functions/lib/regolePronostico.ts). Accanto al consigliato,
-            non lo sostituisce: il test giornaliero dice quale dei due vince. */}
+        {/* ============ COSA GIOCARE (15/10/2026, Rossi: "io utente cosa devo vedere appena apro
+            la partita?") ============
+            Un riquadro solo con la decisione del Pronostico regole (scenario + lettura AI + forma,
+            netlify/functions/lib/regolePronostico.ts, in prova), le ragioni a ✓ / ✗, se la quota
+            conviene e il confronto con il consigliato d'archivio, che resta quello di Schedina,
+            multipla e bot finche' il test non dice chi vince. Sotto: scenario e lettura AI sempre
+            aperti; consigliato d'archivio e lettura completa nei Dettagli. */}
         {regole ? (() => {
           const col = regole.semaforo === "verde" ? colors.success : regole.semaforo === "giallo" ? colors.warning : regole.semaforo === "rosso" ? colors.danger : colors.textDim;
           const nomeSem = regole.semaforo === "verde" ? "VERDE" : regole.semaforo === "giallo" ? "GIALLO" : regole.semaforo === "rosso" ? "ROSSO" : "SENZA LETTURA";
           const altre = Object.entries(regole.fasce).filter(([, v]) => v && v.mk !== regole.scelta?.mk) as [string, { mk: string; quota: number; stimata: boolean; p: number }][];
+          const q2 = (x: number) => x.toFixed(2).replace(".", ",");
+          const nomeMk = (mk: string) => mk.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2);
+          const spiega = (mk: string) => ({ "1": `vince ${match.squadra1}`, "2": `vince ${match.squadra2}`, X: "pareggio", "1X": `${match.squadra1} non perde`, X2: `${match.squadra2} non perde`, "12": "non finisce pari", GG: "segnano tutte e due", NG: "almeno una non segna", "X oppure GG": "pareggio o segnano tutte e due" } as Record<string, string>)[mk.trim()] ?? null;
+          const s = regole.scelta;
+          const conv = s ? s.p * s.quota : null;
+          const cs = lettura?.consigliato;
+          const pro = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : null;
+          const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
           return (
-            <View style={{ marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: col, backgroundColor: colors.card }}>
+            <View style={{ marginHorizontal: 16, marginTop: 12, padding: 14, borderRadius: 14, borderWidth: 2, borderColor: col, backgroundColor: colors.card }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>PRONOSTICO REGOLE · IN PROVA</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", letterSpacing: 0.6 }}>COSA GIOCARE</Text>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: col, marginRight: 6 }} />
-                  <Text style={{ color: col, fontSize: 12, fontWeight: "800" }}>{nomeSem}</Text>
+                  <Text style={{ color: col, fontSize: 12, fontWeight: "800" }}>{nomeSem}{pro ? " · AI ✓" : ""}</Text>
                 </View>
               </View>
-              {regole.scelta ? (
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>
-                  {regole.scelta.mk} @{regole.scelta.quota.toFixed(2)}{regole.scelta.stimata ? "*" : ""}
-                  <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}>  {Math.round(regole.scelta.p * 100)}%</Text>
+              {s ? (
+                <Text style={{ color: colors.text, fontSize: 22, fontWeight: "900", marginTop: 6 }}>
+                  {nomeMk(s.mk)}{spiega(s.mk) ? <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: "600" }}>{`  (${spiega(s.mk)})`}</Text> : null}
+                  <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{`   @${q2(s.quota)}${s.stimata ? "*" : ""}`}</Text>
                 </Text>
               ) : (
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginTop: 6 }}>Da saltare: nessuna giocata semplice fra 1,40 e 1,95</Text>
+                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginTop: 6 }}>Da saltare: nessuna giocata semplice fra 1,40 e 1,95</Text>
               )}
-              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
-                {regole.scenario} · {regole.lettura ? `lettura AI ${regole.lettura.dir === "nessuna" ? "senza direzione" : regole.lettura.dir}${regole.lettura.ris?.length ? ` (${regole.lettura.ris.join(", ")})` : ""}` : "senza lettura AI"}
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{regole.motivo.replace(/ -> esclusa$/, "")}</Text>
-              {regole.avvisi.map((a) => (
-                <Text key={a} style={{ color: colors.warning, fontSize: 12, marginTop: 2 }}>⚠ {a}</Text>
-              ))}
-              {altre.length ? (
-                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
-                  Altre fasce: {altre.map(([f, v]) => `${f} ${v.mk} @${v.quota.toFixed(2)}${v.stimata ? "*" : ""}`).join(" · ")}
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4, fontWeight: "700" }}>{`Scenario: ${regole.scenario.toUpperCase()}`}</Text>
+              <View style={{ marginTop: 6, gap: 3 }}>
+                {(regole.ragioni ?? []).map((r, i) => (
+                  <Text key={i} style={{ color: r.ok ? colors.text : colors.warning, fontSize: 14 }}>{`${r.ok ? "✓" : "✗"} ${r.t}`}</Text>
+                ))}
+              </View>
+              {s && conv !== null ? (
+                <Text style={{ color: colors.text, fontSize: 14, marginTop: 8, fontWeight: "700" }}>
+                  {`Vince ${Math.round(s.p * 10)} volte su 10 · a ${q2(s.quota)} ne servono ${(10 / s.quota).toFixed(1).replace(".", ",")}`}
+                  <Text style={{ color: conv >= 1 ? colors.success : conv >= 0.95 ? colors.textMuted : colors.danger, fontWeight: "800" }}>
+                    {conv >= 1 ? "\n→ quota con margine" : conv >= 0.95 ? "\n→ va bene in multipla, nessun vantaggio" : "\n→ quota bassa per il rischio"}
+                  </Text>
                 </Text>
               ) : null}
-              {(regole.scelta?.stimata || altre.some(([, v]) => v.stimata)) ? (
+              {pro ? (
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
+                  {`🤖 Calcolato con il Pronostico AI (${nomeModello(pro.modello)})${pro.notizia ? `: ${pro.notizia}${pro.notizia_verificata ? " (verificata)" : ""}` : ": nessuna notizia nuova"}`}
+                </Text>
+              ) : lettura?.ai ? (
+                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 8 }}>{`Con la lettura AI gratis (${nomeModello(lettura.ai.modello)}). Il tasto Pronostico AI in alto la rifà col modello scelto.`}</Text>
+              ) : null}
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6 }}>
+                {cs?.market
+                  ? `Archivio (va in Schedina): ${cs.nome || nomeMk(cs.market)} @${cs.quota != null ? q2(cs.quota) : "?"}${s && normalizeMarket(cs.market) === normalizeMarket(s.mk) ? " · d'accordo ✓" : ""}`
+                  : `Archivio (Schedina): nessuna giocata${cs?.daLasciare ? ` · ${cs.daLasciare}` : ""}`}
+              </Text>
+              {altre.length ? (
+                <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
+                  Altre fasce: {altre.map(([f, v]) => `${f} ${nomeMk(v.mk)} @${q2(v.quota)}${v.stimata ? "*" : ""}`).join(" · ")}
+                </Text>
+              ) : null}
+              {(s?.stimata || altre.some(([, v]) => v.stimata)) ? (
                 <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>* quota stimata: controllala sul bookmaker</Text>
               ) : null}
+              <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>In prova dal 15/10: il test giornaliero lo confronta con l'archivio.</Text>
             </View>
           );
         })() : null}
+
+        {/* ============ SCENARIO (sempre aperto; 15/10/2026: percentuali alla quota di QUESTA
+            partita dalla tabella scenari, non la media di tutte le quote, che per il 2 a 1,60
+            del Leverkusen diceva 70% invece di ~60%) ============ */}
+        {(() => {
+          const note = getScenarioNote(match.odds, structural?.structure);
+          if (!note) return null;
+          const voci = tabella?.scenari?.[chiaveScenario(note)];
+          const forma = regole?.avvisi.find((a) => a.startsWith("forma: "));
+          return (
+            <View style={styles.scenarioNoteBox}>
+              <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
+              <Text style={styles.scenarioNoteSub}>
+                Mercati da considerare, alla quota di questa partita:{tabella || manualeStats ? "" : " (archivio in caricamento…)"}
+              </Text>
+              <TouchableOpacity testID="legenda-fonti" onPress={apriLegendaFonti} activeOpacity={0.7}>
+                <Text style={styles.legendaFonti}>ⓘ «Poisson» o «in archivio»: cosa vuol dire</Text>
+              </TouchableOpacity>
+              {note.markets.map((m, i) => {
+                const q = quotaManuale(m, match.odds as any, structural?.market_odds);
+                const f = fasciaDellaQuota(q?.odd);
+                const k = normalizeMarket(m.replace(/\s+fisso$/i, ""));
+                const v = f !== null ? voci?.[f.toFixed(2)]?.find((t) => normalizeMarket(t.market.replace(/\s+fisso$/i, "")) === k) : undefined;
+                const n = v ? v.nA + v.nB : 0;
+                const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
+                const nt = st ? st.vinte + st.perse : 0;
+                // Senza misura alla quota di questa partita: la stima (Poisson) di QUESTA partita prima,
+                // la media d'archivio di tutte le quote solo come riferimento.
+                const stima = analisi?.righe.find((r) => normalizeMarket(r.market.replace(/\s+fisso$/i, "")) === k)?.stima ?? null;
+                const misura = v && n > 0
+                  ? ` — ${(v.p * 100).toFixed(0)}% in archivio a quote simili (${n} partite)`
+                  : `${stima != null ? ` — circa ${(stima * 100).toFixed(0)}% per questa partita` : ""}${st && nt > 0 && st.pct !== null ? ` (archivio ${st.pct.toFixed(0)}%, ma a tutte le quote)` : ""}`;
+                const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
+                return (
+                  <Text key={i} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto]}>
+                    • {m}{q ? ` @${q.odd.toFixed(2).replace(".", ",")}` : ""}{misura}{vinto ? " ✓" : ""}
+                  </Text>
+                );
+              })}
+              {forma ? <Text style={[styles.scenarioNoteSub, { marginTop: 6 }]}>{`Forma: ${forma.slice(7)}`}</Text> : null}
+            </View>
+          );
+        })()}
+
+        {/* ============ LETTURA AI (sempre aperta, 15/10/2026): risultati probabili, direzione,
+            gol e notizie del Pronostico AI (se fatto) o della lettura AI gratis ============ */}
+        {(() => {
+          const l = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : lettura?.ai;
+          const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
+          return (
+            <View style={[styles.golBox, { marginTop: 12 }]}>
+              <Text style={styles.golTitolo}>{l ? `LETTURA AI · ${nomeModello(l.modello)}${l === lettura?.pro ? " (Pronostico AI)" : " (gratis)"}` : "LETTURA AI"}</Text>
+              {l ? (
+                <>
+                  {l.risultati_probabili?.length ? (
+                    <Text style={styles.golTesto}>Risultati probabili: <Text style={{ fontWeight: "900" }}>{l.risultati_probabili.join(" · ")}</Text></Text>
+                  ) : null}
+                  <Text style={styles.golTesto}>
+                    {`Direzione: ${l.direzione === "1" ? match.squadra1 : l.direzione === "2" ? match.squadra2 : l.direzione ? "nessun vincitore" : "–"} · gol: ${match.squadra1} ${l.gol_casa} · ${match.squadra2} ${l.gol_ospite} · totale ${l.gol_totali}`}
+                  </Text>
+                  {l.lettura ? <Text style={styles.golTesto}>{l.lettura}</Text> : null}
+                  {l.notizia ? (
+                    <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${l.notizia}${(l as any).notizia_verificata ? " (verificata nei dati)" : ""}`}</Text>
+                  ) : (
+                    <Text style={styles.golPic}>Nessuna notizia particolare trovata.</Text>
+                  )}
+                  {l === lettura?.ai && lettura?.ai_vecchia ? <Text style={styles.golPic}>{"Fatta con le quote di prima: si rifà da sola."}</Text> : null}
+                </>
+              ) : (
+                <Text style={styles.golPic}>
+                  {letturaInCorso ? "La lettura AI sta arrivando…" : "Lettura AI non disponibile: partita già iniziata, oppure modelli gratis occupati. Puoi usare il Pronostico AI in alto."}
+                </Text>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* DETTAGLI (15/10/2026): consigliato d'archivio e lettura completa del programma. */}
+        <TouchableOpacity onPress={() => setDettagli((x) => !x)} activeOpacity={0.7} style={styles.approfBtn}>
+          <Ionicons name={mostraDettagli ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+          <Text style={styles.approfTxt}>
+            {mostraDettagli ? "Chiudi i dettagli" : "Dettagli: consigliato d'archivio, forma, gol attesi"}
+          </Text>
+        </TouchableOpacity>
 
         {/* ============ IL CONSIGLIATO (07/10/2026, Rossi) ============
             "Punterei dove tutti i dati sono d'accordo e la percentuale e'
             misurata, e lascerei le partite incerte." Indipendente dalla fascia
             (sempre da 1,40 in su). Il Pronostico AI lo conferma o lo cambia
             solo con una notizia verificata. */}
-        {(lettura?.consigliato || (analisi && lettura)) ? (() => {
+        {mostraDettagli && (lettura?.consigliato || (analisi && lettura)) ? (() => {
           // Il consigliato SALVATO vince su quello ricalcolato qui: deve essere
           // lo stesso di schedina e multipla, e non cambiare a ogni apertura.
           const salvato = lettura?.consigliato;
@@ -872,7 +991,11 @@ export default function MatchDetail() {
               ) : (
                 <>
                   <Text style={styles.consVal}>Nessuna giocata sicura</Text>
-                  <Text style={styles.consPic}>{"Nessun mercato da 1,40 in su con percentuale misurata e stabile per questo scenario. Guarda \"Punta su questo\" per scegliere tu la fascia."}</Text>
+                  <Text style={styles.consPic}>{"Nessun mercato da 1,40 in su con percentuale misurata e stabile per questo scenario. Le migliori e perché non vanno:"}</Text>
+                  {/* Il motivo vero (15/10/2026, Lech-Leverkusen: "Nessuna giocata sicura" senza dire perche'). */}
+                  {(analisi?.righe ?? []).filter((r) => r.quota >= 1.4 && r.quota <= 2 && (r.misurata || r.stima != null)).slice(0, 4).map((r) => (
+                    <Text key={r.market} style={styles.consPic}>{`• ${r.nome} @${r.quota.toFixed(2)}: ${r.perche}`}</Text>
+                  ))}
                   {scartata ? (
                     <Text style={styles.consAvviso}>{`⚠ Proposta AI scartata: ${scartata.motivo} («${scartata.mercato}»)`}</Text>
                   ) : null}
@@ -882,43 +1005,6 @@ export default function MatchDetail() {
           );
         })() : null}
 
-        {/* ============ NOTA SCENARIO 1X2 (richiesta da Rossi il 09/09) ============
-            Calcolo separato e di sola lettura sulle quote gia' a sistema:
-            non alimenta ne' modifica il verdetto finale, il motore, l'IA o
-            lo storico. Solo promemoria dello scenario e dei mercati "da
-            manuale" indicati per quello scenario. */}
-        {(() => {
-          const note = getScenarioNote(match.odds, structural?.structure);
-          if (!note) return null;
-          return (
-            <View style={styles.scenarioNoteBox}>
-              <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
-              <Text style={styles.scenarioNoteSub}>
-                Mercati da considerare:{manualeStats ? "" : " (misura dell'archivio in caricamento…)"}
-              </Text>
-              <TouchableOpacity testID="legenda-fonti" onPress={apriLegendaFonti} activeOpacity={0.7}>
-                <Text style={styles.legendaFonti}>ⓘ «Poisson» o «in archivio»: cosa vuol dire</Text>
-              </TouchableOpacity>
-              {/* Ticket 8: accanto a ogni mercato del manuale, quante volte e'
-                  uscito nello storico con QUESTO scenario; a risultato inserito,
-                  VERDE ogni pronostico indovinato (anche piu' di uno insieme). */}
-              {note.markets.map((m, i) => {
-                const st = manualeStats?.scenari?.[chiaveScenario(note)]?.mercati?.[m];
-                const n = st ? st.vinte + st.perse : 0;
-                const misura = st && n > 0 && st.pct !== null
-                  ? ` — ${st.pct.toFixed(1).replace(".", ",")}% in archivio (${st.vinte}/${n})`
-                  : "";
-                const vinto = match.result ? evaluateMarketOutcome(m, match.result) === true : false;
-                return (
-                  <Text key={i} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto]}>
-                    • {m}{misura}{vinto ? " ✓" : ""}
-                  </Text>
-                );
-              })}
-            </View>
-          );
-        })()}
-
         {/* ============ LA LETTURA (07/10/2026, Rossi) ============
             Come la lettura fatta a mano su Moldova-Slovacchia: chi e' favorita,
             chi segna e chi prende contro avversari di QUESTO livello (forma
@@ -927,7 +1013,7 @@ export default function MatchDetail() {
             lettura dell'AI gratis. Le medie semplici delle ultime 5 restano in
             piccolo: da sole ingannavano (Slovacchia "prende 2,0" per le
             trasferte contro squadre forti). */}
-        {structural?.structure && (() => {
+        {mostraDettagli && structural?.structure && (() => {
           const s = structural.structure;
           const pr = lettura?.programma ?? null;
           const lc = pr?.forma_casa != null ? (s.lambda_home + pr.forma_casa) / 2 : s.lambda_home;

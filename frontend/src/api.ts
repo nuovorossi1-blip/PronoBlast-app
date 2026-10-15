@@ -3361,6 +3361,8 @@ export type PronosticoRegole = {
   semaforo: "verde" | "giallo" | "rosso" | "grigio"; motivo: string; avvisi: string[];
   fasce: Record<string, { mk: string; quota: number; stimata: boolean; p: number } | null>;
   scelta: { mk: string; quota: number; stimata: boolean; p: number } | null;
+  /** Le ragioni in parole semplici (✓ a favore, ✗ esclusioni o dubbi). */
+  ragioni?: { ok: boolean; t: string }[];
 };
 
 export type RispostaLettura = {
