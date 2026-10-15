@@ -142,9 +142,9 @@ export function decidi(m: any, d: any) {
   if (COPPE_EUROPEE.test(lega) && semaforo !== "rosso" && favQ <= 1.85) {
     // La mappa della forma (v3) non vale qui: la sostituisce la misura sulle coppe.
     for (let i = avvisi.length - 1; i >= 0; i--) if (avvisi[i].startsWith("forma: ")) avvisi.splice(i, 1);
-    if (favQ <= 1.35) { candidati = [F.segnoO25, F.segnoO15]; avvisi.push("coppa europea, favorita fortissima: 1 + Over, ma nelle coppe a queste quote niente ha vantaggio (1 + Over 2,5 al 56%)"); }
-    else if (favQ <= 1.55) { candidati = [F.segnoO15, F.segno, F.mg13]; avvisi.push("coppa europea, favorita forte: 1 + Over 1,5 (coppe: 59% a 1,76)"); }
-    else { candidati = [F.segno, F.mg13]; avvisi.push("coppa europea, favorita leggera: segno secco (coppe: 63% a 1,71; 1 + Over solo 33-42%)"); }
+    if (favQ <= 1.35) { candidati = [F.segnoO25, F.segnoO15]; avvisi.push(`coppa europea, favorita fortissima: ${favDir} + Over, ma nelle coppe a queste quote niente ha vantaggio (${favDir} + Over 2,5 al 56%)`); }
+    else if (favQ <= 1.55) { candidati = [F.segnoO15, F.segno, F.mg13]; avvisi.push(`coppa europea, favorita forte: ${favDir} + Over 1,5 (coppe: 59% a 1,76) o ${favDir} secco (64% a 1,49)`); }
+    else { candidati = [F.segno, F.mg13]; avvisi.push(`coppa europea, favorita leggera: ${favDir} secco (coppe: 63% a 1,71; ${favDir} + Over solo 33-42%)`); }
   }
   if (avvisoGol) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
   else if (fortInCoppa && Number.isFinite(assFav) && assFav >= 5) avvisi.push(`favorita forte in coppa: ${assFav} assenti ma l'Over resta (segnano comunque)`);
