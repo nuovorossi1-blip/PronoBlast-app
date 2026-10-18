@@ -3127,7 +3127,9 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
     //   altro     -> DC favorita + O2.5   (64,0-65,1%)
     // Da 1,40 in su il fisso e' giocabile (61,5%, il migliore del gruppo) e la
     // lista resta quella.
-    const markets = [`${favorita} fisso`, `${favorita} AH -0,75`];
+    // 18/10/2026 (Rossi): l'AH -0,75 non c'e' nei bookmaker europei -> al suo posto MG favorita 2-4
+    // (archivio, Gap vero: 62% con favorita sotto 1,40, 56% a 1,40-1,59, 52% a 1,60-1,79).
+    const markets = [`${favorita} fisso`, `MG ${favorita === "1" ? "casa" : "ospite"} 2-4`];
     const quotaFavorita = favorita === "1" ? q1 : q2;
     if (quotaFavorita < 1.40) {
       markets.push(underAmmessiATettoAperto(profilo)
