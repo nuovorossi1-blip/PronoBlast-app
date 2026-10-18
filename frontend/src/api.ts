@@ -2996,7 +2996,7 @@ export type ScenarioNote = {
   scenario: "Equilibrio" | "Progressione" | "Gap Tecnico" | "Gap falso";
   favorita?: "1" | "2";
   markets: string[];
-  /** Indicazione in parole per la scheda (solo Gap falso). */
+  /** Indicazione in parole per la scheda (Gap falso, Gap Tecnico con goleada o pochi gol). */
   avviso?: string;
 };
 
@@ -3129,14 +3129,29 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
     // lista resta quella.
     // 18/10/2026 (Rossi): l'AH -0,75 non c'e' nei bookmaker europei -> al suo posto MG favorita 2-4
     // (archivio, Gap vero: 62% con favorita sotto 1,40, 56% a 1,40-1,59, 52% a 1,60-1,79).
-    const markets = [`${favorita} fisso`, `MG ${favorita === "1" ? "casa" : "ospite"} 2-4`];
+    // 18/10/2026 (Rossi, Bayern-Lipsia 6-1 e Betis-Barcellona 2-5): la MG favorita 2-4 dipende dai
+    // gol attesi. Archivio Gap vero per quota Over 3,5: sotto 1,60 la favorita fa 5+ gol il 30% (MG 2-4
+    // 56%) -> favorita + GG (47%, conviene da quota 2,15); 1,60-1,99 MG 2-4 64%; da 2,00 la favorita
+    // resta a 0-1 gol un terzo delle volte (MG 2-4 56-58%) -> solo il fisso. Senza quota Over 3,5: MG 2-4.
+    const o35 = (odds as any).odd_O35 ?? (odds as any).odd_o35 ?? null;
+    const mg = `MG ${favorita === "1" ? "casa" : "ospite"} 2-4`;
+    let avviso: string | undefined;
+    const markets = [`${favorita} fisso`];
+    if (o35 != null && o35 < 1.60) {
+      markets.push(`${favorita} + GG`);
+      avviso = "Rischio goleada (Over 3,5 sotto 1,60): niente Multigol 2-4 della favorita. Favorita + GG solo se il bookmaker la paga almeno 2,15.";
+    } else if (o35 == null || o35 < 2.00) {
+      markets.push(mg);
+    } else {
+      avviso = "Pochi gol attesi (Over 3,5 da 2,00): la favorita può fermarsi a 0-1 gol, niente Multigol 2-4.";
+    }
     const quotaFavorita = favorita === "1" ? q1 : q2;
     if (quotaFavorita < 1.40) {
       markets.push(underAmmessiATettoAperto(profilo)
         ? "MG 2-4 totali"
         : favorita === "1" ? "DC 1X + O2.5" : "DC X2 + O2.5");
     }
-    return { scenario: "Gap Tecnico", favorita, markets };
+    return { scenario: "Gap Tecnico", favorita, markets, ...(avviso ? { avviso } : {}) };
   }
 
   // PROGRESSIONE (casa o ospite, speculare). DNB non e' giocabile: il
