@@ -3131,15 +3131,15 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
     // (archivio, Gap vero: 62% con favorita sotto 1,40, 56% a 1,40-1,59, 52% a 1,60-1,79).
     // 18/10/2026 (Rossi, Bayern-Lipsia 6-1 e Betis-Barcellona 2-5): la MG favorita 2-4 dipende dai
     // gol attesi. Archivio Gap vero per quota Over 3,5: sotto 1,60 la favorita fa 5+ gol il 30% (MG 2-4
-    // 56%) -> favorita + GG (47%, conviene da quota 2,15); 1,60-1,99 MG 2-4 64%; da 2,00 la favorita
+    // 56%) -> DC favorita + GG (Rossi: 1X + GG / X2 + GG; 60%, conviene da quota 1,66); 1,60-1,99 MG 2-4 64%; da 2,00 la favorita
     // resta a 0-1 gol un terzo delle volte (MG 2-4 56-58%) -> solo il fisso. Senza quota Over 3,5: MG 2-4.
     const o35 = (odds as any).odd_O35 ?? (odds as any).odd_o35 ?? null;
     const mg = `MG ${favorita === "1" ? "casa" : "ospite"} 2-4`;
     let avviso: string | undefined;
     const markets = [`${favorita} fisso`];
     if (o35 != null && o35 < 1.60) {
-      markets.push(`${favorita} + GG`);
-      avviso = "Rischio goleada (Over 3,5 sotto 1,60): niente Multigol 2-4 della favorita. Favorita + GG solo se il bookmaker la paga almeno 2,15.";
+      markets.push(favorita === "1" ? "DC 1X + GG" : "DC X2 + GG");
+      avviso = `Rischio goleada (Over 3,5 sotto 1,60): niente Multigol 2-4 della favorita. ${favorita === "1" ? "1X" : "X2"} + GG solo se il bookmaker la paga almeno 1,66.`;
     } else if (o35 == null || o35 < 2.00) {
       markets.push(mg);
     } else {
