@@ -79,6 +79,7 @@ export default async (): Promise<Response> => {
     // Stessa regola della card in app (frontend/src/api.ts, getScenarioNote):
     // una sola discriminante, esiste una favorita sotto quota 2,00?
     //   no -> EQUILIBRIO | si + X sotto 4,00 -> PROGRESSIONE | si + X da 4,00 -> GAP
+    //   (GAP FALSO se l'avversario sta sotto 4,00, 18/10/2026)
     //
     // I mercati sono tradotti in quelli che Rossi ha ammesso per TypingMind:
     // il DNB della card diventa 1X/X2, il multigol 1-3/0-2 diventa MG 2-4.
@@ -109,6 +110,16 @@ export default async (): Promise<Response> => {
       }
 
       const lato = fav === "1" ? "casa favorita" : "ospite favorito";
+
+      // GAP FALSO (18/10/2026): X da 4,00 ma l'avversario sotto 4,00 -> nessun divario vero.
+      if (qx >= SOGLIA_GAP && (fav === "1" ? q2 : q1) < SOGLIA_GAP) {
+        return [
+          `SCENARIO: GAP FALSO (${lato}, avversario sotto 4)`,
+          "Mercati da considerare:",
+          "• Nessuna giocata (partita da evitare)",
+          "• Under 3,5",
+        ];
+      }
 
       if (qx >= SOGLIA_GAP) {
         return [

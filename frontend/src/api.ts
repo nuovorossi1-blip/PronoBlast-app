@@ -2993,9 +2993,11 @@ function eligibleSystemsFor(market: string, preEligible: Set<string> | null): nu
 // vedi conversazione del 09/09 per la derivazione completa.
 // ============================================================================
 export type ScenarioNote = {
-  scenario: "Equilibrio" | "Progressione" | "Gap Tecnico";
+  scenario: "Equilibrio" | "Progressione" | "Gap Tecnico" | "Gap falso";
   favorita?: "1" | "2";
   markets: string[];
+  /** Indicazione in parole per la scheda (solo Gap falso). */
+  avviso?: string;
 };
 
 /** Chiave dello scenario per le statistiche del manuale: Progressione e Gap
@@ -3101,6 +3103,15 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
       markets = ["X oppure GG"];
     }
     return { scenario: "Equilibrio", markets };
+  }
+
+  // GAP FALSO (18/10/2026, Rossi): favorita sotto 2,00 e X da 4,00 in su, ma l'avversario sta
+  // sotto 4,00: non c'e' un divario vero. Archivio (263 partite): la favorita vince 53%, perde 29%,
+  // fisso -6% di resa, GG -24%, Over 2,5 -13%; Under 3,5 56% @1,85 circa in pari. Rossi: "non
+  // giocarla oppure Under 3,5" (es. NY Red Bulls-Toronto 1,90 / 4,25 / 3,25, finita 0-2).
+  const quotaSfavorita = favorita === "1" ? q2 : q1;
+  if (qx >= SOGLIA_GAP && quotaSfavorita < SOGLIA_GAP) {
+    return { scenario: "Gap falso", favorita, markets: ["U3.5"], avviso: "Non è un gap vero: l'avversario sta sotto 4. Meglio non giocarla, oppure Under 3,5." };
   }
 
   if (qx >= SOGLIA_GAP) {
@@ -3612,8 +3623,12 @@ export function analizzaGiocate(x: {
     r.punteggio = p * r.quota;
   }
   const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
-  const primo = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
-  const consigliato = daLasciare ? null : primo;
+  const primoElenco = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
+  // GAP FALSO (18/10/2026, Rossi): solo Under 3,5, se passa le soglie; altrimenti la partita si lascia.
+  const gapFalso = x.scenario === "Gap falso";
+  const primo = gapFalso ? candidati.find((r) => normalizeMarket(r.market) === "U3.5") ?? null : primoElenco;
+  const lascia = gapFalso && !primo ? "Gap falso (l'avversario sta sotto 4, nessun divario vero): meglio non giocarla, oppure solo Under 3,5" : daLasciare;
+  const consigliato = lascia ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
 
@@ -3641,7 +3656,7 @@ export function analizzaGiocate(x: {
     || prob(b) - prob(a));
   // Anche il Pronostico AI non puo' proporre le combo con il segno secco o con 12 (15/10/2026).
   const esclusa = (m: string): string | null => (comboVietata(m) ? "combo con il segno secco o con 12 + Over" : null);
-  return { consigliato, daLasciare, avvisi, righe, seNonLasciata: daLasciare ? primo : null, manuali: x.manuali, esclusa };
+  return { consigliato, daLasciare: lascia, avvisi, righe, seNonLasciata: lascia ? primoElenco : null, manuali: x.manuali, esclusa };
 }
 
 // PAGELLA DEL CONSIGLIATO (07/10/2026), vedi pagella-consigliato.ts.

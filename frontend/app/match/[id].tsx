@@ -755,6 +755,7 @@ export default function MatchDetail() {
           return (
             <View style={styles.scenarioNoteBox}>
               <Text style={styles.scenarioNoteTitle}>SCENARIO: {note.scenario.toUpperCase()}</Text>
+              {note.avviso ? <Text style={[styles.scenarioNoteMarket, { marginBottom: 4 }]}>{note.avviso}</Text> : null}
               <Text style={styles.scenarioNoteSub}>
                 Mercati da considerare, alla quota di questa partita:{tabella || manualeStats ? "" : " (archivio in caricamento…)"}
               </Text>

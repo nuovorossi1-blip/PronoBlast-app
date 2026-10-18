@@ -115,6 +115,10 @@ export function decidi(m: any, d: any) {
       : [F.mg13, F.mg24, F.u45, "NG"];
   }
   const avvisi: string[] = [];
+  // GAP FALSO (18/10/2026, Rossi): l'avversario sta sotto 4, niente divario vero -> solo Under 3,5,
+  // altrimenti nessuna giocata (la partita non si gioca).
+  const gapFalso = scenario === "Gap falso";
+  if (gapFalso) { candidati = ["U3.5"]; avvisi.push("gap falso: l'avversario sta sotto 4, meglio non giocarla oppure solo Under 3,5"); }
   // VERSIONE 3 (15/10/2026, Rossi: "dipende dallo scenario e dalla forma: quanti gol possono fare e
   // subire"). Forma pesata del programma: golFav = (fatti favorita + subiti sfavorita)/2, golSfav al
   // contrario; partite finite con dossier, campioni da 24 a 160 (da confermare con il test):
@@ -127,7 +131,7 @@ export function decidi(m: any, d: any) {
   //    @1,87; media e sfavorita poco -> segno 63%; favorita poco e sfavorita poco -> GG 59%, DC + O1.5
   //    67% (il segno 45%).
   const pc = d?.prog?.pesata_casa, po = d?.prog?.pesata_ospite;
-  if (semaforo !== "rosso" && pc && po) {
+  if (semaforo !== "rosso" && pc && po && !gapFalso) {
     const pF = casaFav ? pc : po, pS = casaFav ? po : pc;
     const golFav = (pF.fatti + pS.subiti) / 2, golSfav = (pS.fatti + pF.subiti) / 2, golTot = golFav + golSfav;
     const tanto = golFav >= 2.2, poco = golFav < 1.6, sfSegna = golSfav >= 1.2;
@@ -154,14 +158,14 @@ export function decidi(m: any, d: any) {
   // o meno: segno + O2.5 56% @1,72 (resa -6%), segno + O1.5 57%, segno + U4.5 53%, MG 1-3 favorita 54%:
   // niente conviene davvero (le grandi fanno goleada); 1,36-1,55: segno + O1.5 59% @1,76 (+2%), segno 64%
   // @1,49; 1,56-1,85: segno 63% @1,71 (+8%), segno + Over 33-42%, MG 1-3 favorita sempre sotto 1,40.
-  if (COPPE_EUROPEE.test(lega) && semaforo !== "rosso" && favQ <= 1.85) {
+  if (COPPE_EUROPEE.test(lega) && semaforo !== "rosso" && favQ <= 1.85 && !gapFalso) {
     // La mappa della forma (v3) non vale qui: la sostituisce la misura sulle coppe.
     for (let i = avvisi.length - 1; i >= 0; i--) if (avvisi[i].startsWith("forma: ")) avvisi.splice(i, 1);
     if (favQ <= 1.35) { candidati = [F.segnoO25, F.segnoO15]; avvisi.push(`coppa europea, favorita fortissima: ${favDir} + Over, ma nelle coppe a queste quote niente ha vantaggio (${favDir} + Over 2,5 al 56%)`); }
     else if (favQ <= 1.55) { candidati = [F.segnoO15, F.segno, F.mg13]; avvisi.push(`coppa europea, favorita forte: ${favDir} + Over 1,5 (coppe: 59% a 1,76) o ${favDir} secco (64% a 1,49)`); }
     else { candidati = [F.segno, F.mg13]; avvisi.push(`coppa europea, favorita leggera: ${favDir} secco (coppe: 63% a 1,71; ${favDir} + Over solo 33-42%)`); }
   }
-  if (avvisoGol) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
+  if (avvisoGol && !gapFalso) { candidati = candidati.filter((c) => !["GG", "O2.5", "MG 3-6 totali", "GG + O2.5"].includes(c)); avvisi.push(`favorita con ${assFav} assenti: niente GG e Over`); }
   else if (fortInCoppa && Number.isFinite(assFav) && assFav >= 5) avvisi.push(`favorita forte in coppa: ${assFav} assenti ma l'Over resta (segnano comunque)`);
   if (pochiGol) { candidati = candidati.filter((c) => c !== F.mg24 && c !== "O2.5"); avvisi.push("campionato da pochi gol: niente MG 2-4 della favorita né Over 2,5"); }
   const voci = candidati.map(voce).filter((v): v is VoceRegole => !!v);
