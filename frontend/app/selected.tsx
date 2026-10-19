@@ -17,10 +17,12 @@ import { selectedListCache, matchesCache, marketStatsCache, mlStatsCache } from 
 import BottomNav from "@/src/components/BottomNav";
 import { AI_CHAT_URL, AI_CHAT_NAME, ARENA_URL, ARENA_NAME } from "@/src/utils/aiChat";
 
-/** La giocata scritta come in schedina (19/10/2026): "1X + OVER 1,5", "MULTIGOL 3-6", "MG BRAGA 1-3"... */
+/** La giocata scritta come in schedina (19/10/2026): "1X + OVER 1,5", "MULTIGOL 3-6", "MG CASA 1-3"... */
 function etichettaGiocata(codice: string, casa: string, ospite: string): string {
   const c = codice.trim();
-  const sq = (lato: string) => (lato.toLowerCase() === "casa" ? casa : ospite).toUpperCase();
+  // Casa e ospite al posto dei nomi (19/10/2026, Rossi): la pillola resta corta, le squadre sono gia' scritte sopra.
+  void casa; void ospite;
+  const sq = (lato: string) => (lato.toLowerCase() === "casa" ? "CASA" : "OSPITE");
   const gol = (x: string) => x.replace(/^O(\d)[.,](\d)$/, "OVER $1,$2").replace(/^U(\d)[.,](\d)$/, "UNDER $1,$2");
   let m: RegExpExecArray | null;
   if ((m = /^DC (1X|X2|12) \+ (.+)$/.exec(c))) return `${m[1]} + ${gol(m[2]) === "GG" ? "GG" : gol(m[2])}`;
