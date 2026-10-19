@@ -3170,6 +3170,62 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
 }
 
 // ============================================================================
+// CLASSIFICA DELL'EQUILIBRIO (19/10/2026, Rossi: "lasciare la nota cosi' e sotto la classifica dello
+// scenario, chi scegliere prima se e' pagato il minimo"). Solo per il ramo Equilibrio con GG e Over 2,5
+// sotto 1,80 (non entrambi sotto 1,50). Percentuali misurate in archivio (matches + match_results_training,
+// 1.970 partite) per fascia della quota Over 3,5 e per chi e' avanti nelle quote 1-2 (quota piu' bassa
+// di almeno 0,50). Celle con meno di 40 partite -> media della fascia Over 3,5.
+// E' solo un'indicazione sulla scheda: non tocca mercati, consigliato, pronostico o prompt.
+// ============================================================================
+export type MercatoClassifica = "GG" | "Over 2,5" | "1X" | "X2" | "X oppure GG";
+export type VoceClassifica = {
+  mercato: MercatoClassifica;
+  pct: number;              // % di volte che entra, in archivio
+  quotaMinima: number;      // quota da cui conviene (1 / pct)
+  quota: number | null;     // quota del bookmaker per questa partita, se c'e'
+  pagata: boolean | null;   // quota >= minima (null = quota non disponibile)
+  daEvitare: boolean;       // entra meno del 55%
+};
+export type ClassificaScenario = {
+  fascia: string;
+  direzione: "casa" | "vicine" | "ospite";
+  partite: number;
+  voci: VoceClassifica[];
+  /** Il primo della classifica pagato almeno la quota minima. */
+  scelta: MercatoClassifica | null;
+};
+
+// [partite, GG, Over 2,5, 1X, X2, X oppure GG]
+const TABELLA_EQUILIBRIO: Record<string, Record<"casa" | "vicine" | "ospite", number[]>> = {
+  "2,00-2,29": { casa: [53, 72, 66, 75, 51, 75], vicine: [62, 60, 63, 56, 65, 66], ospite: [146, 66, 63, 64, 61, 71] },
+  "2,30-2,59": { casa: [239, 56, 53, 70, 56, 62], vicine: [328, 63, 61, 60, 65, 66], ospite: [174, 61, 64, 55, 68, 67] },
+  "2,60-2,99": { casa: [371, 59, 52, 71, 58, 64], vicine: [422, 59, 56, 63, 63, 66], ospite: [231, 55, 53, 51, 73, 61] },
+  "da 3,00": { casa: [59, 42, 42, 70, 56, 54], vicine: [59, 42, 42, 70, 56, 54], ospite: [59, 42, 42, 70, 56, 54] },
+};
+
+export function classificaEquilibrio(odds: Odds): ClassificaScenario | null {
+  const o = odds as any;
+  const q1 = o.odd_1, q2 = o.odd_2, gg = o.odd_GG, o25 = o.odd_O25, o35 = o.odd_O35 ?? o.odd_o35 ?? null;
+  if (q1 == null || q2 == null || gg == null || o25 == null || o35 == null) return null;
+  if (q1 < 2 || q2 < 2) return null;                       // c'e' una favorita: non e' Equilibrio
+  if (!(gg < 1.8 && o25 < 1.8) || (gg < 1.5 && o25 < 1.5)) return null;
+  if (o35 < 2) return null;                                // fascia mai vista in archivio
+  const fascia = o35 < 2.3 ? "2,00-2,29" : o35 < 2.6 ? "2,30-2,59" : o35 < 3 ? "2,60-2,99" : "da 3,00";
+  const direzione = q1 < q2 - 0.5 ? "casa" : q2 < q1 - 0.5 ? "ospite" : "vicine";
+  const [partite, ...pcts] = TABELLA_EQUILIBRIO[fascia][direzione];
+  const mercati: MercatoClassifica[] = ["GG", "Over 2,5", "1X", "X2", "X oppure GG"];
+  const quote: (number | null)[] = [gg, o25, o.odd_1X ?? null, o.odd_X2 ?? null, null];
+  const voci = mercati.map((mercato, i): VoceClassifica => {
+    const pct = pcts[i];
+    const quotaMinima = Math.ceil((100 / pct) * 100) / 100;
+    const quota = quote[i];
+    return { mercato, pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55 };
+  }).sort((a, b) => b.pct - a.pct);
+  const scelta = voci.find((v) => !v.daEvitare && v.pagata === true)?.mercato ?? null;
+  return { fascia, direzione, partite, voci, scelta };
+}
+
+// ============================================================================
 // COSA ASPETTARSI DAI GOL (07/10/2026, richiesta di Rossi)
 // "Quando apro una partita voglio capire quanti gol aspettarmi dalla casa e
 // dall'ospite, se segnano, se prendono gol, se la partita e' sbilanciata o se
