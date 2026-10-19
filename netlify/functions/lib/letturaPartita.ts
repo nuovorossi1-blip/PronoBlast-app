@@ -580,3 +580,27 @@ export async function ricalcolaConsigliatiNonGiocate(giornoDa?: string): Promise
   }
   return { esaminate, ricalcolate, errori };
 }
+
+
+// ============================================================================
+// RISULTATI DEL CAMPIONATO (19/10/2026, Rossi: vista semplice "scenario + campionato"). Gli ultimi
+// risultati dello stesso campionato giocati PRIMA della partita: la scheda calcola da sola quante volte
+// ogni opzione sarebbe entrata. Solo un dato da leggere: non decide il pronostico (prova del 19/10:
+// scenario + campionato non migliorava il consigliato). In memoria per un'ora per campionato e giorno.
+// ============================================================================
+export type RisultatiCampionato = { lega: string; n: number; media: number | null; ris: string[] };
+const cacheCampionato = new Map<string, { quando: number; dati: RisultatiCampionato }>();
+
+export async function risultatiCampionato(lega: string | null | undefined, prima: string | null | undefined): Promise<RisultatiCampionato | null> {
+  const l = String(lega || "").trim();
+  if (!l || !prima) return null;
+  const k = `${l}|${prima}`;
+  const c = cacheCampionato.get(k);
+  if (c && Date.now() - c.quando < 60 * 60 * 1000) return c.dati;
+  const righe: any[] = await pgGet(`matches?manifestazione=eq.${encodeURIComponent(l)}&day=lt.${encodeURIComponent(prima)}&result=not.is.null&select=result&order=day.desc&limit=300`).catch(() => []);
+  const ris = righe.map((r) => String(r.result || "").replace(/\s/g, "")).filter((r) => /^\d+-\d+$/.test(r));
+  const gol = ris.map((r) => r.split("-").reduce((a, b) => a + Number(b), 0));
+  const dati = { lega: l, n: ris.length, media: ris.length ? +(gol.reduce((a, b) => a + b, 0) / ris.length).toFixed(2) : null, ris };
+  cacheCampionato.set(k, { quando: Date.now(), dati });
+  return dati;
+}

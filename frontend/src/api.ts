@@ -3533,6 +3533,8 @@ export type RispostaLettura = {
   consigliato?: ConsigliatoSalvato | null;
   /** Pronostico regole (in prova dal 15/10/2026): accanto al consigliato, non lo sostituisce. */
   regole?: PronosticoRegole | null;
+  /** Ultimi risultati dello stesso campionato prima della partita (vista semplice, 19/10/2026). */
+  campionato?: { lega: string; n: number; media: number | null; ris: string[] } | null;
 };
 
 /**

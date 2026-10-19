@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { daGiocare } from "@/src/api";
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario, isMercatoVietato } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -229,6 +229,9 @@ export default function MatchDetail() {
   // Dettagli (consigliato d'archivio, lettura completa): chiusi se c'e' "Cosa giocare", aperti
   // sulle partite iniziate o finite, dove "Cosa giocare" non c'e'.
   const [dettagli, setDettagli] = useState(false);
+  // Vista semplice (19/10/2026): il resto della scheda e il perche' si'/no restano chiusi finche' non si aprono.
+  const [tecnici, setTecnici] = useState(false);
+  const [percheAperto, setPercheAperto] = useState(false);
   // Il pronostico unico (15/10/2026 sera): il consigliato salvato, anche a partita iniziata o finita.
   const cosaGiocare = lettura?.consigliato ?? null;
   const mostraDettagli = dettagli || !cosaGiocare;
@@ -673,6 +676,111 @@ export default function MatchDetail() {
           )}
         </View>
 
+        {/* ============ VISTA SEMPLICE (19/10/2026, Rossi: "nome partita, scenario, opzioni disponibili,
+            valutazione AI (la gratis, sovrascritta da quella a pagamento), scelta finale con il perche' e i
+            risultati attesi, sotto a tendina il perche' si' e perche' no"). La scelta finale e' il
+            consigliato salvato (lo stesso di Schedina e multipla); il campionato e' solo da leggere
+            (prova del 19/10: scenario + campionato non migliorava il consigliato). Tutto il resto della
+            scheda e' in "Dettagli tecnici". ============ */}
+        {(() => {
+          const note = getScenarioNote(match.odds, structural?.structure);
+          const q2 = (x: number) => x.toFixed(2).replace(".", ",");
+          const pc = (p: number) => `${Math.round(p * 100)}%`;
+          const camp = lettura?.campionato && lettura.campionato.n >= 40 ? lettura.campionato : null;
+          const pCamp = (mk: string) => camp ? camp.ris.filter((r) => evaluateMarketOutcome(mk, r) === true).length / camp.n : null;
+          const pRiga = (r: { misurata: { pA: number; pB: number } | null; stima: number | null }) => r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : r.stima;
+          const cs = cosaGiocare;
+          const scelta = cs?.market ?? (!cs ? analisi?.consigliato?.market ?? null : null);
+          const kScelta = scelta ? normalizeMarket(scelta) : null;
+          // "MG casa 2-4" e "MG 2-4 casa", "Over 2,5" e "O2.5" sono lo stesso mercato: una riga sola.
+          const chiave = (m: string) => normalizeMarket(m).replace(/^MG (CASA|OSPITE) (\d-\d)$/, "MG $2 $1").replace(/^OVER\s*/, "O").replace(/^UNDER\s*/, "U").replace(",", ".");
+          const visti = new Set<string>();
+          const righe = (analisi?.righe ?? []).filter((r) => r.quota >= 1.4 && r.quota <= 1.6 && !isMercatoVietato(r.market) && pRiga(r) != null)
+            .sort((a, b) => (pRiga(b) ?? 0) - (pRiga(a) ?? 0))
+            .filter((r) => { const k = chiave(r.market); if (visti.has(k)) return false; visti.add(k); return true; });
+          const opzioni = righe.slice(0, 6);
+          const rigaScelta = kScelta ? (analisi?.righe ?? []).find((r) => normalizeMarket(r.market) === kScelta) : undefined;
+          if (rigaScelta) {
+            const i = opzioni.findIndex((r) => chiave(r.market) === chiave(rigaScelta.market));
+            if (i >= 0) opzioni.splice(i, 1);
+            opzioni.unshift(rigaScelta);
+          }
+          const ai = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : lettura?.ai ?? null;
+          const aiPro = !!(lettura?.pro && !lettura.pro_vecchia);
+          const nomeModello = (m: string) => m.replace(" (OpenRouter)", "").replace(/^[^:]+:\s*/, "").replace(/\s*\(free\)/i, "");
+          const st = structural?.structure;
+          const attesi = ai?.risultati_probabili?.length ? ai.risultati_probabili.slice(0, 3)
+            : st ? letturaGol(st.lambda_home, st.lambda_away).risultati.slice(0, 3).map((r) => `${r.casa}-${r.ospite}`) : [];
+          const nomeScelta = cs?.nome || (scelta ? scelta.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2) : null);
+          const quotaScelta = cs?.quota ?? rigaScelta?.quota ?? null;
+          const vinto = match.result && scelta ? evaluateMarketOutcome(scelta, match.result) : null;
+          const perche = cs?.ai === "cambiato" ? `cambiata dal Pronostico AI${cs.notizia ? `: ${cs.notizia}` : ""}`
+            : cs?.perche || (rigaScelta ? `entra il ${pc(pRiga(rigaScelta) ?? 0)} a quote simili ed è il miglior equilibrio fra probabilità e quota` : null);
+          const ragioni: { ok: boolean; t: string }[] = [
+            ...(regole?.ragioni ?? []),
+            ...(cs?.avvisi ?? []).map((a) => ({ ok: false, t: a })),
+            ...opzioni.filter((r) => r !== rigaScelta && r.perche).map((r) => ({ ok: false, t: `${r.nome}: ${r.perche.replace(/\.$/, "")}` })),
+          ];
+          return (
+            <View style={styles.scenarioNoteBox}>
+              <Text style={styles.scenarioNoteTitle}>{`${match.squadra1} – ${match.squadra2}`}</Text>
+              <Text style={styles.scenarioNoteSub}>{note ? `Scenario: ${note.scenario.toUpperCase()}${note.favorita ? ` · favorita ${note.favorita === "1" ? match.squadra1 : match.squadra2} a ${q2(Number(note.favorita === "1" ? match.odds.odd_1 : match.odds.odd_2))}` : ""}` : "Scenario: quote 1X2 mancanti"}</Text>
+              {note?.avviso ? <Text style={[styles.scenarioNoteSub, { color: colors.warning }]}>{note.avviso}</Text> : null}
+
+              <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>OPZIONI PER QUESTA PARTITA</Text>
+              <Text style={styles.scenarioNoteSub}>{`Pagate da 1,40 a 1,60 · % a quote simili${camp ? ` · % nel campionato (${camp.lega}, ${camp.n} partite, ${String(camp.media).replace(".", ",")} gol di media)` : ""}`}</Text>
+              {opzioni.length ? opzioni.map((r, i) => {
+                const pS = pRiga(r), pL = pCamp(r.market);
+                const su = r === rigaScelta;
+                return (
+                  <Text key={i} style={[styles.scenarioNoteMarket, su && { color: colors.primary }]}>
+                    {`${su ? "★ " : "• "}${r.nome} ${r.stimata ? "≈" : "@"}${q2(r.quota)} — ${pS != null ? pc(pS) : "–"}${pL != null ? ` · campionato ${pc(pL)}` : ""}`}
+                  </Text>
+                );
+              }) : <Text style={styles.scenarioNoteSub}>Nessuna giocata pagata fra 1,40 e 1,60.</Text>}
+
+              <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>{ai ? `VALUTAZIONE AI · ${aiPro ? "Pronostico AI" : "gratis"} (${nomeModello(ai.modello)})` : "VALUTAZIONE AI"}</Text>
+              {ai ? (
+                <>
+                  <Text style={styles.golTesto}>{`Direzione: ${ai.direzione === "1" ? match.squadra1 : ai.direzione === "2" ? match.squadra2 : "nessun vincitore chiaro"}${ai.mercato ? ` · proposta: ${ai.mercato}` : ""}`}</Text>
+                  {ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${ai.notizia}`}</Text> : null}
+                  {ai.lettura ? <Text style={styles.golTesto}>{ai.lettura}</Text> : null}
+                </>
+              ) : <Text style={styles.golPic}>{letturaInCorso ? "La valutazione AI sta arrivando…" : "Non ancora disponibile."}</Text>}
+
+              <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>{match.result ? "SCELTA FINALE (PRIMA DEL VIA)" : "SCELTA FINALE"}</Text>
+              {scelta ? (
+                <>
+                  <Text style={{ color: vinto === true ? colors.success : vinto === false ? colors.danger : colors.text, fontSize: 22, fontWeight: "900" }}>
+                    {`${nomeScelta}${quotaScelta != null ? `  @${q2(quotaScelta)}` : ""}${vinto === true ? "  ✓" : vinto === false ? "  ✗" : ""}`}
+                  </Text>
+                  {!cs ? <Text style={styles.golPic}>Provvisoria: il dossier della partita non è ancora pronto.</Text> : null}
+                  {perche ? <Text style={styles.golTesto}>{`Perché: ${perche.charAt(0).toUpperCase()}${perche.slice(1).replace(/\.$/, "")}.`}</Text> : null}
+                </>
+              ) : (
+                <Text style={styles.golTesto}>{`Da lasciare${cs?.daLasciare ? `: ${cs.daLasciare}` : ": nessuna giocata convincente"}.`}</Text>
+              )}
+              {attesi.length ? <Text style={styles.golTesto}>{`Risultati attesi: ${attesi.join(" · ")}`}</Text> : null}
+
+              {ragioni.length ? (
+                <TouchableOpacity onPress={() => setPercheAperto((v) => !v)} activeOpacity={0.7} style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
+                  <Ionicons name={percheAperto ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+                  <Text style={[styles.scenarioNoteSub, { marginLeft: 4 }]}>Perché sì / perché no</Text>
+                </TouchableOpacity>
+              ) : null}
+              {percheAperto ? ragioni.map((r, i) => (
+                <Text key={i} style={[styles.golTesto, { color: r.ok ? colors.success : colors.textMuted }]}>{`${r.ok ? "✓" : "✗"} ${r.t}`}</Text>
+              )) : null}
+            </View>
+          );
+        })()}
+
+        <TouchableOpacity onPress={() => setTecnici((v) => !v)} activeOpacity={0.7} style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginTop: 12 }}>
+          <Ionicons name={tecnici ? "chevron-down" : "chevron-forward"} size={16} color={colors.textMuted} />
+          <Text style={[styles.scenarioNoteSub, { marginLeft: 4 }]}>{tecnici ? "Chiudi i dettagli tecnici" : "Dettagli tecnici (consigliato d'archivio, classifiche, verdetto, statistiche)"}</Text>
+        </TouchableOpacity>
+
+        {tecnici ? (<>
         {/* ============ COSA GIOCARE: UN UNICO PRONOSTICO (15/10/2026 sera, Rossi: "un unico
             pronostico, che puo' variare solo se la IA lo fa variare") ============
             Il consigliato salvato: lo stesso di elenco, Schedina, multipla e bot. Resta anche a partita
@@ -811,7 +919,7 @@ export default function MatchDetail() {
                       );
                     })}
                     <Text style={[styles.scenarioNoteMarket, { marginTop: 4 }]}>
-                      {cl.tipo === "gap" ? `Solo da leggere: nel Gap la classifica non decide il pronostico (in archivio scegliere "il primo pagato il minimo" perdeva il 6%).` : cl.scelta ? `Da scegliere: ${nomeMk(cl.scelta)} (il primo pagato almeno il minimo)` : cl.tipo === "gap" ? "Nessun mercato è pagato il minimo: meglio lasciarla." : "Nessun mercato è pagato il minimo: meglio lasciarla, o X oppure GG se il bookmaker lo paga abbastanza."}
+                      {cl.tipo === "gap" ? `Solo da leggere: nel Gap la classifica non decide il pronostico (in archivio scegliere "il primo pagato il minimo" perdeva il 6%).` : cl.scelta ? `Da scegliere: ${nomeMk(cl.scelta)} (il primo pagato almeno il minimo)` : "Nessun mercato è pagato il minimo: meglio lasciarla, o X oppure GG se il bookmaker lo paga abbastanza."}
                     </Text>
                     {cl.voci.some((v) => v.stimata) ? <Text style={styles.scenarioNoteSub}>≈ quota stimata dall'app: controllala sul bookmaker.</Text> : null}
                   </View>
@@ -2407,6 +2515,7 @@ export default function MatchDetail() {
             07/10/2026: ora il Pronostico AI e' la lettura col modello scelto (tasto in alto). */}
           </>
         )}
+        </>) : null}
         <View style={{ height: 12 }} />
       </ScrollView>
 

@@ -1,5 +1,5 @@
 import { jsonResponse, pgGet } from "./lib/supabaseRest";
-import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina } from "./lib/letturaPartita";
+import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina, risultatiCampionato } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import { decidi } from "./lib/regolePronostico";
 import { tabellaScenari } from "./lib/tabellaScenari";
@@ -59,6 +59,7 @@ export default async (req: Request): Promise<Response> => {
             ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora!),
             pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora!),
             regole: regoleDi(m, n),
+            campionato: await risultatiCampionato(m.manifestazione, m.day),
           });
         }
       } catch { /* si va al calcolo completo */ }
@@ -125,6 +126,7 @@ export default async (req: Request): Promise<Response> => {
       ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora),
       pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora),
       regole: regoleDi(dati.match, { ...(dati.numeri || {}), lettura_ai: ai, lettura_pro: pro }, programma),
+      campionato: await risultatiCampionato(dati.match.manifestazione, dati.match.day),
     });
   } catch (e: any) {
     return jsonResponse({ error: e?.message || String(e) }, 502);
