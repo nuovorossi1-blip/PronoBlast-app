@@ -16,11 +16,14 @@ export function ScoreInput({
   onChange,
   size = "md",
   testIDPrefix = "score",
+  verticale = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   size?: "sm" | "md";
   testIDPrefix?: string;
+  /** Casa sopra, ospite sotto, senza trattino (Schedina, 19/10/2026: accanto alle due squadre). */
+  verticale?: boolean;
 }) {
   const parts = (value || "").split("-");
   const home = parts[0] ?? "";
@@ -31,7 +34,7 @@ export function ScoreInput({
   };
   return (
     <View>
-      <View style={[styles.row, size === "sm" && styles.rowSm]}>
+      <View style={[styles.row, size === "sm" && styles.rowSm, verticale && styles.colonna]}>
         <TextInput
           testID={`${testIDPrefix}-home`}
           value={home}
@@ -42,7 +45,7 @@ export function ScoreInput({
           placeholderTextColor={colors.textDim}
           style={[styles.box, size === "sm" && styles.boxSm]}
         />
-        <Text style={[styles.dash, size === "sm" && styles.dashSm]}>—</Text>
+        {verticale ? null : <Text style={[styles.dash, size === "sm" && styles.dashSm]}>—</Text>}
         <TextInput
           testID={`${testIDPrefix}-away`}
           value={away}
@@ -79,6 +82,7 @@ export function ScoreInput({
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   rowSm: { gap: 4 },
+  colonna: { flexDirection: "column", gap: 4 },
   box: {
     width: 64, height: 56, borderRadius: 10,
     borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceHi,

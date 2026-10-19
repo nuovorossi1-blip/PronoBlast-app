@@ -396,14 +396,12 @@ export default function Selected() {
                           <Text style={[styles.pillolaTxt, { color: colors.textMuted }]}>{lascia ? "DA LASCIARE" : "APRI PER LA GIOCATA"}</Text>
                         </View>
                       )}
-                      {m.result ? <Text style={styles.rigaRisultato}>{m.result}</Text> : null}
                     </View>
-                    {iniziata && !m.result ? (
-                      <View style={{ marginTop: 8, alignSelf: "flex-start" }}>
-                        <ScoreInput value={results[m.id] || ""} onChange={(v) => setResults({ ...results, [m.id]: v })} size="sm" testIDPrefix={`sel-res-${m.id}`} />
-                      </View>
-                    ) : null}
                   </TouchableOpacity>
+                  {/* Il risultato accanto al cestino, in verticale: casa sopra, ospite sotto (19/10/2026, Rossi). */}
+                  {iniziata || m.result ? (
+                    <ScoreInput value={results[m.id] || ""} onChange={(v) => setResults({ ...results, [m.id]: v })} size="sm" verticale testIDPrefix={`sel-res-${m.id}`} />
+                  ) : null}
                   <TouchableOpacity testID={`sel-remove-${m.id}`} onPress={() => removeFromSelection(m.id)} style={styles.rigaCestino}>
                     <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
@@ -456,10 +454,10 @@ const styles = StyleSheet.create({
   rigaQuando: { width: 52, alignItems: "center" },
   rigaData: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
   rigaOra: { color: colors.textMuted, fontSize: 13, fontWeight: "600", marginTop: 4 },
-  rigaCentro: { flex: 1 },
+  rigaCentro: { flex: 1, minWidth: 0 },
   rigaSquadra: { color: colors.text, fontSize: 17, fontWeight: "500", lineHeight: 24 },
   rigaPillole: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" },
-  pillola: { borderWidth: 1, borderColor: colors.textDim, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: colors.surfaceHi },
+  pillola: { borderWidth: 1, borderColor: colors.textDim, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: colors.surfaceHi, flexShrink: 1, maxWidth: "100%" },
   pillolaVinta: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.15)" },
   pillolaPersa: { borderColor: colors.danger, backgroundColor: "rgba(239,68,68,0.15)" },
   pillolaTxt: { color: colors.text, fontSize: 13, fontWeight: "800", letterSpacing: 0.3 },
