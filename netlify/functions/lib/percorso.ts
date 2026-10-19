@@ -83,18 +83,13 @@ export function percorsoScelta(x: {
     const pMedia = misure.length ? misure.reduce((t, v) => t + v, 0) / misure.length : null;
     // Regge come il vecchio "buona" (almeno 58% nel caso peggiore: MG 2-4 al 61% / 59% su Monza e Kalmar).
     const storico = pRif == null ? null : pRif >= 0.58;
-    // MERCATI DELLO SCENARIO E ULTIME 5 (19/10/2026, Rossi: "bisogna considerare soprattutto quelli dello
-    // scenario"): regge solo se ognuna delle due squadre l'ha fatto almeno 2 volte nelle sue ultime 5
-    // (Degerfors-Kalmar: GG e Over 0-1 su 5 per tutte e due = l'Equilibrio non c'e', si va al ripiego).
-    const debole = gruppo === "scenario" ? ([["casa", casa], ["ospite", ospite]] as const)
-      .map(([k, nome]) => { const s = squadre?.[k]; return s && s.vinte / s.su < 0.4 ? `${nome} solo ${s.vinte} su ${s.su}` : null; })
-      .filter(Boolean) as string[] : [];
-    const regge = nelRange && book && ai !== false && storico === true && debole.length === 0;
+    // Le ultime 5 NON scartano (19/10/2026, Rossi, Jong Ajax: "si va in ripiego solo se non si trovano
+    // pronostici; qui ci sta GG + Over e MG 3-6"): si vedono e contano nella scelta della migliore (pMedia).
+    const regge = nelRange && book && ai !== false && storico === true;
     const manca = !q ? "nessuna quota"
       : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da 1,62 a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
       : [!book ? "il book non lo conferma" : null, ai === false ? (viteAI != null && viteAI < 2 ? `l'AI: vince solo in ${viteAI} dei 3 risultati attesi` : "l'AI non vede questo vincitore") : null,
-        storico === false ? `lo storico lo da' solo al ${pc(pRif!)}` : storico == null ? "nessun dato di storico" : null,
-        debole.length ? `ultime 5: ${debole.join(", ")}` : null].filter(Boolean).join("; ");
+        storico === false ? `lo storico lo da' solo al ${pc(pRif!)}` : storico == null ? "nessun dato di storico" : null].filter(Boolean).join("; ");
     const perche = (r?.perche || "").replace(/^★ consigliato:\s*/, "");
     return { codice, nome: nomeDi(codice), quota: q?.quota ?? null, stimata: !!q?.stimata, gruppo, nelRange, book, viteAI, ai, pStorico, nStorico: r?.misurata?.n ?? null, pCampionato, squadre, pMedia, storico, regge, perche, manca };
   };
