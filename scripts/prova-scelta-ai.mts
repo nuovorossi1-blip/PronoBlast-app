@@ -10,8 +10,10 @@ import { callLlm } from "../netlify/functions/lib/llmProviders";
 import { opzioneDaId, modelloScelto } from "../netlify/functions/lib/llmScelta";
 
 const pro = process.argv.includes("--pro");
+// --modello=<id OpenRouter> per provare un altro modello (19/10/2026: "esistono modelli gratuiti piu' performanti?")
+const unModello = process.argv.find((a) => a.startsWith("--modello="))?.split("=")[1];
 const ids = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const modelli: any[] = pro ? [await modelloScelto()] : await Promise.all(MODELLI_GRATIS.map((m) => opzioneDaId("or:" + m)));
+const modelli: any[] = unModello ? [await opzioneDaId("or:" + unModello)] : pro ? [await modelloScelto()] : await Promise.all(MODELLI_GRATIS.map((m) => opzioneDaId("or:" + m)));
 
 for (const id of ids) {
   const x: any = await datiLettura(id, { completo: true });

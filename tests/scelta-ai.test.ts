@@ -26,3 +26,10 @@ describe("controllo della scelta dell'AI (19/10/2026)", () => {
     assert.equal(giocataValida("2", opzioni), null);
   });
 });
+
+describe("giocata ricopiata con nome e quota (19/10/2026)", () => {
+  it("'X oppure GG = X oppure GG @1,55 (quota stimata)' vale X oppure GG", () => {
+    assert.equal(giocataValida("X oppure GG = X oppure GG @1,55 (quota stimata)", opzioni)?.codice, "X oppure GG");
+    assert.equal(giocataValida("MG 2-4 totali @1,54", opzioni)?.codice, "MG 2-4 totali");
+  });
+});

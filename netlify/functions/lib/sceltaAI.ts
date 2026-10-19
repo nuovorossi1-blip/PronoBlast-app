@@ -101,7 +101,8 @@ export function controllaScelta(
 
 /** La giocata dell'AI e' valida solo se e' una delle opzioni giocabili. */
 export function giocataValida(giocata: unknown, opzioni: OpzioneGiocabile[]): OpzioneGiocabile | null {
-  const g = String(giocata || "").trim();
+  // Il modello a volte ricopia la riga intera ("X oppure GG = X oppure GG @1,55 (quota stimata)"): conta il codice.
+  const g = String(giocata || "").split(/\s=\s|\s@|\s\(/)[0].trim();
   if (!g || /^nessuna$/i.test(g)) return null;
   return opzioni.find((o) => chiavePronostico(o.codice) === chiavePronostico(g)) ?? null;
 }
