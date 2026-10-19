@@ -704,8 +704,12 @@ export default function MatchDetail() {
           const opzioni = righe.slice(0, 6);
           const rigaScelta = kScelta ? (analisi?.righe ?? []).find((r) => normalizeMarket(r.market) === kScelta) : undefined;
           if (rigaScelta) {
-            const i = opzioni.findIndex((r) => chiave(r.market) === chiave(rigaScelta.market));
-            if (i >= 0) opzioni.splice(i, 1);
+            // Via la stessa giocata e l'altra Multigol della stessa squadra (Twente: MG 2-4 scelta e MG 1-3 in elenco).
+            const squadra = (m: string) => /^MG \d-\d (CASA|OSPITE)$/.exec(chiave(m))?.[1] ?? null;
+            const sq = squadra(rigaScelta.market);
+            for (let i = opzioni.length - 1; i >= 0; i--) {
+              if (chiave(opzioni[i].market) === chiave(rigaScelta.market) || (sq && squadra(opzioni[i].market) === sq)) opzioni.splice(i, 1);
+            }
             opzioni.unshift(rigaScelta);
           }
           const ai = lettura?.pro && !lettura.pro_vecchia ? lettura.pro : lettura?.ai ?? null;
