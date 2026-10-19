@@ -3523,6 +3523,8 @@ export type ConsigliatoSalvato = {
   rifatto?: string;
   /** Copertura (non giocata principale): es. 1X + Over 1,5 con la favorita senza 3+ giocatori (19/10/2026). */
   copertura?: { market: string; nome: string; quota: number; perche: string } | null;
+  /** Il percorso della scelta (19/10/2026 sera): scenario, AI, allineamento, ripiego, scelta. */
+  percorso?: Percorso | null;
   /** Book, AI e storico d'accordo sulla giocata (19/10/2026): n su su. */
   coerenza?: { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number } | null;
 };
@@ -3570,6 +3572,31 @@ export type RispostaLettura = {
  *  - AI che cambia con quota simile o piu' bassa: l'AI (non aggiunge rischio).
  */
 export const DA_GIOCARE_SCARTO_QUOTA = 0.10;
+export type VocePercorso = {
+  codice: string; nome: string; quota: number | null; stimata: boolean;
+  gruppo: "scenario" | "ripiego";
+  nelRange: boolean;
+  book: boolean;
+  /** Risultati attesi dell'AI vinti (su 3), null senza AI. */
+  viteAI: number | null;
+  ai: boolean | null;
+  pStorico: number | null; nStorico: number | null;
+  pCampionato: number | null;
+  storico: boolean | null;
+  regge: boolean;
+  /** Il perche' si' / perche' no di sempre (analizzaGiocate). */
+  perche: string;
+  /** Cosa manca, in parole (vuoto se regge). */
+  manca: string;
+};
+export type Percorso = {
+  scenario: string;
+  ripiego: boolean;
+  passi: { titolo: string; testo: string }[];
+  voci: VocePercorso[];
+  scelta: string | null;
+  lascia: string | null;
+};
 export type DaGiocare = { market: string; nome: string; quota: number | null; stimata: boolean; fonte: "numeri" | "ai"; perche: string };
 export function daGiocare(c: {
   market?: string | null; nome?: string | null; quota?: number | null; stimata?: boolean;
@@ -3694,26 +3721,28 @@ const versoOspiteM = (m: string) => /^(2|X2)(\s|$|\+)/.test(segnoBase(m)) || /^2
 const conSegnoM = (m: string) => versoCasaM(m) || versoOspiteM(m) || /^(X|12)(\s*\+|$)/.test(segnoBase(m));
 
 /**
- * I PRONOSTICI DI OGNI SCENARIO (19/10/2026, Rossi: "in base allo scenario e ai risultati attesi si
- * scelgono e si valutano i pronostici appartenenti a quel tipo di scenario"). Con la valutazione AI senza
- * vincitore si aggiungono quelli dell'incertezza. Restituisce le chiavi normalizzate (MG "2-4 CASA").
+ * I PRONOSTICI DI OGNI SCENARIO (19/10/2026 sera, Rossi: "ci stanno i 3 scenari, ci sta da evitare e il
+ * ripiego"). Si valutano solo questi; MG della favorita soltanto (Rossi: "solo favorita").
+ *   Gap Tecnico: 1 o 2 (la favorita), MG favorita 2-4, GG
+ *   Progressione: combo MG favorita 1-3 + MG sfavorita 0-2, MG favorita 1-3
+ *   Equilibrio: MG totali 3-6, GG + Over 2,5, Over 2,5, GG
+ *   Gap falso: nessuno, si va al ripiego
  */
-export function pronosticiDelloScenario(scenario: string | null | undefined, odds: Odds, aiSenzaVincitore = false): Set<string> {
+export function mercatiDelloScenario(scenario: string | null | undefined, odds: { odd_1?: unknown; odd_2?: unknown }): string[] {
   const fav: "1" | "2" = Number(odds.odd_1) <= Number(odds.odd_2) ? "1" : "2";
-  const lato = fav === "1" ? "casa" : "ospite", altro = fav === "1" ? "ospite" : "casa";
-  const dc = fav === "1" ? "1X" : "X2";
+  const lato = fav === "1" ? "casa" : "ospite";
   const sc = String(scenario || "");
-  let base: string[] = [];
-  if (sc.startsWith("Gap Tecnico")) base = [fav, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, `DC ${dc} + GG`, "GG", "O2.5", "GG + O2.5"];
-  else if (sc === "Gap falso") base = ["U3.5"];
-  // 19/10/2026 (Rossi, Juve-Lazio): "progressione, mercati ammessi favorita fissa, MG fav 1-3, combo MG fav 1-3 +
-  // MG sfav 0-2, GG, MG tot 2-4" (resta anche X2/1X + Over 1,5, usata come lettura "non perde e segna").
-  else if (sc === "Progressione") base = [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`, fav, `DC ${dc} + O1.5`, "GG", "MG 2-4 totali"];
-  // 19/10/2026 (Rossi): "scenario equilibrio, mercati da prendere in considerazione GG, Over, 1X, X2, MG 3-6 e X o GG".
-  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 3-6 totali"];
-  const incertezza = aiSenzaVincitore ? ["MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "U3.5", "X oppure GG"] : [];
-  void altro;
-  return new Set([...base, ...incertezza].map(chiavePronostico));
+  if (sc.startsWith("Gap Tecnico")) return [fav, `MG 2-4 ${lato}`, "GG"];
+  if (sc === "Progressione") return [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`];
+  if (sc === "Equilibrio") return ["MG 3-6 totali", "GG + O2.5", "O2.5", "GG"];
+  return [];
+}
+/** IL RIPIEGO (19/10/2026 sera, Rossi): quando AI e book non sono allineati o la partita non si capisce;
+ *  X o GG compreso ("non sparisce, entra nel ripiego"). Se non regge nessuno, la partita si lascia. */
+export const MERCATI_RIPIEGO = ["MG 2-4 totali", "U3.5", "1X", "X2", "X oppure GG"];
+/** Le chiavi normalizzate dei pronostici valutabili: quelli dello scenario e (di norma) quelli del ripiego. */
+export function pronosticiDelloScenario(scenario: string | null | undefined, odds: Odds, conRipiego = true): Set<string> {
+  return new Set([...mercatiDelloScenario(scenario, odds as any), ...(conRipiego ? MERCATI_RIPIEGO : [])].map(chiavePronostico));
 }
 /** "MG casa 2-4" e "MG 2-4 casa", "Over 2,5" e "O2.5" diventano la stessa chiave. */
 export function chiavePronostico(m: string): string {
@@ -3842,7 +3871,7 @@ export function analizzaGiocate(x: {
   const conAI = risAI.length === 3;
   const viteAI = (m: string) => risAI.filter((r) => evaluateMarketOutcome(m, r) === true).length;
   const dirAI = String(x.direzioneAI || "").trim().toLowerCase();
-  const delloScenario = x.scenario ? pronosticiDelloScenario(x.scenario, x.odds, dirAI === "nessuna" || dirAI === "x") : null;
+  const delloScenario = x.scenario ? pronosticiDelloScenario(x.scenario, x.odds) : null;
   const fuoriScenario = (m: string) => !!delloScenario && delloScenario.size > 0 && !delloScenario.has(chiavePronostico(m));
   for (const r of righe) {
     if (isMercatoVietato(r.market)) continue;

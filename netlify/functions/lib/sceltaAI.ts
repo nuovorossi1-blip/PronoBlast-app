@@ -14,54 +14,44 @@
  */
 import { rowToOdds } from "./supabaseRest";
 import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis } from "./clusterEngine";
-import { getScenarioNote, pronosticiDelloScenario, chiavePronostico, mgFavoritaEsclusa, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
+import { getScenarioNote, mercatiDelloScenario, MERCATI_RIPIEGO, chiavePronostico, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
 export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean; soloCopertura?: boolean };
 
 const REALI: Record<string, string> = { "1": "odd_1", "2": "odd_2", "1X": "odd_1x", X2: "odd_x2", "O2.5": "odd_o25", "U3.5": "odd_u35", GG: "odd_gg" };
 const q2 = (x: number | null | undefined) => (x == null || !(Number(x) > 1) ? "n/d" : Number(x).toFixed(2).replace(".", ","));
 
-/** Le opzioni giocabili di una partita (riga di `matches`), con la direzione dell'AI se c'e' gia'. */
-export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPrompt = false, assenti?: { casa?: number | null; ospite?: number | null } | null): { scenario: string; opzioni: OpzioneGiocabile[] } {
+/** La quota di un mercato: quella del book se c'e', altrimenti dal catalogo o stimata. */
+export function quotaMercato(m: any, codice: string): { quota: number; stimata: boolean } | null {
+  const odds: any = rowToOdds(m);
+  const reale = REALI[codice] ? Number(m[REALI[codice]]) : null;
+  if (reale && reale > 1) return { quota: reale, stimata: false };
+  const cat: any = quoteCatalogo(odds);
+  const q = codice === "X oppure GG" ? quotaXoppureGG(odds) : cat[codice]?.odd ?? estimateMarketOdd(codice, odds);
+  return q && q > 1 ? { quota: q, stimata: true } : null;
+}
+
+/**
+ * Le opzioni da mostrare all'AI (19/10/2026 sera, percorso nuovo): A = i mercati dello scenario, B = quelli
+ * del ripiego (soloIncertezza), per quando AI e book non sono allineati. Da 1,40 a 1,60; X o GG da 1,62 a 1,90.
+ */
+export function opzioniGiocabili(m: any, _direzioneAI?: string | null, _perIlPrompt = false, _assenti?: { casa?: number | null; ospite?: number | null } | null): { scenario: string; opzioni: OpzioneGiocabile[] } {
   const odds: any = rowToOdds(m);
   const st: any = (structuralAnalysis(odds, 1.4) as any).structure;
   const nota = getScenarioNote(odds, st);
   const scenario = nota?.scenario ?? "senza scenario";
-  const dir = String(direzioneAI || "").trim().toLowerCase();
-  // Per il prompt l'AI vede anche i pronostici dell'incertezza (segnati): la direzione la decide lei.
-  const chiavi = pronosticiDelloScenario(scenario, odds, perIlPrompt || dir === "nessuna" || dir === "x");
-  const delloScenario = pronosticiDelloScenario(scenario, odds, false);
-  // GG in ogni scenario quando il book lo paga sotto 1,60 (19/10/2026: "segnano tutte e due").
-  if (Number(m.odd_gg) > 1 && Number(m.odd_gg) <= 1.6) chiavi.add(chiavePronostico("GG"));
-  // GAP CON LA FAVORITA SENZA 3+ GIOCATORI (19/10/2026, Rossi: "si"; Copenhagen-Aarhus 1-1 senza tre
-  // attaccanti): anche la doppia chance + Over 1,5. Archivio con dossier: pareggi 20% contro 15%,
-  // 1X/X2 + Over 1,5 77% contro il fisso 73% (128 partite).
-  const favCasa = Number(m.odd_1) <= Number(m.odd_2);
-  const assFav = Number(favCasa ? assenti?.casa : assenti?.ospite);
-  if (scenario.startsWith("Gap Tecnico") && assFav >= 3) {
-    const dcO15 = chiavePronostico(favCasa ? "DC 1X + O1.5" : "DC X2 + O1.5");
-    chiavi.add(dcO15); delloScenario.add(dcO15);
-  }
-  const cat: any = quoteCatalogo(odds);
   const nomeDi = (c: string) => c.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2)
     .replace(/^1$/, `1 (vince ${m.squadra1})`).replace(/^2$/, `2 (vince ${m.squadra2})`)
     .replace(/^1X$/, `1X (${m.squadra1} non perde)`).replace(/^X2$/, `X2 (${m.squadra2} non perde)`);
-  const codici = ["1", "2", "1X", "X2", "GG", "O2.5", "U3.5", "X oppure GG", "GG + O2.5",
-    "MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "MG 3-6 totali",
-    "MG 1-3 casa + MG 0-2 ospite", "MG 0-2 casa + MG 1-3 ospite", "DC 1X + O1.5", "DC X2 + O1.5", "DC 1X + GG", "DC X2 + GG"];
+  const delloScenario = mercatiDelloScenario(scenario, m);
   const opzioni: OpzioneGiocabile[] = [];
-  for (const c of codici) {
-    if (!chiavi.has(chiavePronostico(c)) || isMercatoVietato(c) || mgFavoritaEsclusa(c, scenario, odds)) continue;
-    const reale = REALI[c] ? Number(m[REALI[c]]) : null;
-    const quota = reale && reale > 1 ? reale : c === "X oppure GG" ? quotaXoppureGG(odds) : cat[c]?.odd ?? estimateMarketOdd(c, odds);
-    // X o GG e' la giocata "di sicurezza": vale solo se il book la paga almeno 1,62 (Rossi 19/10/2026,
-    // Paris FC-Rennes: "per X o GG serve la quota 1,62, senno' ripiega in GG"). Le altre da 1,40 a 1,60.
+  for (const c of [...delloScenario, ...MERCATI_RIPIEGO.filter((r) => !delloScenario.includes(r))]) {
+    if (isMercatoVietato(c)) continue;
+    const q = quotaMercato(m, c);
     const xogg = c === "X oppure GG";
-    if (!quota || (xogg ? quota < 1.62 || quota > 1.9 : quota < 1.4 || quota > 1.6 + 1e-9)) continue;
-    const soloIncertezza = !delloScenario.has(chiavePronostico(c)) && chiavePronostico(c) !== chiavePronostico("GG");
-    // Nel Gap la doppia chance + Over 1,5 c'e' solo per gli assenti: e' una copertura, non un pick principale (Rossi 19/10).
-    const soloCopertura = scenario.startsWith("Gap Tecnico") && /^DC (1X|X2) \+ O1\.5$/.test(c);
-    opzioni.push({ codice: c, nome: nomeDi(c), quota, stimata: !(reale && reale > 1), ...(soloIncertezza ? { soloIncertezza } : {}), ...(soloCopertura ? { soloCopertura } : {}) });
+    if (!q || (xogg ? q.quota < 1.62 || q.quota > 1.9 : q.quota < 1.4 || q.quota > 1.6 + 1e-9)) continue;
+    const soloIncertezza = !delloScenario.includes(c);
+    opzioni.push({ codice: c, nome: nomeDi(c), quota: q.quota, stimata: q.stimata, ...(soloIncertezza ? { soloIncertezza } : {}) });
   }
   return { scenario, opzioni };
 }
@@ -99,9 +89,9 @@ LETTURA DEL BOOK (quote dei gol):
   1X2: 1 ${q2(m.odd_1)} · X ${q2(m.odd_x)} · 2 ${q2(m.odd_2)} · 1X ${q2(m.odd_1x)} · X2 ${q2(m.odd_x2)}
 SCENARIO DEL PROGRAMMA: ${scenario}
 OPZIONI GIOCABILI (pagate da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il codice esatto):
-  A) SEMPRE GIOCABILI (pronostici dello scenario):
+  A) PRONOSTICI DELLO SCENARIO:
 ${riga(opzioni.filter((o) => !o.soloIncertezza))}
-  B) IN PIU', SOLO SE AL PASSO 3 NON C'E' UN VINCITORE:
+  B) RIPIEGO, SOLO SE NESSUNO DI A E' CONFERMATO DAL BOOK O LA PARTITA NON E' CHIARA:
 ${riga(opzioni.filter((o) => o.soloIncertezza))}`;
   return { testo, opzioni, scenario };
 }
@@ -127,7 +117,7 @@ ESEMPI DI RAGIONAMENTO:
 - Paris FC-Rennes (Equilibrio; 1X 1,33, X2 1,67; Over 1,5 1,18; Over 2,5 1,65; Under 3,5 1,45; GG 1,52): 1X piu' basso = pende per il Paris FC, ma 1,33 e' troppo bassa. Over 1,5 basso e Under 3,5 sotto 1,50 = da 2 a 4-5 gol. GG basso e segnano entrambe = GG. X o GG solo se pagato 1,62, altrimenti GG. GIOCATA: GG.
 - Juventus-Lazio (Progressione; 1 a 1,57; Under 3,5 1,30, Over 3,5 3,10; Over/Under 2,5 1,85; GG 1,85; Juve con 7 assenti): partita chiusa, fra 2 e 4 gol; sui gol non c'e' una direzione precisa (2,5 a 1,85 tutte e due). Si valutano 1, MG 2-4 totali, MG casa 1-3 e la combo. Le notizie direbbero GG ma il book a 1,85 dice no. Partita complicata: si ripiega su MG 2-4 totali, dove rientrano piu' risultati. GIOCATA: MG 2-4 totali.
 - Lorient-Monaco (Equilibrio; Over 1,5 e Under 3,5 entrambi 1,27; Over 2,5 1,90 e Under 2,5 1,80; GG 1,72; X2 1,28): il book non sa se saranno meno o piu' di 2,5 gol; GG a 1,72 non e' sicuro; la direzione (Monaco vince o pareggia) ha solo X2 a 1,28, senza valore. Partita troppo rischiosa: GIOCATA: nessuna.
-Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" quando ogni opzione perde con il risultato piu' probabile, oppure nel caso LASCIARE descritto sopra.
+Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Prima si guarda il gruppo A (pronostici dello scenario); il gruppo B (ripiego) solo se la tua idea e il book non sono d'accordo su A (es. dici GG ma il book paga il GG 1,80 o piu') o la partita non e' chiara. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" quando ogni opzione perde con il risultato piu' probabile, oppure nel caso LASCIARE descritto sopra.
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
 La "giocata" e' OBBLIGATORIA: scrivi sempre un codice dell'elenco (o "nessuna" solo nel caso detto sopra), mai vuota.
 Rispondi SOLO con questo JSON:
