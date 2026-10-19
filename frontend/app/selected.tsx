@@ -6,17 +6,34 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
-import { api, Match, evaluateMarketOutcome, Lavoro, daGiocare } from "@/src/api";
+import { api, Match, evaluateMarketOutcome, Lavoro, inizioPartitaMs } from "@/src/api";
 import { useLavoro, LavoroBox, riepilogoLavoro } from "@/src/components/LavoroBox";
 import { colors } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
 import { apriConPrompt, confirmAction, notify } from "@/src/utils/platform";
-import { parseLeagueCode } from "@/src/utils/leagues";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
 import { selectedListCache, matchesCache, marketStatsCache, mlStatsCache } from "@/src/utils/cache";
 import BottomNav from "@/src/components/BottomNav";
 import { AI_CHAT_URL, AI_CHAT_NAME, ARENA_URL, ARENA_NAME } from "@/src/utils/aiChat";
+
+/** La giocata scritta come in schedina (19/10/2026): "1X + OVER 1,5", "MULTIGOL 3-6", "MG BRAGA 1-3"... */
+function etichettaGiocata(codice: string, casa: string, ospite: string): string {
+  const c = codice.trim();
+  const sq = (lato: string) => (lato.toLowerCase() === "casa" ? casa : ospite).toUpperCase();
+  const gol = (x: string) => x.replace(/^O(\d)[.,](\d)$/, "OVER $1,$2").replace(/^U(\d)[.,](\d)$/, "UNDER $1,$2");
+  let m: RegExpExecArray | null;
+  if ((m = /^DC (1X|X2|12) \+ (.+)$/.exec(c))) return `${m[1]} + ${gol(m[2]) === "GG" ? "GG" : gol(m[2])}`;
+  if (/^X (oppure|o) GG$/i.test(c)) return "X O GG";
+  if ((m = /^MG (\d-\d) totali$/i.exec(c))) return `MULTIGOL ${m[1]}`;
+  if ((m = /^MG (\d-\d) (casa|ospite)$/i.exec(c)) || (m = /^MG (casa|ospite) (\d-\d)$/i.exec(c))) {
+    const [r, l] = /\d/.test(m[1]) ? [m[1], m[2]] : [m[2], m[1]];
+    return `MG ${sq(l)} ${r}`;
+  }
+  if ((m = /^MG (\d-\d) (casa|ospite) \+ MG (\d-\d) (casa|ospite)$/i.exec(c))) return `MG ${sq(m[2])} ${m[1]} + ${sq(m[4])} ${m[3]}`;
+  if (c === "GG + O2.5") return "GG + OVER 2,5";
+  return gol(c).toUpperCase();
+}
 
 export default function Selected() {
   const router = useRouter();
@@ -335,118 +352,62 @@ export default function Selected() {
               </View>
             );
           })}
-          <ScrollView contentContainerStyle={styles.list} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16} decelerationRate="fast">
-            {items.map((m) => {
-              // 27/09/2026 — La card mostrava `quickPrediction`, un'euristica
-              // calcolata sul momento dalle sole quote, che non conosce ne' il
-              // motore ne' l'IA ne' lo storico. Sembrava un pronostico del
-              // sistema e non lo era. Ora mostra `pick_finale`, cioe' il
-              // VERDETTO vero della fusione; l'euristica e' rimasta dove ha
-              // senso, nelle statistiche del dettaglio partita, con scritto
-              // cos'e'. Quando il verdetto non c'e' ancora (partita mai
-              // aperta), la card lo dice invece di inventare.
-              const verdetto = m.pick_finale || null;
-              const lc = parseLeagueCode(m.manifestazione);
-              const preOutcome = m.result && verdetto ? evaluateMarketOutcome(verdetto, m.result) : null;
-              const aiOutcome = m.result && m.main_prediction ? evaluateMarketOutcome(m.main_prediction, m.result) : null;
-              const outcomeStyle = (o: boolean | null) =>
-                o === true ? { backgroundColor: "rgba(16,185,129,0.20)", borderColor: colors.success }
-                : o === false ? { backgroundColor: "rgba(239,68,68,0.20)", borderColor: colors.danger }
-                : null;
+          {/* SCHEDINA PULITA (19/10/2026, Rossi: "graficamente piu' pulito", come RVincente): una riga per
+              partita con data e ora, le due squadre, UNA pillola con la giocata finale (verde/rossa col
+              risultato) e il cestino. Il riepilogo ✓/✗ in alto. */}
+          {(() => {
+            const conRis = items.filter((m) => m.result && m.pick_finale);
+            const vinte = conRis.filter((m) => evaluateMarketOutcome(m.pick_finale!, m.result!) === true).length;
+            const perse = conRis.filter((m) => evaluateMarketOutcome(m.pick_finale!, m.result!) === false).length;
+            return (
+              <View style={styles.riepilogo}>
+                <Text style={styles.riepilogoTxt}>{`${items.length} partite · `}</Text>
+                <Text style={[styles.riepilogoTxt, { color: colors.success }]}>{`${vinte} ✓`}</Text>
+                <Text style={styles.riepilogoTxt}>{" · "}</Text>
+                <Text style={[styles.riepilogoTxt, { color: colors.danger }]}>{`${perse} ✗`}</Text>
+              </View>
+            );
+          })()}
+          <ScrollView contentContainerStyle={styles.lista} onScroll={(e) => bottomNav.handleScroll(e.nativeEvent.contentOffset.y)} scrollEventThrottle={16} decelerationRate="fast">
+            {items.map((m, i) => {
+              const giocata = m.pick_finale || null;
+              const cons: any = (m as any).consigliato;
+              const quota = cons?.market && giocata && cons.market === giocata ? cons.quota : null;
+              const esito = m.result && giocata ? evaluateMarketOutcome(giocata, m.result) : null;
+              const lascia = !giocata && cons?.daLasciare;
+              const [aa, mm, gg] = String(m.day || "").split("-");
+              const iniziata = (() => { const t = inizioPartitaMs(m.day, m.time); return t !== null && t <= Date.now(); })();
               return (
-              <View key={m.id} style={styles.card}>
-                <TouchableOpacity
-                  testID={`sel-open-${m.id}`}
-                  onPress={() => router.push(`/match/${m.id}`)}
-                  style={styles.cardLeft}
-                >
-                  <Text style={styles.cardLeague}>{lc.shortLabel}</Text>
-                  <Text style={styles.cardTeams}>{m.squadra1} – {m.squadra2}</Text>
-                  <Text style={styles.cardWhen}>{m.day} · {m.time}</Text>
-                  <View style={styles.predRow}>
-                    {verdetto ? (
-                      <View style={[styles.preTag, outcomeStyle(preOutcome)]}>
-                        <Ionicons name="flash" size={10} color={colors.primary} />
-                        <Text style={styles.preTagTxt}>{verdetto}</Text>
-                        {m.pick_finale_prob ? (
-                          <Text style={styles.preTagOdd}>{Math.round(m.pick_finale_prob * 100)}%</Text>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <View style={[styles.preTag, { borderStyle: "dashed" }]}>
-                        <Ionicons name="help-circle-outline" size={10} color={colors.textDim} />
-                        <Text style={[styles.preTagTxt, { color: colors.textDim }]}>apri per il verdetto</Text>
-                      </View>
-                    )}
-                    {/* IL CONSIGLIATO (07/10/2026): lo stesso della scheda partita,
-                        confermato o cambiato dal Pronostico AI. */}
-                    {(m as any).consigliato?.market ? (
-                      <View style={[styles.predTag, outcomeStyle(m.result ? evaluateMarketOutcome((m as any).consigliato.market, m.result) : null)]}>
-                        <Ionicons name={(m as any).consigliato.ai ? "sparkles" : "checkmark-circle"} size={10} color={colors.aiText} />
-                        <Text style={styles.predTagTxt}>
-                          {`${(m as any).consigliato.nome} ${(m as any).consigliato.stimata ? "≈" : "@"}${Number((m as any).consigliato.quota).toFixed(2)}`}
-                          {(m as any).consigliato.ai === "confermato" ? " · ✓ AI" : (m as any).consigliato.ai === "cambiato" ? " · cambiato dall'AI" : ""}
-                        </Text>
-                      </View>
-                    ) : null}
-                    {/* DA GIOCARE (11/10/2026): la giocata da mettere in schedina, con il perche'. */}
-                    {(() => {
-                      const g = daGiocare((m as any).consigliato);
-                      if (!g) return null;
-                      const nome = g.nome.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2);
-                      return (
-                        // Riga intera e testo a capo: la frase lunga usciva dalla card (13/10/2026).
-                        <View style={[styles.predTag, { borderColor: colors.success, borderWidth: 2, width: "100%" }, outcomeStyle(m.result ? evaluateMarketOutcome(g.market, m.result) : null)]}>
-                          <Text style={[styles.predTagTxt, { color: colors.success, fontWeight: "900", flexShrink: 1 }]}>
-                            {`▶ DA GIOCARE: ${nome}${g.quota != null ? ` ${g.stimata ? "≈" : "@"}${g.quota.toFixed(2)}` : ""} · ${g.perche}`}
-                          </Text>
-                        </View>
-                      );
-                    })()}
-                    {/* Cambio dell'AI applicato da solo (Rossi: "se l'ha cambiata ci
-                        sara' un motivo"); si puo' tornare alla giocata dei numeri. */}
-                    {(m as any).consigliato?.ai === "cambiato" && (m as any).consigliato?.numeri_market && !m.result ? (
-                      <View style={styles.cambioBox}>
-                        <Text style={styles.cambioTxt}>
-                          {`Cambiata dall'AI (era ${(m as any).consigliato.numeri_nome ?? (m as any).consigliato.numeri_market}): ${(m as any).consigliato.notizia ?? ""}`}
-                        </Text>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            try {
-                              await api.saveVerdict(m.id, (m as any).consigliato.numeri_market);
-                              notify("Fatto", `Torna a ${(m as any).consigliato.numeri_market}.`);
-                              selectedListCache.invalidate();
-                              load(true);
-                            } catch (e: any) { notify("Errore", e?.message || String(e)); }
-                          }}
-                        >
-                          <Text style={styles.cambioBtn}>Torna alla vecchia</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : null}
-                    {(m as any).consigliato?.daLasciare && !(m as any).consigliato?.market ? (
-                      <View style={[styles.predTag, { borderStyle: "dashed" }]}>
-                        <Text style={[styles.predTagTxt, { color: colors.warning }]}>da lasciare</Text>
-                      </View>
-                    ) : null}
+                <View key={m.id} style={[styles.riga, i > 0 && styles.rigaSep]}>
+                  <View style={styles.rigaQuando}>
+                    <Text style={styles.rigaData}>{gg && mm ? `${gg}/${mm}` : m.day}</Text>
+                    <Text style={styles.rigaOra}>{m.time}</Text>
                   </View>
-                </TouchableOpacity>
-                <View style={styles.cardRight}>
-                  <ScoreInput
-                    value={results[m.id] || ""}
-                    onChange={(v) => setResults({ ...results, [m.id]: v })}
-                    size="sm"
-                    testIDPrefix={`sel-res-${m.id}`}
-                  />
-                  <TouchableOpacity
-                    testID={`sel-remove-${m.id}`}
-                    onPress={() => removeFromSelection(m.id)}
-                    style={styles.removeBtn}
-                  >
-                    <Ionicons name="close" size={16} color={colors.textMuted} />
+                  <TouchableOpacity testID={`sel-open-${m.id}`} onPress={() => router.push(`/match/${m.id}`)} style={styles.rigaCentro} activeOpacity={0.7}>
+                    <Text style={styles.rigaSquadra} numberOfLines={1}>{m.squadra1}</Text>
+                    <Text style={styles.rigaSquadra} numberOfLines={1}>{m.squadra2}</Text>
+                    <View style={styles.rigaPillole}>
+                      {giocata ? (
+                        <View style={[styles.pillola, esito === true && styles.pillolaVinta, esito === false && styles.pillolaPersa]}>
+                          <Text style={styles.pillolaTxt}>{`${etichettaGiocata(giocata, m.squadra1, m.squadra2)}${quota ? ` (${Number(quota).toFixed(2)})` : ""}${esito === true ? "  ✓" : esito === false ? "  ✗" : ""}`}</Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.pillola, { borderStyle: "dashed", opacity: 0.7 }]}>
+                          <Text style={[styles.pillolaTxt, { color: colors.textMuted }]}>{lascia ? "DA LASCIARE" : "APRI PER LA GIOCATA"}</Text>
+                        </View>
+                      )}
+                      {m.result ? <Text style={styles.rigaRisultato}>{m.result}</Text> : null}
+                    </View>
+                    {iniziata && !m.result ? (
+                      <View style={{ marginTop: 8, alignSelf: "flex-start" }}>
+                        <ScoreInput value={results[m.id] || ""} onChange={(v) => setResults({ ...results, [m.id]: v })} size="sm" testIDPrefix={`sel-res-${m.id}`} />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                  <TouchableOpacity testID={`sel-remove-${m.id}`} onPress={() => removeFromSelection(m.id)} style={styles.rigaCestino}>
+                    <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
-              </View>
               );
             })}
             <View style={{ height: 100 }} />
@@ -487,6 +448,23 @@ const styles = StyleSheet.create({
   // da sola, quindi qui basta un margine di respiro. I 130px precedenti erano
   // pensati per una barra flottante e lasciavano un buco in fondo a ogni lista.
   list: { padding: 16, paddingBottom: 24, gap: 10 },
+  riepilogo: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  riepilogoTxt: { color: colors.textMuted, fontSize: 15, fontWeight: "600" },
+  lista: { marginHorizontal: 12, marginTop: 6, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 4 },
+  riga: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 8, gap: 10 },
+  rigaSep: { borderTopWidth: 1, borderTopColor: colors.border },
+  rigaQuando: { width: 52, alignItems: "center" },
+  rigaData: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  rigaOra: { color: colors.textMuted, fontSize: 13, fontWeight: "600", marginTop: 4 },
+  rigaCentro: { flex: 1 },
+  rigaSquadra: { color: colors.text, fontSize: 17, fontWeight: "500", lineHeight: 24 },
+  rigaPillole: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" },
+  pillola: { borderWidth: 1, borderColor: colors.textDim, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: colors.surfaceHi },
+  pillolaVinta: { borderColor: colors.success, backgroundColor: "rgba(16,185,129,0.15)" },
+  pillolaPersa: { borderColor: colors.danger, backgroundColor: "rgba(239,68,68,0.15)" },
+  pillolaTxt: { color: colors.text, fontSize: 13, fontWeight: "800", letterSpacing: 0.3 },
+  rigaRisultato: { color: colors.text, fontSize: 15, fontWeight: "900" },
+  rigaCestino: { padding: 6 },
   card: { flexDirection: "row", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, gap: 10 },
   cardLeft: { flex: 1 },
   cardLeague: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
