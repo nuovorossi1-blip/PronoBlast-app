@@ -178,7 +178,8 @@ export function decidi(m: any, d: any) {
   let scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
   // PASSO 5 (19/10/2026, Rossi): nell'Equilibrio con GG e Over sotto 1,80 la giocata e' quella della
   // classifica dello scenario (la stessa del consigliato). Lettura AI e forma restano nel "perche'".
-  const classifica = nota?.scenario === "Equilibrio" ? classificaScenario(odds, nota.scenario, cat) : null; // Gap: solo da leggere (vedi analizzaGiocate)
+  // 19/10/2026 (Rossi: "la piu' facile"): la classifica non decide piu', come nel consigliato.
+  const classifica = null as ReturnType<typeof classificaScenario>;
   if (classifica) {
     const v = classifica.voci.find((x) => x.mercato === classifica.scelta);
     const vc = v ? voce(v.codice) : null;

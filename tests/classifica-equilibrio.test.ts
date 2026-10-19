@@ -39,20 +39,11 @@ import { decidi } from "../netlify/functions/lib/regolePronostico";
 
 const riga = { squadra1: "Malaga", squadra2: "Real Sociedad", manifestazione: "SPA1", odd_1: 3.1, odd_x: 3.4, odd_2: 2.2, odd_1x: 1.67, odd_x2: 1.33, odd_12: 1.28, odd_o15: 1.18, odd_u15: 4, odd_o25: 1.6, odd_u25: 2.2, odd_o35: 2.5, odd_u35: 1.45, odd_gg: 1.52, odd_ng: 2.4 };
 
-describe("Pronostico prima del via nell'Equilibrio (passo 5)", () => {
-  it("Malaga-Real Sociedad: sceglie Over 2,5 anche se la lettura AI porta a GG", () => {
+describe("Pronostico prima del via: la classifica non decide piu' (19/10/2026, la piu' facile)", () => {
+  it("Malaga-Real Sociedad: niente riga della classifica, sceglie fra le fasce", () => {
     const d = decidi(riga, { ai: { direzione: "2", risultati_probabili: ["1-2", "0-2", "1-1"] } });
-    assert.equal(d.scelta?.mk, "O2.5");
-    assert.ok(d.ragioni.some((r) => /classifica dello scenario: Over 2,5/i.test(r.t)));
-  });
-  it("nessun mercato pagato il minimo: esclusa", () => {
-    const d = decidi({ ...riga, odd_o25: 1.5, odd_gg: 1.55, odd_1x: 1.6, odd_x2: 1.3 }, {});
-    assert.equal(d.scelta, null);
-    assert.match(d.motivo, /classifica/);
-  });
-  it("Gap e Progressione non cambiano", () => {
-    const d = decidi({ ...riga, odd_1: 1.5, odd_x: 4.2, odd_2: 6 }, {});
-    assert.ok(!d.ragioni.some((r) => /classifica/.test(r.t)));
+    assert.ok(d.scelta);
+    assert.ok(!d.ragioni.some((r) => /classifica dello scenario/i.test(r.t)));
   });
 });
 

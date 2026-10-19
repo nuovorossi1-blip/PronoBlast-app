@@ -48,7 +48,7 @@ Regole:
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra: come sta andando nelle ultime 5 partite fra campionato e coppa (vinte, pareggiate, perse) e quanti gol ha fatto e subito, con i numeri copiati dai dati","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
 
-const MERCATI_AMMESSI_PRO = "1, 2, 1X, X2, GG, O2.5, MG 2-4 totali, MG 3-6 totali, MG 2-4 casa, MG 2-4 ospite, GG + O2.5, DC 1X + O1.5, DC X2 + O1.5, DC 1X + O2.5, DC X2 + O2.5, DC 1X + U3.5, DC X2 + U3.5, DC 1X + GG, DC X2 + GG, 1 + U4.5";
+const MERCATI_AMMESSI_PRO = "1, 2, 1X, X2, GG, O2.5, MG 2-4 totali, MG 3-6 totali, MG 2-4 casa, MG 2-4 ospite, GG + O2.5, DC 1X + O1.5, DC X2 + O1.5, DC 1X + O2.5, DC X2 + O2.5, DC 1X + U3.5, DC X2 + U3.5, DC 1X + GG, DC X2 + GG, 1 + U4.5, MG 1-3 casa, MG 1-3 ospite, U3.5, X oppure GG";
 
 const SISTEMA_PRO = SISTEMA.replace(
   `"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`,
@@ -467,7 +467,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-classifica-v3";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-piu-facile-2";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

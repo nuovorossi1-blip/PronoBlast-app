@@ -989,6 +989,9 @@ export const VERDICT_WHITELIST = new Set([
   // per i gap tecnici contro un avversario murato. Solo la casa: e' la voce
   // chiesta ("1 fisso + difesa ospite chiusa").
   "1 + u4.5",
+  // Mercati dell'incertezza (19/10/2026, Rossi: "nell'incertezza i mercati sono MG casa, MG ospite, MG
+  // totali, Under 3,5, X o GG"; Twente-Utrecht: MG 1-3 casa 69% @1,40 scartata perche' fuori elenco).
+  "mg 1-3 casa", "mg 1-3 ospite", "u3.5", "x oppure gg",
 ]);
 
 /**
@@ -3769,17 +3772,24 @@ export function analizzaGiocate(x: {
     if (comboVietata(r.market)) continue;
     r.punteggio = p * r.quota;
   }
-  const candidati = righe.filter((r) => r.punteggio != null).sort((a, b) => (b.punteggio! - a.punteggio!));
+  // LA PIU' FACILE (19/10/2026, Rossi: "ti devi basare su cosa e' piu' facile prendere con una quota che
+  // paga minimo 1,40-1,60"; Twente-Utrecht: sceglieva MG casa 2-4 @1,52 invece di MG 1-3 @1,40, 68%).
+  // Prima le giocate pagate da 1,40 a 1,60, in ordine di probabilita'; poi le altre, sempre per probabilita'.
+  // Il punteggio (probabilita' x quota) resta solo per le parole del perche'. Prova del 19/10 sulle partite
+  // con dossier: "la piu' probabile fra 1,40 e 1,60" 62,7% contro 60,3% del consigliato a punteggio.
+  const probDi = (r: RigaGiocata) => r.punteggio! / r.quota;
+  const inFascia = (r: RigaGiocata) => r.quota >= 1.4 && r.quota <= 1.6;
+  const candidati = righe.filter((r) => r.punteggio != null)
+    .sort((a, b) => Number(inFascia(b)) - Number(inFascia(a)) || probDi(b) - probDi(a) || b.punteggio! - a.punteggio!);
   const primoElenco = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
   // GAP FALSO (18/10/2026, Rossi): solo Under 3,5, se passa le soglie; altrimenti la partita si lascia.
   const gapFalso = x.scenario === "Gap falso";
   // CLASSIFICA DELL'EQUILIBRIO (19/10/2026, Rossi: "mi trovo al bivio tra GG e Over 2,5, l'app mi deve
   // aiutare"): nell'Equilibrio con GG e Over sotto 1,80 decide la classifica dello scenario, il primo
   // mercato pagato almeno il minimo; se nessuno lo e', la partita si lascia.
-  // Solo l'Equilibrio decide (19/10/2026): nel Gap la regola "pagato il minimo" in archivio sceglieva il
-  // fisso quando la favorita era la piu' debole della fascia (644 giocate, 55%, resa -6,2%): li' la
-  // classifica resta solo da leggere sulla scheda.
-  const classifica = x.scenario === "Equilibrio" ? classificaEquilibrio(x.odds) : null;
+  // La classifica degli scenari (margine: "il primo pagato il minimo") non decide piu' (19/10/2026, Rossi:
+  // "la piu' facile"): resta da leggere nei dettagli tecnici. Prima decideva nell'Equilibrio.
+  const classifica: ClassificaScenario | null = null as ClassificaScenario | null;
   const sceltaClassifica = classifica?.scelta
     ? righe.find((r) => normalizeMarket(r.market) === normalizeMarket(classifica.voci.find((v) => v.mercato === classifica.scelta)!.codice)) ?? null
     : null;
@@ -3799,7 +3809,9 @@ export function analizzaGiocate(x: {
   // Il perche' di ogni riga
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
-    if (r.consigliato) r.perche = classifica ? `★ consigliato: ${perchéClassifica(classifica)}.` : "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    if (r.consigliato) r.perche = classifica ? `★ consigliato: ${perchéClassifica(classifica)}.`
+      : inFascia(r) ? `★ consigliato: la più facile fra quelle pagate da 1,40 a 1,60 (entra il ${pc(probDi(r))}).`
+      : `★ consigliato: nessuna giocata solida fra 1,40 e 1,60, questa è la più facile (entra il ${pc(probDi(r))}).`;
     else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
     else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";

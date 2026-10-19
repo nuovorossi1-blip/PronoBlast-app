@@ -17,10 +17,12 @@ import { consigliatoDi } from "../netlify/functions/lib/letturaPartita";
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
 const max = Number(arg("max") || Infinity);
 const soloId = arg("id");
+// --ancora: rifa' anche quelle gia' rifatte (19/10/2026, regola "la piu' facile"); l'originale di prima del via resta.
+const ancora = process.argv.includes("--ancora");
 
 async function main() {
   const dossier = await pgGetAll("dossier_web?select=match_id,rif:numeri->consigliato->>rifatto,prog:numeri->programma->>accordo,haprog:numeri->programma&numeri->programma=not.is.null", "match_id.asc");
-  const daFare = new Set(dossier.filter((d: any) => !d.rif && d.haprog).map((d: any) => d.match_id));
+  const daFare = new Set(dossier.filter((d: any) => (ancora || !d.rif) && d.haprog).map((d: any) => d.match_id));
   const chiuse = await pgGetAll("matches?select=id,day,squadra1,squadra2,result&result=not.is.null", "day.asc");
   let lista = chiuse.filter((m: any) => daFare.has(m.id) && /^\d+-\d+$/.test(String(m.result).trim()));
   if (soloId) lista = lista.filter((m: any) => m.id === soloId);
