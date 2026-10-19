@@ -130,7 +130,9 @@ export default function BottomNav() {
           <TouchableOpacity
             key={t.route}
             testID={t.testID}
-            onPress={() => router.replace(t.route as any)}
+            // push, non replace (19/10/2026, Rossi): con replace non restava la pagina di prima e il tasto
+            // indietro di Android chiudeva l'app. Sulla scheda gia' aperta non fa niente.
+            onPress={() => { if (!active) router.push(t.route as any); }}
             style={styles.tab}
             activeOpacity={0.6}
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}

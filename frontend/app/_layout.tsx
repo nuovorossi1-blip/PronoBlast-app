@@ -11,6 +11,7 @@ import { BottomNavProvider } from "@/src/components/BottomNavContext";
 import { ToastProvider } from "@/src/components/Toast";
 import NativeUpdater from "@/src/components/NativeUpdater";
 import { useSwipeBack } from "@/src/hooks/useSwipeBack";
+import { useBackGuard } from "@/src/hooks/useBackGuard";
 // FabBack rimosso il 10/09/2026: la freccia circolare flottante duplicava
 // il tasto indietro che ogni schermata ha gia' in alto a sinistra, e da quando
 // c'e' la barra ESCI/PREC/AVANTI nel dettaglio partita ci finiva pure sopra.
@@ -22,6 +23,8 @@ export default function RootLayout() {
   const [loaded, error] = useIconFonts();
   // Trascinamento da sinistra a destra = indietro (01/10/2026).
   useSwipeBack();
+  // Tasto indietro di Android sulla prima pagina: avvisa invece di chiudere (19/10/2026).
+  useBackGuard();
 
   useEffect(() => {
     if (loaded || error) {
