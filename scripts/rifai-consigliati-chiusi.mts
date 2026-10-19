@@ -12,26 +12,30 @@
  *   npx tsx --env-file=.env ../scripts/rifai-consigliati-chiusi.mts [--max=N] [--id=<uuid>]
  */
 import { pgGetAll } from "../netlify/functions/lib/supabaseRest";
-import { consigliatoDi } from "../netlify/functions/lib/letturaPartita";
+import { consigliatoDi, partitaIniziata } from "../netlify/functions/lib/letturaPartita";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
 const max = Number(arg("max") || Infinity);
 const soloId = arg("id");
 // --ancora: rifa' anche quelle gia' rifatte (19/10/2026, regola "la piu' facile"); l'originale di prima del via resta.
 const ancora = process.argv.includes("--ancora");
+// --tutte (19/10/2026, Rossi: "le regole vecchie non servono, devono essere corrette tutte"): anche le
+// partite iniziate senza risultato nel database e quelle future (ricalcolate e salvate come al solito).
+const tutte = process.argv.includes("--tutte");
 
 async function main() {
   const dossier = await pgGetAll("dossier_web?select=match_id,rif:numeri->consigliato->>rifatto,prog:numeri->programma->>accordo,haprog:numeri->programma&numeri->programma=not.is.null", "match_id.asc");
   const daFare = new Set(dossier.filter((d: any) => (ancora || !d.rif) && d.haprog).map((d: any) => d.match_id));
-  const chiuse = await pgGetAll("matches?select=id,day,squadra1,squadra2,result&result=not.is.null", "day.asc");
-  let lista = chiuse.filter((m: any) => daFare.has(m.id) && /^\d+-\d+$/.test(String(m.result).trim()));
+  const chiuse = await pgGetAll(`matches?select=id,day,time,squadra1,squadra2,result${tutte ? "" : "&result=not.is.null"}`, "day.asc");
+  let lista = chiuse.filter((m: any) => daFare.has(m.id) && (tutte || /^\d+-\d+$/.test(String(m.result).trim())));
   if (soloId) lista = lista.filter((m: any) => m.id === soloId);
   lista = lista.slice(0, max);
   console.log(`Da rifare: ${lista.length} partite chiuse con dossier.`);
   let fatte = 0, errori = 0, lasciate = 0;
   const lavora = async (m: any) => {
     try {
-      const c = await consigliatoDi(m.id, undefined, true, { rifai: true });
+      // Iniziate o finite: si rifanno una volta (poi restano). Future: ricalcolo normale, che si salva.
+      const c = await consigliatoDi(m.id, undefined, true, { rifai: partitaIniziata(m) });
       if (!c?.market) lasciate++;
       fatte++;
       if (lista.length <= 10) console.log(`  ${m.day} ${m.squadra1}-${m.squadra2} ${m.result}: ${c?.market ?? `da lasciare (${c?.daLasciare ?? "-"})`}`);
