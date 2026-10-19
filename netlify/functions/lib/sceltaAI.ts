@@ -22,7 +22,7 @@ const REALI: Record<string, string> = { "1": "odd_1", "2": "odd_2", "1X": "odd_1
 const q2 = (x: number | null | undefined) => (x == null || !(Number(x) > 1) ? "n/d" : Number(x).toFixed(2).replace(".", ","));
 
 /** Le opzioni giocabili di una partita (riga di `matches`), con la direzione dell'AI se c'e' gia'. */
-export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPrompt = false): { scenario: string; opzioni: OpzioneGiocabile[] } {
+export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPrompt = false, assenti?: { casa?: number | null; ospite?: number | null } | null): { scenario: string; opzioni: OpzioneGiocabile[] } {
   const odds: any = rowToOdds(m);
   const st: any = (structuralAnalysis(odds, 1.4) as any).structure;
   const nota = getScenarioNote(odds, st);
@@ -33,6 +33,15 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
   const delloScenario = pronosticiDelloScenario(scenario, odds, false);
   // GG in ogni scenario quando il book lo paga sotto 1,60 (19/10/2026: "segnano tutte e due").
   if (Number(m.odd_gg) > 1 && Number(m.odd_gg) <= 1.6) chiavi.add(chiavePronostico("GG"));
+  // GAP CON LA FAVORITA SENZA 3+ GIOCATORI (19/10/2026, Rossi: "si"; Copenhagen-Aarhus 1-1 senza tre
+  // attaccanti): anche la doppia chance + Over 1,5. Archivio con dossier: pareggi 20% contro 15%,
+  // 1X/X2 + Over 1,5 77% contro il fisso 73% (128 partite).
+  const favCasa = Number(m.odd_1) <= Number(m.odd_2);
+  const assFav = Number(favCasa ? assenti?.casa : assenti?.ospite);
+  if (scenario.startsWith("Gap Tecnico") && assFav >= 3) {
+    const dcO15 = chiavePronostico(favCasa ? "DC 1X + O1.5" : "DC X2 + O1.5");
+    chiavi.add(dcO15); delloScenario.add(dcO15);
+  }
   const cat: any = quoteCatalogo(odds);
   const nomeDi = (c: string) => c.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2)
     .replace(/^1$/, `1 (vince ${m.squadra1})`).replace(/^2$/, `2 (vince ${m.squadra2})`)
@@ -53,8 +62,8 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
 }
 
 /** Il blocco da aggiungere al testo della partita: lettura del book e opzioni giocabili. */
-export function testoScelta(m: any, direzioneAI?: string | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
-  const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true);
+export function testoScelta(m: any, direzioneAI?: string | null, assenti?: { casa?: number | null; ospite?: number | null } | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
+  const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true, assenti);
   const riga = (l: OpzioneGiocabile[]) => l.length
     ? l.map((o) => `     - ${o.codice} = ${o.nome} @${q2(o.quota)}${o.stimata ? " (quota stimata)" : ""}`).join("\n")
     : "     (nessuna)";
@@ -77,7 +86,7 @@ Ragiona in questi 5 passi, nell'ordine:
 1. SCENARIO: e' gia' scritto (Gap Tecnico, Gap falso, Progressione, Equilibrio). Le opzioni sono gia' solo quelle dello scenario.
 2. IL BOOK: leggi la LETTURA DEL BOOK. Over 1,5 molto basso = almeno 2 gol quasi sicuri. Under 3,5 basso o Under e Over 3,5 vicini = il book NON crede a 4 o piu' gol. Over 3,5 sotto 1,60 = goleada possibile. GG basso (sotto 1,60) = segnano tutte e due. Scrivi la fascia di gol che il book si aspetta (es. "2-4 gol, segnano entrambe").
 3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
-4. CHI SEGNA E CHI PRENDE GOL: per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
+4. CHI SEGNA E CHI PRENDE GOL (se la favorita ha assenti pesanti in ATTACCO, il pareggio diventa piu' probabile: se fra le opzioni c'e' la doppia chance + Over 1,5, preferiscila al segno secco): per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
 5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
 Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.

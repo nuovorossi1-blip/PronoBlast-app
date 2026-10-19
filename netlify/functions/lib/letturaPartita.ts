@@ -172,7 +172,7 @@ export async function generaLetturaAI(
       if (!pro) await contaLettura();
       // Scelta ragionata (19/10/2026, "ok AI"): stesse istruzioni per la gratis e per il Pronostico AI,
       // con la lettura del book e le opzioni giocabili della partita.
-      const scelta = testoScelta(x.match, x.numeri?.lettura_ai?.direzione ?? null);
+      const scelta = testoScelta(x.match, x.numeri?.lettura_ai?.direzione ?? null, { casa: x.programma?.assenti_casa, ospite: x.programma?.assenti_ospite });
       const risposta = await callLlm(opt, SISTEMA_SCELTA, x.testo + "\n" + scelta.testo);
       const j = JSON.parse((risposta.match(/\{[\s\S]*\}/) || [""])[0]);
       if (!j?.lettura || String(j.lettura).replace(/[^a-z]/gi, "").length < 40) continue;   // vuota o a puntini
@@ -405,14 +405,26 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const lAI = recente(x.numeri?.lettura_pro) ?? recente(x.numeri?.lettura_ai);
   if (lAI) {
     // Le opzioni come le ha viste l'AI (anche quelle dell'incertezza, segnate), poi il controllo.
-    const { opzioni } = opzioniGiocabili(m, lAI.direzione, true);
+    const { opzioni } = opzioniGiocabili(m, lAI.direzione, true, { casa: pr?.assenti_casa, ospite: pr?.assenti_ospite });
     const controllo = controllaScelta(giocataValida(lAI.giocata, opzioni), opzioni, lAI.risultati_probabili, lAI.direzione);
-    const g = controllo.giocata;
+    // GAP, FAVORITA CON 3+ ASSENTI (19/10/2026, Rossi: "si"): il segno secco diventa doppia chance + Over 1,5
+    // (pareggi 20% contro 15%; 1X/X2 + Over 1,5 77% contro il fisso 73%), se e' fra le opzioni e vince in
+    // almeno 2 dei risultati attesi dell'AI.
+    const favCasa = Number(m.odd_1) <= Number(m.odd_2);
+    const assFav = Number(favCasa ? pr?.assenti_casa : pr?.assenti_ospite);
+    const dcO15 = opzioni.find((o) => o.codice === (favCasa ? "DC 1X + O1.5" : "DC X2 + O1.5"));
+    const sceltaSegno = controllo.giocata && controllo.giocata.codice === (favCasa ? "1" : "2");
+    const risAI = (lAI.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, ""));
+    const dcViteAI = dcO15 ? risAI.filter((r: string) => { const [h, a] = r.split("-").map(Number); const f = favCasa ? h : a, s2 = favCasa ? a : h; return f >= s2 && h + a >= 2; }).length : 0;
+    const versoDc = !!(sceltaSegno && dcO15 && assFav >= 3 && dcViteAI >= 2);
+    const g = versoDc ? dcO15! : controllo.giocata;
     out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
     out.ai = "scelta";
     const attesi = (lAI.risultati_probabili || []).join(", ");
     const aiNessuna = !lAI.giocata || /^nessuna$/i.test(String(lAI.giocata).trim());
-    out.perche = controllo.corretta && g
+    out.perche = versoDc
+      ? `l'AI sceglieva il segno, ma la favorita ha ${assFav} assenti: con tanti assenti il pareggio sale (20% contro 15%), quindi ${g!.nome}`
+      : controllo.corretta && g
       ? (aiNessuna
         ? `l'AI non ha scelto una giocata, ma i suoi risultati attesi (${attesi}) li copre meglio ${g.nome}`
         : `l'AI aveva scelto ${lAI.giocata}, che non va d'accordo con i suoi risultati attesi (${attesi}): vale ${g.nome}, che li copre meglio`)
@@ -529,7 +541,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-2";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-3";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

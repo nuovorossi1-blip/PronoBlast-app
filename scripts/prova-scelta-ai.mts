@@ -19,7 +19,7 @@ for (const id of ids) {
   const x: any = await datiLettura(id, { completo: true });
   if (!x) { console.log(`${id}: partita non trovata`); continue; }
   const m = x.match;
-  const { testo, opzioni, scenario } = testoScelta(m, x.numeri?.lettura_ai?.direzione ?? null);
+  const { testo, opzioni, scenario } = testoScelta(m, x.numeri?.lettura_ai?.direzione ?? null, { casa: x.programma?.assenti_casa, ospite: x.programma?.assenti_ospite });
   console.log(`\n==== ${m.squadra1} - ${m.squadra2} (${m.manifestazione}) · ${scenario} · forma: ${x.forma?.tipo ?? "?"}`);
   console.log(`opzioni: ${opzioni.map((o) => `${o.codice} @${o.quota.toFixed(2)}`).join(" | ") || "nessuna"}`);
   let fatto = false;
