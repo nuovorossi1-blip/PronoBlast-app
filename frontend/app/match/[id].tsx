@@ -793,6 +793,11 @@ export default function MatchDetail() {
               ) : (
                 <Text style={styles.golTesto}>{`Da lasciare${cs?.daLasciare ? `: ${cs.daLasciare}` : ": nessuna giocata convincente"}.`}</Text>
               )}
+              {cs?.copertura ? (
+                <Text style={[styles.golTesto, { color: colors.warning }]}>
+                  {`Copertura: ${cs.copertura.nome.replace(/^DC /, "")} @${q2(cs.copertura.quota)}${match.result ? (evaluateMarketOutcome(cs.copertura.market, match.result) ? "  ✓" : "  ✗") : ""} — ${cs.copertura.perche}`}
+                </Text>
+              ) : null}
               {attesi.length ? <Text style={styles.golTesto}>{`Risultati attesi: ${attesi.join(" · ")}`}</Text> : null}
 
               {ragioni.length ? (

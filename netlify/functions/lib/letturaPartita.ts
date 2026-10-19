@@ -28,6 +28,9 @@ import { testoScelta, testoFatti, SISTEMA_SCELTA, opzioniGiocabili, giocataValid
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
 export const MODELLI_GRATIS = ["nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3.5-lightning:free"];
+/** RISERVA A PAGAMENTO (19/10/2026, Rossi: "ok riserva"): quando i modelli gratis non rispondono o il limite
+ *  del giorno e' finito. DeepSeek V4.1 Flash, circa 0,0006 $ a lettura. */
+export const MODELLO_RISERVA = "deepseek/deepseek-v4.1-flash";
 export type LetturaAI = {
   modello: string; quando: string;
   /** Le quote con cui e' stata fatta: se cambiano, si rifa' (07/10/2026). */
@@ -164,12 +167,14 @@ export async function generaLetturaAI(
   const x = dati?.forma ? dati : await datiLettura(matchId, { completo: true });
   if (!x) return null;
   const pro = !!opzioni.pro;
-  if (!pro && !(await letturePossibili())) return null;
-  const modelli: any[] = pro ? [await modelloScelto()] : await Promise.all(MODELLI_GRATIS.map((m) => opzioneDaId("or:" + m)));
+  const gratisPossibili = pro ? false : await letturePossibili();
+  const riserva = pro ? null : await opzioneDaId("or:" + MODELLO_RISERVA);
+  const modelli: any[] = pro ? [await modelloScelto()]
+    : [...(gratisPossibili ? await Promise.all(MODELLI_GRATIS.map((m) => opzioneDaId("or:" + m))) : []), riserva];
   for (const opt of modelli) {
     if (!opt) continue;
     try {
-      if (!pro) await contaLettura();
+      if (!pro && opt !== riserva) await contaLettura();
       // Scelta ragionata (19/10/2026, "ok AI"): stesse istruzioni per la gratis e per il Pronostico AI,
       // con la lettura del book e le opzioni giocabili della partita.
       const scelta = testoScelta(x.match, x.numeri?.lettura_ai?.direzione ?? null, { casa: x.programma?.assenti_casa, ospite: x.programma?.assenti_ospite });
@@ -239,6 +244,8 @@ export type ConsigliatoSalvato = {
   regole_versione?: string;
   /** Rifatto a partita chiusa con le regole nuove (19/10/2026): quando. */
   rifatto?: string;
+  /** Copertura (non giocata principale): es. 1X + Over 1,5 con la favorita senza 3+ giocatori (19/10/2026). */
+  copertura?: { market: string; nome: string; quota: number; perche: string } | null;
 };
 
 /** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
@@ -419,15 +426,18 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     const sceltaSegno = controllo.giocata && controllo.giocata.codice === (favCasa ? "1" : "2");
     const risAI = (lAI.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, ""));
     const dcViteAI = dcO15 ? risAI.filter((r: string) => { const [h, a] = r.split("-").map(Number); const f = favCasa ? h : a, s2 = favCasa ? a : h; return f >= s2 && h + a >= 2; }).length : 0;
-    const versoDc = !!(sceltaSegno && dcO15 && assFav >= 3 && dcViteAI >= 2);
-    const g = versoDc ? dcO15! : controllo.giocata;
+    // 19/10/2026 (Rossi): "1X + Over 1,5 e' una copertura quando non ci fidiamo dell'1 per troppi assenti,
+    // ma non e' un pick principale": la giocata resta il segno, la doppia chance si mostra come copertura.
+    const copertura = !!(sceltaSegno && dcO15 && assFav >= 3 && dcViteAI >= 2);
+    const g = controllo.giocata;
+    out.copertura = copertura
+      ? { market: dcO15!.codice, nome: dcO15!.nome, quota: dcO15!.quota, perche: `la favorita ha ${assFav} assenti: se non ti fidi del segno, copri anche il pareggio (con tanti assenti i pareggi salgono dal 15% al 20%)` }
+      : null;
     out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
     out.ai = "scelta";
     const attesi = (lAI.risultati_probabili || []).join(", ");
     const aiNessuna = !lAI.giocata || /^nessuna$/i.test(String(lAI.giocata).trim());
-    out.perche = versoDc
-      ? `l'AI sceglieva il segno, ma la favorita ha ${assFav} assenti: con tanti assenti il pareggio sale (20% contro 15%), quindi ${g!.nome}`
-      : controllo.corretta && g
+    out.perche = controllo.corretta && g
       ? (aiNessuna
         ? `l'AI non ha scelto una giocata, ma i suoi risultati attesi (${attesi}) li copre meglio ${g.nome}`
         : `l'AI aveva scelto ${lAI.giocata}, che non va d'accordo con i suoi risultati attesi (${attesi}): vale ${g.nome}, che li copre meglio`)
@@ -544,7 +554,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-4";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-5";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
