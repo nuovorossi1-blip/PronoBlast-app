@@ -368,14 +368,16 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     favNonPerde: favoritaNonPerde(m, x.numeri),
     scenario: nota?.scenario ?? null,
     xoggAI: xoggDaAI(x.numeri),
+    risultatiAI: (x.numeri?.lettura_pro?.risultati_probabili?.length && !quoteCambiate(x.numeri.lettura_pro.quote, firmaQuote(m)) ? x.numeri.lettura_pro : x.numeri?.lettura_ai)?.risultati_probabili ?? null,
+    direzioneAI: (x.numeri?.lettura_pro?.risultati_probabili?.length && !quoteCambiate(x.numeri.lettura_pro.quote, firmaQuote(m)) ? x.numeri.lettura_pro : x.numeri?.lettura_ai)?.direzione ?? null,
   });
   const c = a.consigliato;
   const out: ConsigliatoSalvato = {
     market: c?.market ?? null, nome: c?.nome ?? null, quota: c?.quota ?? null, stimata: !!c?.stimata,
-    pA: c?.misurata?.pA ?? null, pB: c?.misurata?.pB ?? null, n: c?.misurata?.n ?? null,
+    pA: c?.misurata?.pA ?? (c?.punteggio != null ? c.punteggio / c.quota : null), pB: c?.misurata?.pB ?? (c?.punteggio != null ? c.punteggio / c.quota : null), n: c?.misurata?.n ?? null,
     daLasciare: a.daLasciare, avvisi: a.avvisi,
     alternative: a.righe.filter((r) => r.punteggio != null && !r.consigliato && !isMercatoVietato(r.market)).slice(0, 8)
-      .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: Math.min(r.misurata!.pA, r.misurata!.pB) })),
+      .map((r) => ({ market: r.market, nome: r.nome, quota: r.quota, stimata: r.stimata, p: r.punteggio! / r.quota })),
     ai: null, notizia: null, quote: firmaQuote(m), quando: new Date().toISOString(),
     lasciata_market: a.seNonLasciata?.market ?? null, lasciata_quota: a.seNonLasciata?.quota ?? null,
     tabella_versione: tabVersione,
@@ -486,7 +488,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-mg-over35";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scenario";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

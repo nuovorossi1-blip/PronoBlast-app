@@ -256,8 +256,9 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
 
     // 1. Vietate solo le combo segno secco 1/2 + Over (Rossi 10/10/2026:
     //    "non doveva cambiare niente del resto")
-    assert.equal(isMercatoVietato("DC 12 + O1.5"), false);
-    assert.equal(isMercatoVietato("DC 12 + O2.5"), false);
+    // 19/10/2026 (Rossi): "12 + Over 1,5 non la giochero' mai" -> 12 + Over ora vietati.
+    assert.equal(isMercatoVietato("DC 12 + O1.5"), true);
+    assert.equal(isMercatoVietato("DC 12 + O2.5"), true);
     assert.equal(isMercatoVietato("U2.5"), false);
     assert.equal(isMercatoVietato("U1.5"), false);
     assert.equal(isMercatoVietato("O3.5"), false);

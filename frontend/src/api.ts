@@ -1107,6 +1107,10 @@ export function isMercatoVietato(market: string | null | undefined): boolean {
 
   if (MERCATI_VIETATI.has(m)) return true;
 
+  // 12 + Over (es. "DC 12 + O1.5", "12 + O2.5"): mai giocata (19/10/2026, Rossi: "12 + Over 1,5 non la
+  // giochero' mai"); ne' giocata ne' opzione sulla scheda.
+  if (/^(?:dc\s+)?12\s*\+\s*(?:over|ov|o)\s*\d/i.test(m)) return true;
+
   // Combo segno secco 1 o 2 + Over (es. "1 + O1.5", "2 + Over 2.5", ecc.)
   if (/^(?:1|2)\s*\+\s*(?:over|ov|o)\s*(?:1[.,]5|2[.,]5|3[.,]5)(?:\s*totali)?$/i.test(m)) {
     return true;
@@ -3679,6 +3683,30 @@ const versoOspiteM = (m: string) => /^(2|X2)(\s|$|\+)/.test(segnoBase(m)) || /^2
 const conSegnoM = (m: string) => versoCasaM(m) || versoOspiteM(m) || /^(X|12)(\s*\+|$)/.test(segnoBase(m));
 
 /**
+ * I PRONOSTICI DI OGNI SCENARIO (19/10/2026, Rossi: "in base allo scenario e ai risultati attesi si
+ * scelgono e si valutano i pronostici appartenenti a quel tipo di scenario"). Con la valutazione AI senza
+ * vincitore si aggiungono quelli dell'incertezza. Restituisce le chiavi normalizzate (MG "2-4 CASA").
+ */
+export function pronosticiDelloScenario(scenario: string | null | undefined, odds: Odds, aiSenzaVincitore = false): Set<string> {
+  const fav: "1" | "2" = Number(odds.odd_1) <= Number(odds.odd_2) ? "1" : "2";
+  const lato = fav === "1" ? "casa" : "ospite", altro = fav === "1" ? "ospite" : "casa";
+  const dc = fav === "1" ? "1X" : "X2";
+  const sc = String(scenario || "");
+  let base: string[] = [];
+  if (sc.startsWith("Gap Tecnico")) base = [fav, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, `DC ${dc} + GG`, "GG", "O2.5", "GG + O2.5"];
+  else if (sc === "Gap falso") base = ["U3.5"];
+  else if (sc === "Progressione") base = [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`, fav, `DC ${dc} + O1.5`];
+  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 2-4 totali"];
+  const incertezza = aiSenzaVincitore ? ["MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "U3.5", "X oppure GG"] : [];
+  void altro;
+  return new Set([...base, ...incertezza].map(chiavePronostico));
+}
+/** "MG casa 2-4" e "MG 2-4 casa", "Over 2,5" e "O2.5" diventano la stessa chiave. */
+export function chiavePronostico(m: string): string {
+  return normalizeMarket(m).replace(/^MG (CASA|OSPITE|TOTALI) (\d)-(\d)$/, "MG $2-$3 $1").replace(/^OVER\s*/, "O").replace(/^UNDER\s*/, "U").replace(",", ".");
+}
+
+/**
  * MULTIGOL DELLA FAVORITA NEL GAP TECNICO (19/10/2026, Rossi, Real-Siviglia 4-1 con MG casa 1-3): la
  * sceglie la quota dell'Over 3,5. Archivio, favorita sotto 1,40: sotto 1,60 la favorita fa 5+ gol una
  * volta su tre (MG strette 49-53%) -> nessuna; 1,60-1,99 fa 2,7-3,1 gol di media, 4+ il 31-37% -> MG 2-4
@@ -3721,6 +3749,10 @@ export function analizzaGiocate(x: {
   coppaEuropea?: boolean;
   /** Il Pronostico AI propone X oppure GG e i suoi 3 risultati sono pareggi o gol di tutte e due (16/10/2026). */
   xoggAI?: boolean;
+  /** I 3 risultati attesi della valutazione AI (Pro se c'e', altrimenti la gratis), "a-b" (19/10/2026). */
+  risultatiAI?: string[] | null;
+  /** Direzione della stessa valutazione AI: "nessuna"/"X" aggiunge i pronostici dell'incertezza (19/10/2026). */
+  direzioneAI?: string | null;
 }): AnalisiGiocate {
   const nome = (m: string) => m.replace(/\bcasa\b/gi, x.casa).replace(/\bospite\b/gi, x.ospite);
   const pc = (p: number) => `${Math.round(p * 100)}%`;
@@ -3786,16 +3818,41 @@ export function analizzaGiocate(x: {
   // MULTIGOL DELLA FAVORITA NEL GAP (19/10/2026, Rossi): decide l'Over 3,5 (vedi mgFavoritaEsclusa).
   const mgEsclusa = (m: string) => mgFavoritaEsclusa(m, x.scenario, x.odds);
   // Candidati e punteggio
+  // GG e X oppure GG senza partite simili in archivio a quella quota non si scartano: vale la stima
+  // (19/10/2026, Rossi, Tromso-KFUM e Twente-Utrecht).
+  const famigliaGG = (m: string) => /^(GG|X OPPURE GG)$/.test(normalizeMarket(m));
+  // I RISULTATI ATTESI DELL'AI (19/10/2026, Rossi: "Real 2-0, 2-1, 3-1 -> MG casa 2-4, 1, GG, Over 2,5:
+  // 2 risultati su 3 rientrano; Malmo-Hacken 0-1, 0-2, 1-1 -> non Over 2,5, X2"). Una giocata vale se vince
+  // in almeno 2 dei 3 risultati; quelle che vincono in tutti e 3 vengono prima.
+  const risAI = (x.risultatiAI || []).map((r) => String(r).replace(/\s/g, "")).filter((r) => /^\d+-\d+$/.test(r));
+  const conAI = risAI.length === 3;
+  const viteAI = (m: string) => risAI.filter((r) => evaluateMarketOutcome(m, r) === true).length;
+  const dirAI = String(x.direzioneAI || "").trim().toLowerCase();
+  const delloScenario = x.scenario ? pronosticiDelloScenario(x.scenario, x.odds, dirAI === "nessuna" || dirAI === "x") : null;
+  const fuoriScenario = (m: string) => !!delloScenario && delloScenario.size > 0 && !delloScenario.has(chiavePronostico(m));
   for (const r of righe) {
     if (isMercatoVietato(r.market)) continue;
-    if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
+    if (fuoriScenario(r.market)) continue;
+    if (r.quota < 1.4 || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
+    if (!r.misurata && !(famigliaGG(r.market) && r.stima != null)) continue;
     if (mgEsclusa(r.market)) continue;
-    const pm = Math.min(r.misurata.pA, r.misurata.pB);
-    if (pm < 0.58) continue;
-    const p = r.stima != null ? Math.min(pm, r.stima) : pm;
+    if (conAI && viteAI(r.market) < 2) continue;
+    let p: number;
+    if (r.misurata) {
+      const pm = Math.min(r.misurata.pA, r.misurata.pB);
+      if (pm < 0.58) continue;
+      p = r.stima != null ? Math.min(pm, r.stima) : pm;
+    } else p = r.stima!;
     if (p < 0.55) continue;
     if (comboVietata(r.market)) continue;
     r.punteggio = p * r.quota;
+  }
+  // GG e X oppure GG si escludono: resta quella piu' centrata nella fascia (Tromso: GG 1,75 troppo alta ->
+  // X o GG 1,58; Twente: X o GG 1,41 troppo bassa -> GG 1,57).
+  const coppiaGG = righe.filter((r) => r.punteggio != null && famigliaGG(r.market));
+  if (coppiaGG.length === 2) {
+    const lontana = (r: RigaGiocata) => Math.abs(r.quota - 1.5);
+    coppiaGG.sort((a, b) => lontana(a) - lontana(b))[1].punteggio = null;
   }
   // LA PIU' FACILE (19/10/2026, Rossi: "ti devi basare su cosa e' piu' facile prendere con una quota che
   // paga minimo 1,40-1,60"; Twente-Utrecht: sceglieva MG casa 2-4 @1,52 invece di MG 1-3 @1,40, 68%).
@@ -3805,7 +3862,7 @@ export function analizzaGiocate(x: {
   const probDi = (r: RigaGiocata) => r.punteggio! / r.quota;
   const inFascia = (r: RigaGiocata) => r.quota >= 1.4 && r.quota <= 1.6;
   const candidati = righe.filter((r) => r.punteggio != null)
-    .sort((a, b) => Number(inFascia(b)) - Number(inFascia(a)) || probDi(b) - probDi(a) || b.punteggio! - a.punteggio!);
+    .sort((a, b) => Number(inFascia(b)) - Number(inFascia(a)) || (conAI ? viteAI(b.market) - viteAI(a.market) : 0) || probDi(b) - probDi(a) || b.punteggio! - a.punteggio!);
   const primoElenco = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
   // GAP FALSO (18/10/2026, Rossi): solo Under 3,5, se passa le soglie; altrimenti la partita si lascia.
   const gapFalso = x.scenario === "Gap falso";
@@ -3829,18 +3886,20 @@ export function analizzaGiocate(x: {
     : classifica && !primo ? `${classifica.tipo === "gap" ? "Gap Tecnico" : "Equilibrio"}: nessun mercato della classifica dello scenario è pagato il minimo, meglio lasciarla` : daLasciare;
   const consigliato = lascia ? null : primo;
   if (consigliato) consigliato.consigliato = true;
-  const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
+  const piuSicura = candidati.slice().sort((a, b) => probDi(b) - probDi(a))[0];
 
   // Il perche' di ogni riga
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
     if (r.consigliato) r.perche = classifica ? `★ consigliato: ${perchéClassifica(classifica)}.`
-      : inFascia(r) ? `★ consigliato: la più facile fra quelle pagate da 1,40 a 1,60 (entra il ${pc(probDi(r))}).`
+      : inFascia(r) ? `★ consigliato: la più facile fra quelle pagate da 1,40 a 1,60 (entra il ${pc(probDi(r))})${conAI ? `, vince in ${viteAI(r.market)} dei 3 risultati attesi (${risAI.join(", ")})` : ""}.`
       : `★ consigliato: nessuna giocata solida fra 1,40 e 1,60, questa è la più facile (entra il ${pc(probDi(r))}).`;
     else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
     else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
+    else if (fuoriScenario(r.market)) r.perche = "non è fra i pronostici di questo scenario.";
     else if (mgEsclusa(r.market)) r.perche = `${mgEsclusa(r.market)}.`;
+    else if (conAI && viteAI(r.market) < 2 && r.quota >= 1.4) r.perche = `vince solo in ${viteAI(r.market)} dei 3 risultati attesi (${risAI.join(", ")}).`;
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
     else if (/^GG\b/i.test(r.market.trim()) && deboleSegna && deboleSegna.f <= 1.1) r.perche = `serve un gol di ${deboleSegna.nome}, che contro squadre come ${deboleSegna.contro} fa ${g1(deboleSegna.f)} a partita: quasi testa o croce.`;

@@ -104,3 +104,15 @@ describe("Multigol della favorita secondo l'Over 3,5 (19/10/2026)", () => {
     assert.equal(mgFavoritaEsclusa("MG 1-3 ospite", "Gap Tecnico", real), null);
   });
 });
+
+import { isMercatoVietato } from "../frontend/src/api";
+
+describe("12 + Over mai (19/10/2026)", () => {
+  it("DC 12 + O1.5 / O2.5 vietati, DC 1X + O1.5 no", () => {
+    assert.equal(isMercatoVietato("DC 12 + O1.5"), true);
+    assert.equal(isMercatoVietato("DC 12 + O2.5"), true);
+    assert.equal(isMercatoVietato("12 + Over 1,5"), true);
+    assert.equal(isMercatoVietato("DC 1X + O1.5"), false);
+    assert.equal(isMercatoVietato("DC 12 + GG"), false);
+  });
+});

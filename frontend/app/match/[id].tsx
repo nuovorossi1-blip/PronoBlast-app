@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { daGiocare } from "@/src/api";
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario, isMercatoVietato } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario, isMercatoVietato, pronosticiDelloScenario, chiavePronostico } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -630,6 +630,9 @@ export default function MatchDetail() {
           if (ris.length !== 3 || !(q1 > 1 && q2 > 1) || q1 === q2) return false;
           return ris.every((r) => (q1 < q2 ? r[0] >= r[1] : r[1] >= r[0]));
         })(),
+        // Come consigliatoDi() del server (19/10/2026): i 3 risultati attesi della valutazione AI.
+        risultatiAI: (lettura?.pro?.risultati_probabili?.length && !lettura.pro_vecchia ? lettura.pro : lettura?.ai)?.risultati_probabili ?? null,
+        direzioneAI: (lettura?.pro?.risultati_probabili?.length && !lettura.pro_vecchia ? lettura.pro : lettura?.ai)?.direzione ?? null,
         // Come xoggDaAI() del server (16/10/2026): X oppure GG proposto dall'AI con risultati coerenti.
         xoggAI: (() => {
           const l = lettura?.pro as any;
@@ -695,7 +698,10 @@ export default function MatchDetail() {
           // "MG casa 2-4" e "MG 2-4 casa", "Over 2,5" e "O2.5" sono lo stesso mercato: una riga sola.
           const chiave = (m: string) => normalizeMarket(m).replace(/^MG (CASA|OSPITE) (\d-\d)$/, "MG $2 $1").replace(/^OVER\s*/, "O").replace(/^UNDER\s*/, "U").replace(",", ".");
           const visti = new Set<string>();
-          const righe = (analisi?.righe ?? []).filter((r) => r.quota >= 1.4 && r.quota <= 1.6 && !isMercatoVietato(r.market) && pRiga(r) != null)
+          // Solo i pronostici dello scenario (+ incertezza se l'AI non vede un vincitore), 19/10/2026.
+          const dirV = String((lettura?.pro?.risultati_probabili?.length && !lettura.pro_vecchia ? lettura.pro : lettura?.ai)?.direzione || "").toLowerCase();
+          const dello = note ? pronosticiDelloScenario(note.scenario, match.odds as any, dirV === "nessuna" || dirV === "x") : null;
+          const righe = (analisi?.righe ?? []).filter((r) => r.quota >= 1.4 && r.quota <= 1.6 && !isMercatoVietato(r.market) && pRiga(r) != null && (!dello || dello.has(chiavePronostico(r.market))))
             .sort((a, b) => (pRiga(b) ?? 0) - (pRiga(a) ?? 0))
             .filter((r) => { const k = chiave(r.market); if (visti.has(k)) return false; visti.add(k); return true; })
             // Una sola Multigol per squadra (Rossi 19/10: "MG casa 2-4 e MG casa 1-3, uno esclude l'altro"):
