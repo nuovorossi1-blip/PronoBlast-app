@@ -21,7 +21,7 @@
 import { rowToOdds } from "./supabaseRest";
 import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis, estimateMarketOdd } from "./clusterEngine";
 import { evaluateMarket } from "./marketEval";
-import { getScenarioNote, chiaveScenario, fasciaDellaQuota, normalizeMarket, misureCoppaPer, type VoceRegole } from "../../../frontend/src/api";
+import { getScenarioNote, chiaveScenario, fasciaDellaQuota, normalizeMarket, misureCoppaPer, classificaEquilibrio, perchéClassifica, type VoceRegole } from "../../../frontend/src/api";
 
 export const VERSIONE_REGOLE = 5;
 
@@ -175,7 +175,17 @@ export function decidi(m: any, d: any) {
     fasce[f.nome] = dentro.sort((a, b) => (b.modello ?? b.p) - (a.modello ?? a.p) || candidati.indexOf(a.mk) - candidati.indexOf(b.mk))[0] ?? null;
   }
   const centrali = [fasce["1,50"], fasce["1,60"]].filter((v): v is VoceRegole => !!v).sort((a, b) => (b.modello ?? b.p) - (a.modello ?? a.p));
-  const scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
+  let scelta = centrali[0] ?? fasce["1,40"] ?? fasce["1,75"] ?? null;
+  // PASSO 5 (19/10/2026, Rossi): nell'Equilibrio con GG e Over sotto 1,80 la giocata e' quella della
+  // classifica dello scenario (la stessa del consigliato). Lettura AI e forma restano nel "perche'".
+  const classifica = nota?.scenario === "Equilibrio" ? classificaEquilibrio(odds) : null;
+  if (classifica) {
+    const v = classifica.voci.find((x) => x.mercato === classifica.scelta);
+    const vc = v ? voce(v.codice) : null;
+    scelta = v && vc ? { ...vc, p: v.pct / 100, fonte: "archivio", n: classifica.partite } : null;
+    if (v && scelta && !candidati.includes(v.codice)) avvisi.push(`la lettura AI e la forma indicavano ${candidati.join(", ") || "altro"}: decide la classifica`);
+    avvisi.push(perchéClassifica(classifica));
+  }
   // Le ragioni in parole semplici per il riquadro "Cosa giocare" della scheda (15/10/2026).
   const risTxt = l?.risultati_probabili?.length ? ` (${l.risultati_probabili.join(", ")})` : "";
   const nomeFav = casaFav ? m.squadra1 : m.squadra2;
@@ -187,14 +197,14 @@ export function decidi(m: any, d: any) {
   else ragioni.push({ ok: false, t: "Senza lettura AI: solo scenario" });
   for (const a of avvisi) {
     const t = a.replace(/^forma: /, "Forma: ");
-    ragioni.push({ ok: !/niente/.test(a) || /resta/.test(a), t: t.charAt(0).toUpperCase() + t.slice(1) });
+    ragioni.push({ ok: !/niente|nessun mercato/.test(a) || /resta/.test(a), t: t.charAt(0).toUpperCase() + t.slice(1) });
   }
   return {
     versione: VERSIONE_REGOLE,
     scenario, favorita: casaFav ? m.squadra1 : m.squadra2, favQ,
     lettura: l ? { modello: l.modello ?? null, dir: dir || "n/d", ris: l.risultati_probabili ?? [] } : null,
     coerente, assentiFavorita: Number.isFinite(assFav) ? assFav : null, avvisoGol, pochiGol, avvisi,
-    semaforo, motivo: scelta ? motivo : `${motivo}; nessuna giocata delle regole fra 1,40 e 1,95 -> esclusa`,
+    semaforo, motivo: scelta ? motivo : classifica ? `${motivo}; nessun mercato della classifica pagato il minimo -> esclusa` : `${motivo}; nessuna giocata delle regole fra 1,40 e 1,95 -> esclusa`,
     candidati, fasce, scelta, ragioni,
   };
 }

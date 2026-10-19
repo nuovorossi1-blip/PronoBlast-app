@@ -3180,6 +3180,7 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
 export type MercatoClassifica = "GG" | "Over 2,5" | "1X" | "X2" | "X oppure GG";
 export type VoceClassifica = {
   mercato: MercatoClassifica;
+  codice: string;           // nome del mercato per consigliato e regole (O2.5 per Over 2,5)
   pct: number;              // % di volte che entra, in archivio
   quotaMinima: number;      // quota da cui conviene (1 / pct)
   quota: number | null;     // quota del bookmaker per questa partita, se c'e'
@@ -3214,15 +3215,25 @@ export function classificaEquilibrio(odds: Odds): ClassificaScenario | null {
   const direzione = q1 < q2 - 0.5 ? "casa" : q2 < q1 - 0.5 ? "ospite" : "vicine";
   const [partite, ...pcts] = TABELLA_EQUILIBRIO[fascia][direzione];
   const mercati: MercatoClassifica[] = ["GG", "Over 2,5", "1X", "X2", "X oppure GG"];
+  const codici = ["GG", "O2.5", "1X", "X2", "X oppure GG"];
   const quote: (number | null)[] = [gg, o25, o.odd_1X ?? null, o.odd_X2 ?? null, null];
   const voci = mercati.map((mercato, i): VoceClassifica => {
     const pct = pcts[i];
     const quotaMinima = Math.ceil((100 / pct) * 100) / 100;
     const quota = quote[i];
-    return { mercato, pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55 };
+    return { mercato, codice: codici[i], pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55 };
   }).sort((a, b) => b.pct - a.pct);
   const scelta = voci.find((v) => !v.daEvitare && v.pagata === true)?.mercato ?? null;
   return { fascia, direzione, partite, voci, scelta };
+}
+
+/** La voce scelta dalla classifica, in parole per il "perche'" (consigliato e Pronostico prima del via). */
+export function perchéClassifica(c: ClassificaScenario): string {
+  const v = c.voci.find((x) => x.mercato === c.scelta);
+  const qf = (x: number) => x.toFixed(2).replace(".", ",");
+  return v
+    ? `classifica dello scenario: ${v.mercato} entra il ${v.pct}% (Over 3,5 ${c.fascia}), pagato ${qf(v.quota!)}, ne serve almeno ${qf(v.quotaMinima)}`
+    : "classifica dello scenario: nessun mercato è pagato il minimo, meglio lasciarla";
 }
 
 // ============================================================================
@@ -3699,8 +3710,17 @@ export function analizzaGiocate(x: {
   const primoElenco = candidati.find((r) => nelElenco(r.market)) ?? candidati[0] ?? null;
   // GAP FALSO (18/10/2026, Rossi): solo Under 3,5, se passa le soglie; altrimenti la partita si lascia.
   const gapFalso = x.scenario === "Gap falso";
-  const primo = gapFalso ? candidati.find((r) => normalizeMarket(r.market) === "U3.5") ?? null : primoElenco;
-  const lascia = gapFalso && !primo ? "Gap falso (l'avversario sta sotto 4, nessun divario vero): meglio non giocarla, oppure solo Under 3,5" : daLasciare;
+  // CLASSIFICA DELL'EQUILIBRIO (19/10/2026, Rossi: "mi trovo al bivio tra GG e Over 2,5, l'app mi deve
+  // aiutare"): nell'Equilibrio con GG e Over sotto 1,80 decide la classifica dello scenario, il primo
+  // mercato pagato almeno il minimo; se nessuno lo e', la partita si lascia.
+  const classifica = x.scenario === "Equilibrio" ? classificaEquilibrio(x.odds) : null;
+  const sceltaClassifica = classifica?.scelta
+    ? righe.find((r) => normalizeMarket(r.market) === normalizeMarket(classifica.voci.find((v) => v.mercato === classifica.scelta)!.codice)) ?? null
+    : null;
+  const primo = gapFalso ? candidati.find((r) => normalizeMarket(r.market) === "U3.5") ?? null
+    : classifica ? sceltaClassifica : primoElenco;
+  const lascia = gapFalso && !primo ? "Gap falso (l'avversario sta sotto 4, nessun divario vero): meglio non giocarla, oppure solo Under 3,5"
+    : classifica && !primo ? "Equilibrio: nessun mercato della classifica dello scenario è pagato il minimo, meglio lasciarla" : daLasciare;
   const consigliato = lascia ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];
@@ -3708,7 +3728,7 @@ export function analizzaGiocate(x: {
   // Il perche' di ogni riga
   for (const r of righe) {
     const pm = r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : null;
-    if (r.consigliato) r.perche = "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
+    if (r.consigliato) r.perche = classifica ? `★ consigliato: ${perchéClassifica(classifica)}.` : "★ consigliato: il miglior equilibrio fra probabilità misurata e quota.";
     else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
     else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
