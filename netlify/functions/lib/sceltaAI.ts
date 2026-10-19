@@ -14,7 +14,7 @@
  */
 import { rowToOdds } from "./supabaseRest";
 import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis } from "./clusterEngine";
-import { getScenarioNote, pronosticiDelloScenario, chiavePronostico, mgFavoritaEsclusa, isMercatoVietato } from "../../../frontend/src/api";
+import { getScenarioNote, pronosticiDelloScenario, chiavePronostico, mgFavoritaEsclusa, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
 export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean };
 
@@ -77,6 +77,27 @@ Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esat
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra, con i numeri delle ultime partite dello stesso tipo","ragionamento":{"book":"passo 2 in una frase","direzione":"passo 3 in una frase","segnano":"passo 4 con i numeri","scelta":"passo 5: perche' questa e non le altre"},"giocata":"codice esatto dall'elenco, oppure nessuna","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
+
+/**
+ * CONTROLLO DELLA SCELTA (19/10/2026, Rossi: "ok"; Lorient-Monaco: l'AI diceva "vince il Monaco" 0-2,
+ * 1-2, 1-3 e sceglieva X o GG, che perde lo 0-2). La giocata deve vincere in almeno 2 dei 3 risultati
+ * attesi dell'AI; le opzioni "solo incertezza" valgono solo se l'AI non vede un vincitore. Se la scelta
+ * non passa, si prende fra le opzioni quella che vince in piu' risultati attesi (a parita', la quota
+ * piu' bassa, cioe' la piu' probabile per il book). null se nessuna passa.
+ */
+export function controllaScelta(
+  scelta: OpzioneGiocabile | null, opzioni: OpzioneGiocabile[], risultati: unknown, direzione: unknown,
+): { giocata: OpzioneGiocabile | null; corretta: boolean } {
+  const ris = (Array.isArray(risultati) ? risultati : []).map((r) => String(r).replace(/\s/g, "")).filter((r) => /^\d+-\d+$/.test(r));
+  if (ris.length < 3) return { giocata: scelta, corretta: false };
+  const dir = String(direzione || "").trim().toLowerCase();
+  const senzaVincitore = dir === "nessuna" || dir === "x";
+  const vite = (o: OpzioneGiocabile) => ris.filter((r) => evaluateMarketOutcome(o.codice, r) === true).length;
+  const ammessa = (o: OpzioneGiocabile) => (senzaVincitore || !o.soloIncertezza) && vite(o) >= 2;
+  if (scelta && ammessa(scelta)) return { giocata: scelta, corretta: false };
+  const migliore = opzioni.filter(ammessa).sort((a, b) => vite(b) - vite(a) || a.quota - b.quota)[0] ?? null;
+  return { giocata: migliore, corretta: true };
+}
 
 /** La giocata dell'AI e' valida solo se e' una delle opzioni giocabili. */
 export function giocataValida(giocata: unknown, opzioni: OpzioneGiocabile[]): OpzioneGiocabile | null {

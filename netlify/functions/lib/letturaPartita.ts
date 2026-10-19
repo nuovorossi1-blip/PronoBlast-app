@@ -23,7 +23,7 @@ import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
 import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
-import { testoScelta, SISTEMA_SCELTA, opzioniGiocabili, giocataValida } from "./sceltaAI";
+import { testoScelta, SISTEMA_SCELTA, opzioniGiocabili, giocataValida, controllaScelta } from "./sceltaAI";
 
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
@@ -404,11 +404,19 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const recente = (l: any) => l?.ragionamento && !quoteCambiate(l.quote, out.quote) ? l : null;
   const lAI = recente(x.numeri?.lettura_pro) ?? recente(x.numeri?.lettura_ai);
   if (lAI) {
-    const { opzioni } = opzioniGiocabili(m, lAI.direzione);
-    const g = giocataValida(lAI.giocata, opzioni);
+    // Le opzioni come le ha viste l'AI (anche quelle dell'incertezza, segnate), poi il controllo.
+    const { opzioni } = opzioniGiocabili(m, lAI.direzione, true);
+    const controllo = controllaScelta(giocataValida(lAI.giocata, opzioni), opzioni, lAI.risultati_probabili, lAI.direzione);
+    const g = controllo.giocata;
     out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
     out.ai = "scelta";
-    out.perche = lAI.ragionamento?.scelta || null;
+    const attesi = (lAI.risultati_probabili || []).join(", ");
+    const aiNessuna = !lAI.giocata || /^nessuna$/i.test(String(lAI.giocata).trim());
+    out.perche = controllo.corretta && g
+      ? (aiNessuna
+        ? `l'AI non ha scelto una giocata, ma i suoi risultati attesi (${attesi}) li copre meglio ${g.nome}`
+        : `l'AI aveva scelto ${lAI.giocata}, che non va d'accordo con i suoi risultati attesi (${attesi}): vale ${g.nome}, che li copre meglio`)
+      : lAI.ragionamento?.scelta || null;
     if (g) {
       const r = a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(g.codice));
       out.market = g.codice; out.nome = g.nome; out.quota = g.quota; out.stimata = g.stimata; out.daLasciare = null;
@@ -521,7 +529,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-2";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
