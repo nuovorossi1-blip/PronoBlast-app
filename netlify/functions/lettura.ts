@@ -128,7 +128,9 @@ export default async (req: Request): Promise<Response> => {
             } catch { /* resta il salvato */ }
           }
         }
-        if (!ai) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);
+        // Se la lettura nuova non arriva lo si dice (19/10/2026): prima tornava in silenzio quella vecchia,
+        // e "Leggila con l'AI" sembrava andato a buon fine senza cambiare niente.
+        if (!nuova) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);
       }
     }
     const { testo: _t, ...programma } = dati.programma;
