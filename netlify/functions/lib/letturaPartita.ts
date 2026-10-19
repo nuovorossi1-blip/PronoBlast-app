@@ -16,7 +16,7 @@
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
 import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
-import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, mgFavoritaEsclusa, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
+import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, evaluateMarketOutcome, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, mgFavoritaEsclusa, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
 import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
@@ -470,10 +470,27 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
         : `l'AI aveva scelto ${lAI.giocata}, che non va d'accordo con i suoi risultati attesi (${attesi}): vale ${g.nome}, che li copre meglio`)
       : lAI.ragionamento?.scelta || null;
     // BOOK, AI E STORICO (19/10/2026, Rossi): 3 su 3 si prende, 2 su 3 si valuta, meno non si gioca.
-    const rG = g ? a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(g!.codice)) : undefined;
-    const pSt = rG ? (rG.misurata ? Math.min(rG.misurata.pA, rG.misurata.pB) : rG.stima) : null;
+    const rigaDi = (codice: string) => a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(codice));
+    const pDi = (codice: string) => { const r0 = rigaDi(codice); return r0 ? (r0.misurata ? Math.min(r0.misurata.pA, r0.misurata.pB) : r0.stima) : null; };
     const risCoer = (proOra?.risultati_probabili?.length ? proOra.risultati_probabili : lAI.risultati_probabili) || [];
-    const co = g ? coerenza(g.codice, m, risCoer, pSt ?? null) : null;
+    let co = g ? coerenza(g.codice, m, risCoer, pDi(g.codice) ?? null) : null;
+    // Se la scelta dell'AI non e' 3 su 3 si guardano TUTTE le opzioni (19/10/2026, Rossi, Leverkusen-Friburgo:
+    // "la lascia se GG e' il pick migliore?"): vince quella con piu' voci d'accordo; a parita' quella
+    // dell'AI, poi quella che vince in piu' risultati attesi, poi la quota piu' bassa.
+    if (!aiLascia && (!co || co.n < co.su)) {
+      const valide = opzioni.filter((o) => !vietata(o) && (senzaVincitore || !o.soloIncertezza));
+      const prov = valide.map((o) => ({ o, c: coerenza(o.codice, m, risCoer, pDi(o.codice) ?? null) }));
+      const vite = (cod: string) => risCoer.filter((r: string) => evaluateMarketOutcome(cod, String(r).replace(/\s/g, "")) === true).length;
+      prov.sort((x1, x2) => x2.c.n - x1.c.n || Number(x2.o.codice === g?.codice) - Number(x1.o.codice === g?.codice) || vite(x2.o.codice) - vite(x1.o.codice) || x1.o.quota - x2.o.quota);
+      const top = prov[0];
+      if (top && (!co || top.c.n > co.n)) {
+        ripiego = `${g ? `la scelta dell'AI (${g.nome}) ha ${co?.n ?? 0} su ${co?.su ?? 3} d'accordo` : "l'AI non ha una giocata valida"}: ${top.o.nome} ne ha ${top.c.n} su ${top.c.su} (book, AI e storico)`;
+        g = top.o; co = top.c;
+        out.perche = ripiego;
+        if (g.codice !== controllo.giocata?.codice) out.copertura = null;
+      }
+    }
+    const rG = g ? rigaDi(g.codice) : undefined;
     out.coerenza = co;
     const nomiVoci = (c: NonNullable<typeof co>) => [c.book ? null : "il book", c.ai === false ? "l'AI" : null, c.storico === false ? "lo storico" : null].filter(Boolean).join(" e ");
     if (g && co && co.su >= 2 && co.n < 2) {
@@ -592,7 +609,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-8";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-9";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
