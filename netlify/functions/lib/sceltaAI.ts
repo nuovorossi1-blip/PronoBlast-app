@@ -55,13 +55,19 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
 /** Il blocco da aggiungere al testo della partita: lettura del book e opzioni giocabili. */
 export function testoScelta(m: any, direzioneAI?: string | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
   const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true);
+  const riga = (l: OpzioneGiocabile[]) => l.length
+    ? l.map((o) => `     - ${o.codice} = ${o.nome} @${q2(o.quota)}${o.stimata ? " (quota stimata)" : ""}`).join("\n")
+    : "     (nessuna)";
   const testo = `
 LETTURA DEL BOOK (quote dei gol):
   Over 1,5 ${q2(m.odd_o15)} · Under 2,5 ${q2(m.odd_u25)} / Over 2,5 ${q2(m.odd_o25)} · Under 3,5 ${q2(m.odd_u35)} / Over 3,5 ${q2(m.odd_o35)} · GG ${q2(m.odd_gg)} / NG ${q2(m.odd_ng)}
   1X2: 1 ${q2(m.odd_1)} · X ${q2(m.odd_x)} · 2 ${q2(m.odd_2)} · 1X ${q2(m.odd_1x)} · X2 ${q2(m.odd_x2)}
 SCENARIO DEL PROGRAMMA: ${scenario}
-OPZIONI GIOCABILI (pronostici dello scenario pagati da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il codice esatto):
-${opzioni.length ? opzioni.map((o) => `  - ${o.codice} = ${o.nome} @${q2(o.quota)}${o.stimata ? " (quota stimata)" : ""}${o.soloIncertezza ? " [SOLO se direzione = nessuna]" : ""}`).join("\n") : "  (nessuna: rispondi \"nessuna\")"}`;
+OPZIONI GIOCABILI (pagate da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il codice esatto):
+  A) SEMPRE GIOCABILI (pronostici dello scenario):
+${riga(opzioni.filter((o) => !o.soloIncertezza))}
+  B) IN PIU', SOLO SE AL PASSO 3 NON C'E' UN VINCITORE:
+${riga(opzioni.filter((o) => o.soloIncertezza))}`;
   return { testo, opzioni, scenario };
 }
 
@@ -73,7 +79,7 @@ Ragiona in questi 5 passi, nell'ordine:
 3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
 4. CHI SEGNA E CHI PRENDE GOL: per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
 5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
-Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni segnate [SOLO se direzione = nessuna] valgono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
+Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra, con i numeri delle ultime partite dello stesso tipo","ragionamento":{"book":"passo 2 in una frase","direzione":"passo 3 in una frase","segnano":"passo 4 con i numeri","scelta":"passo 5: perche' questa e non le altre"},"giocata":"codice esatto dall'elenco, oppure nessuna","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
@@ -104,5 +110,7 @@ export function giocataValida(giocata: unknown, opzioni: OpzioneGiocabile[]): Op
   // Il modello a volte ricopia la riga intera ("X oppure GG = X oppure GG @1,55 (quota stimata)"): conta il codice.
   const g = String(giocata || "").split(/\s=\s|\s@|\s\(/)[0].trim();
   if (!g || /^nessuna$/i.test(g)) return null;
-  return opzioni.find((o) => chiavePronostico(o.codice) === chiavePronostico(g)) ?? null;
+  // Anche scritta con il nome ("MG 1-3 Lorient" invece di "MG 1-3 casa").
+  const semplice = (x: string) => x.toLowerCase().replace(/\s+/g, " ").trim();
+  return opzioni.find((o) => chiavePronostico(o.codice) === chiavePronostico(g) || semplice(o.nome) === semplice(g)) ?? null;
 }

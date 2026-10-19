@@ -33,3 +33,9 @@ describe("giocata ricopiata con nome e quota (19/10/2026)", () => {
     assert.equal(giocataValida("MG 2-4 totali @1,54", opzioni)?.codice, "MG 2-4 totali");
   });
 });
+
+describe("giocata scritta con il nome della squadra (19/10/2026)", () => {
+  it("'MG 1-3 Lorient' vale MG 1-3 casa", () => {
+    assert.equal(giocataValida("MG 1-3 Lorient", opzioni)?.codice, "MG 1-3 casa");
+  });
+});
