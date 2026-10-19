@@ -224,6 +224,8 @@ export type ConsigliatoSalvato = {
   quote: QuoteFirma; quando: string;
   perche?: string | null;
   regole_versione?: string;
+  /** Rifatto a partita chiusa con le regole nuove (19/10/2026): quando. */
+  rifatto?: string;
 };
 
 /** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
@@ -306,22 +308,28 @@ export function xoggDaAI(numeri: any): boolean {
   return ris.length === 3 && ris.every(([c, o]: number[]) => c === o || (c > 0 && o > 0));
 }
 
-export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true): Promise<ConsigliatoSalvato | null> {
+/**
+ * rifai (19/10/2026, Rossi: "le partite chiuse, come sarebbero state pronosticate con queste regole: il
+ * pronostico cambia solo ora e poi non cambia"): ricalcola anche a partita iniziata o finita. Il
+ * consigliato vero di prima del via resta in numeri.consigliato_prima_del_via (non si perde).
+ */
+export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<typeof datiLettura>>, salva = true, opz: { rifai?: boolean } = {}): Promise<ConsigliatoSalvato | null> {
   const x = dati ?? (await datiLettura(matchId));
   if (!x) return null;
   const m = x.match;
+  const rifai = !!opz.rifai;
   // PARTITA INIZIATA O FINITA (10/10/2026, Rossi: niente interferenze): il
   // consigliato salvato e' quello che si e' giocato e non cambia piu', ne'
   // per un Excel caricato dopo l'inizio, ne' per i risultati che aggiornano
   // la tabella scenari, ne' per un Pronostico AI. Si calcola solo se non
   // c'era (prima volta), con le quote della partita.
-  if (partitaIniziata(m) && x.numeri?.consigliato) return x.numeri.consigliato as ConsigliatoSalvato;
+  if (!rifai && partitaIniziata(m) && x.numeri?.consigliato) return x.numeri.consigliato as ConsigliatoSalvato;
   // ULTIMA ORA (15/10/2026 sera, Rossi: "un'ora prima dell'inizio e' l'ultima volta che puo' cambiare"):
   // da 60 minuti prima del via il pronostico salvato resta, qualunque cosa venga lanciata (AI, giri,
   // tabella); cambia ancora solo se cambiano le quote, fino al calcio d'inizio.
   const salvatoPrima = x.numeri?.consigliato as ConsigliatoSalvato | undefined;
   const inizioM = inizioPartitaMs(m.day, m.time);
-  if (salvatoPrima && inizioM !== null && Date.now() >= inizioM - 60 * 60 * 1000 && !quoteCambiate(salvatoPrima.quote, firmaQuote(m))) return salvatoPrima;
+  if (!rifai && salvatoPrima && inizioM !== null && Date.now() >= inizioM - 60 * 60 * 1000 && !quoteCambiate(salvatoPrima.quote, firmaQuote(m))) return salvatoPrima;
   const odds: any = rowToOdds(m);
   const s: any = structuralAnalysis(odds, 1.4);
   const st = s.structure;
@@ -431,8 +439,13 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
       // apertura senza ricalcolare (Rossi 07/10/2026: "una volta calcolato
       // deve salvarlo; se variano le quote puo' cambiare").
       const { testo: _t, ...programma } = pr;
+      if (rifai) out.rifatto = new Date().toISOString();
       if (numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(matchId)}`, {
-        numeri: { ...numeri, consigliato: out, programma: { ...programma, quote: out.quote } },
+        numeri: {
+          ...numeri, consigliato: out, programma: { ...programma, quote: out.quote },
+          // Il vero pronostico di prima del via non si perde: si tiene la prima volta che si rifa'.
+          ...(rifai && numeri.consigliato && !numeri.consigliato_prima_del_via ? { consigliato_prima_del_via: numeri.consigliato } : {}),
+        },
       });
       // UN SOLO CONSIGLIATO (13/10/2026, Rossi): la giocata in lista e in
       // Schedina (pick_finale) e' questa, la stessa della scheda e del bot.

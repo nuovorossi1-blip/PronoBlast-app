@@ -3505,6 +3505,8 @@ export type ConsigliatoSalvato = {
   tradotto_da?: string | null;
   /** Perche' e' stata scelta (19/10/2026); assente nei consigliati salvati prima. */
   perche?: string | null;
+  /** Rifatto a partita chiusa con le regole nuove (19/10/2026): quando. */
+  rifatto?: string;
 };
 
 /** Una giocata del Pronostico regole. p: archivio (n >= 300) o misura delle coppe; se mancano, il modello (15/10/2026). */

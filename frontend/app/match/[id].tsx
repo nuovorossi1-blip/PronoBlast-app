@@ -752,7 +752,7 @@ export default function MatchDetail() {
                 </>
               ) : <Text style={styles.golPic}>{letturaInCorso ? "La valutazione AI sta arrivando…" : "Non ancora disponibile."}</Text>}
 
-              <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>{match.result ? "SCELTA FINALE (PRIMA DEL VIA)" : "SCELTA FINALE"}</Text>
+              <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>{cs?.rifatto ? "SCELTA FINALE (RIFATTA CON LE REGOLE NUOVE)" : match.result ? "SCELTA FINALE (PRIMA DEL VIA)" : "SCELTA FINALE"}</Text>
               {scelta ? (
                 <>
                   <Text style={{ color: vinto === true ? colors.success : vinto === false ? colors.danger : colors.text, fontSize: 22, fontWeight: "900" }}>
