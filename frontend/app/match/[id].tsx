@@ -751,7 +751,7 @@ export default function MatchDetail() {
                           {`${su ? "★" : v.regge ? "✓" : "✗"} ${v.nome}${v.quota ? ` @${q2(v.quota)}${v.stimata ? "*" : ""}` : ""}  ·  ${v.gruppo === "ripiego" ? (per.ripiego ? "ripiego" : "ripiego (non serve)") : "scenario"}`}
                         </Text>
                         <Text style={styles.golPic}>
-                          {`Book ${v.book ? "✓" : "✗"} · AI ${v.viteAI == null ? "–" : `${v.viteAI} su 3`} · storico ${v.pStorico != null ? pc(v.pStorico) : "–"}${v.pCampionato != null ? ` · campionato ${pc(v.pCampionato)}` : ""}`}
+                          {`Book ${v.book ? "✓" : "✗"} · AI ${v.viteAI == null ? "–" : `${v.viteAI} su 3`} · storico ${v.pStorico != null ? pc(v.pStorico) : "–"}${v.pCampionato != null ? ` · campionato ${pc(v.pCampionato)}` : ""}${v.squadre ? ` · ultime 5 squadre ${v.squadre.vinte}/${v.squadre.su}` : ""}${v.pMedia != null ? ` · media ${pc(v.pMedia)}` : ""}`}
                         </Text>
                         {v.perche ? <Text style={styles.golPic}>{`Perché: ${v.perche}`}</Text> : null}
                         {!v.regge && v.manca ? <Text style={styles.golPic}>{`Non regge: ${v.manca}`}</Text> : null}

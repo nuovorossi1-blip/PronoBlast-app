@@ -416,7 +416,10 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const recente = (l: any) => l?.risultati_probabili?.length && !quoteCambiate(l.quote, out.quote) ? l : null;
   const lAI = recente(x.numeri?.lettura_pro) ?? recente(x.numeri?.lettura_ai);
   const camp = await risultatiCampionato(m.manifestazione, m.day).catch(() => null);
-  const per = percorsoScelta({ m, scenario: nota?.scenario ?? "senza scenario", righe: a.righe, ai: lAI, campionato: camp });
+  // Le ultime 5 delle due squadre: quella appena scaricata, o quella salvata dalla scheda (forma_gol), o FotMob.
+  const forma = x.forma ?? x.numeri?.forma_gol?.dati
+    ?? await formaGol({ giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizioPartitaMs(m.day, m.time) }, x.numeri?.fotmob_id).catch(() => null);
+  const per = percorsoScelta({ m, scenario: nota?.scenario ?? "senza scenario", righe: a.righe, ai: lAI, campionato: camp, forma });
   const v = per.scelta ? per.voci.find((o) => o.codice === per.scelta) ?? null : null;
   out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
   out.percorso = per; out.copertura = null; out.avvisi = [];
@@ -469,7 +472,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-percorso-1";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-percorso-2";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

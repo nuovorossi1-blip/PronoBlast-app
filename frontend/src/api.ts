@@ -3582,6 +3582,10 @@ export type VocePercorso = {
   ai: boolean | null;
   pStorico: number | null; nStorico: number | null;
   pCampionato: number | null;
+  /** Ultime 5 delle due squadre (stesso tipo di competizione): partite in cui il mercato e' uscito, su quante. */
+  squadre: { vinte: number; su: number } | null;
+  /** Media delle misure disponibili (storico, campionato, squadre): decide la migliore. */
+  pMedia: number | null;
   storico: boolean | null;
   regge: boolean;
   /** Il perche' si' / perche' no di sempre (analizzaGiocate). */

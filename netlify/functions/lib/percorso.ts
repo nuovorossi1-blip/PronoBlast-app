@@ -12,7 +12,10 @@
  *  3. AI e BOOK allineati? Un mercato regge se il book lo conferma, vince in almeno 2 dei 3 risultati attesi
  *     dell'AI e lo storico lo da' almeno al 58% (come il vecchio "buona"). Se nessun mercato dello scenario regge -> RIPIEGO.
  *  4. RIPIEGO: MG totali 2-4, Under 3,5, 1X, X2 (1,40-1,60) e X o GG (1,62-1,90), con le stesse prove.
- *  5. Fra quelli che reggono vince il piu' probabile (storico, poi campionato, poi la quota piu' alta).
+ *  5. Fra quelli che reggono vince il piu' probabile: media di storico, campionato e ultime 5 delle due
+ *     squadre (Rossi: "quante volte quel campionato va under, le due squadre nelle ultime cinque quante
+ *     volte sono andate under o MG 2-4: da li' si capisce qual e' la migliore"). Under 3,5 solo fino a 1,45
+ *     (Rossi: "superato 1,45 e' molto rischioso"; archivio 1,45-1,59: vince il 62%, 38% con 4+ gol).
  *     Nessuno regge -> partita da lasciare.
  */
 import { bookConferma, quotaMercato } from "./sceltaAI";
@@ -29,6 +32,8 @@ export function percorsoScelta(x: {
   righe: RigaGiocata[];
   ai: { direzione?: string | null; giocata?: string | null; mercato?: string | null; risultati_probabili?: string[] | null; notizia?: string | null } | null;
   campionato: { n: number; ris: string[] } | null;
+  /** Ultime partite delle due squadre (formaGol: totale.partite con fatti/subiti). */
+  forma?: { casa?: { totale?: { partite?: { fatti: number; subiti: number }[] } }; ospite?: { totale?: { partite?: { fatti: number; subiti: number }[] } } } | null;
 }): Percorso {
   const { m, scenario } = x;
   const favCasa = Number(m.odd_1) <= Number(m.odd_2);
@@ -42,11 +47,18 @@ export function percorsoScelta(x: {
   const dirAI = String(x.ai?.direzione || "").trim().toLowerCase();
   const camp = x.campionato && x.campionato.n >= 30 ? x.campionato : null;
   const riga = (c: string) => x.righe.find((r) => normalizeMarket(r.market) === normalizeMarket(c));
+  // Le ultime 5 di ognuna: solo i mercati che non dipendono da chi gioca in casa (gol totali, GG, X o GG).
+  const ultime = [...(x.forma?.casa?.totale?.partite ?? []).slice(0, 5), ...(x.forma?.ospite?.totale?.partite ?? []).slice(0, 5)]
+    .filter((p) => Number.isFinite(p.fatti) && Number.isFinite(p.subiti));
+  const simmetrico = (c: string) => /totali$|^GG|^O\d|^U\d|^X oppure GG$/.test(c) && !/casa|ospite/.test(c);
+  const squadreDi = (c: string) => simmetrico(c) && ultime.length >= 6
+    ? { vinte: ultime.filter((p) => evaluateMarketOutcome(c, `${p.fatti}-${p.subiti}`) === true).length, su: ultime.length } : null;
 
   const voce = (codice: string, gruppo: "scenario" | "ripiego"): VocePercorso => {
     const q = quotaMercato(m, codice);
     const xogg = codice === "X oppure GG";
-    const nelRange = !!q && (xogg ? q.quota >= 1.62 && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= 1.6 + 1e-9);
+    const u35 = codice === "U3.5";
+    const nelRange = !!q && (xogg ? q.quota >= 1.62 && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= (u35 ? 1.45 : 1.6) + 1e-9);
     const book = bookConferma(codice, m);
     let viteAI: number | null = ris.length === 3 ? ris.filter((r) => evaluateMarketOutcome(codice, r) === true).length : null;
     let ai: boolean | null = viteAI == null ? null : viteAI >= 2;
@@ -56,18 +68,26 @@ export function percorsoScelta(x: {
     const pStorico = r ? (r.misurata ? Math.min(r.misurata.pA, r.misurata.pB) : r.stima) : null;
     const pCampionato = camp ? camp.ris.filter((s) => evaluateMarketOutcome(codice, s) === true).length / camp.n : null;
     const pRif = pStorico ?? pCampionato;
+    const squadre = squadreDi(codice);
+    const misure = [pStorico, pCampionato, squadre ? squadre.vinte / squadre.su : null].filter((v) => v != null) as number[];
+    const pMedia = misure.length ? misure.reduce((t, v) => t + v, 0) / misure.length : null;
     // Regge come il vecchio "buona" (almeno 58% nel caso peggiore: MG 2-4 al 61% / 59% su Monza e Kalmar).
     const storico = pRif == null ? null : pRif >= 0.58;
     const regge = nelRange && book && ai !== false && storico === true;
     const manca = !q ? "nessuna quota"
-      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da 1,62 a 1,90` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
+      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da 1,62 a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
       : [!book ? "il book non lo conferma" : null, ai === false ? (viteAI != null && viteAI < 2 ? `l'AI: vince solo in ${viteAI} dei 3 risultati attesi` : "l'AI non vede questo vincitore") : null,
         storico === false ? `lo storico lo da' solo al ${pc(pRif!)}` : storico == null ? "nessun dato di storico" : null].filter(Boolean).join("; ");
     const perche = (r?.perche || "").replace(/^★ consigliato:\s*/, "");
-    return { codice, nome: nomeDi(codice), quota: q?.quota ?? null, stimata: !!q?.stimata, gruppo, nelRange, book, viteAI, ai, pStorico, nStorico: r?.misurata?.n ?? null, pCampionato, storico, regge, perche, manca };
+    return { codice, nome: nomeDi(codice), quota: q?.quota ?? null, stimata: !!q?.stimata, gruppo, nelRange, book, viteAI, ai, pStorico, nStorico: r?.misurata?.n ?? null, pCampionato, squadre, pMedia, storico, regge, perche, manca };
   };
   const migliore = (v: VocePercorso[]) => v.filter((o) => o.regge).sort((a, b) =>
-    ((b.pStorico ?? b.pCampionato ?? 0) - (a.pStorico ?? a.pCampionato ?? 0)) || ((b.pCampionato ?? 0) - (a.pCampionato ?? 0)) || ((b.quota ?? 0) - (a.quota ?? 0)))[0] ?? null;
+    ((b.pMedia ?? 0) - (a.pMedia ?? 0)) || ((b.quota ?? 0) - (a.quota ?? 0)))[0] ?? null;
+  const misureDi = (v: VocePercorso) => [
+    v.pStorico != null ? `storico ${pc(v.pStorico)}` : null,
+    v.pCampionato != null ? `campionato ${pc(v.pCampionato)}` : null,
+    v.squadre ? `ultime 5 delle due squadre ${v.squadre.vinte} su ${v.squadre.su}` : null,
+  ].filter(Boolean).join(", ");
 
   const passi: Percorso["passi"] = [];
   const gapFalso = scenario === "Gap falso";
@@ -124,8 +144,8 @@ export function percorsoScelta(x: {
     const altre = (ripiego ? rip : scen).filter((v) => v.regge && v !== scelta);
     passi.push({
       titolo: "Scelta",
-      testo: `${scelta.nome} @${q2(scelta.quota)}: book ✓, AI ${scelta.ai == null ? "–" : `✓ (${scelta.viteAI} su 3)`}, storico ✓ (${pc(scelta.pStorico ?? scelta.pCampionato ?? 0)}${scelta.pCampionato != null ? `, campionato ${pc(scelta.pCampionato)}` : ""}).` +
-        (altre.length ? ` È la più probabile fra quelle che reggono (${altre.map((v) => `${v.nome} ${pc(v.pStorico ?? v.pCampionato ?? 0)}`).join(", ")}).` : ""),
+      testo: `${scelta.nome} @${q2(scelta.quota)}: book ✓, AI ${scelta.ai == null ? "–" : `✓ (${scelta.viteAI} su 3)`}; ${misureDi(scelta)}${scelta.pMedia != null ? ` (media ${pc(scelta.pMedia)})` : ""}.` +
+        (altre.length ? ` È la più probabile fra quelle che reggono: ${altre.map((v) => `${v.nome} media ${pc(v.pMedia ?? 0)} (${misureDi(v)})`).join("; ")}.` : ""),
     });
   } else {
     lascia = ripiego ? "nessun mercato di ripiego regge (book, AI e storico): partita da lasciare" : "nessun mercato regge: partita da lasciare";
