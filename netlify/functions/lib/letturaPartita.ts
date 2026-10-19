@@ -406,7 +406,10 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   if (lAI) {
     // Le opzioni come le ha viste l'AI (anche quelle dell'incertezza, segnate), poi il controllo.
     const { opzioni } = opzioniGiocabili(m, lAI.direzione, true, { casa: pr?.assenti_casa, ospite: pr?.assenti_ospite });
-    const controllo = controllaScelta(giocataValida(lAI.giocata, opzioni), opzioni, lAI.risultati_probabili, lAI.direzione);
+    // "nessuna" scritta dall'AI = si lascia (Rossi 19/10/2026, Lorient-Monaco: "lascia andare"); il controllo
+    // sceglie al suo posto solo se la giocata manca o non e' fra le opzioni.
+    const aiLascia = /^\s*nessuna\s*$/i.test(String(lAI.giocata || ""));
+    const controllo = aiLascia ? { giocata: null, corretta: false } : controllaScelta(giocataValida(lAI.giocata, opzioni), opzioni, lAI.risultati_probabili, lAI.direzione);
     // GAP, FAVORITA CON 3+ ASSENTI (19/10/2026, Rossi: "si"): il segno secco diventa doppia chance + Over 1,5
     // (pareggi 20% contro 15%; 1X/X2 + Over 1,5 77% contro il fisso 73%), se e' fra le opzioni e vince in
     // almeno 2 dei risultati attesi dell'AI.
@@ -541,7 +544,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-3";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-4";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

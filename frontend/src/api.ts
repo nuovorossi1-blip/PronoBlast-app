@@ -3703,7 +3703,8 @@ export function pronosticiDelloScenario(scenario: string | null | undefined, odd
   if (sc.startsWith("Gap Tecnico")) base = [fav, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, `DC ${dc} + GG`, "GG", "O2.5", "GG + O2.5"];
   else if (sc === "Gap falso") base = ["U3.5"];
   else if (sc === "Progressione") base = [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`, fav, `DC ${dc} + O1.5`, "GG"];
-  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 2-4 totali", "MG 3-6 totali"];
+  // 19/10/2026 (Rossi): "scenario equilibrio, mercati da prendere in considerazione GG, Over, 1X, X2, MG 3-6 e X o GG".
+  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 3-6 totali"];
   const incertezza = aiSenzaVincitore ? ["MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "U3.5", "X oppure GG"] : [];
   void altro;
   return new Set([...base, ...incertezza].map(chiavePronostico));

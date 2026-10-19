@@ -54,7 +54,10 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
     if (!chiavi.has(chiavePronostico(c)) || isMercatoVietato(c) || mgFavoritaEsclusa(c, scenario, odds)) continue;
     const reale = REALI[c] ? Number(m[REALI[c]]) : null;
     const quota = reale && reale > 1 ? reale : c === "X oppure GG" ? quotaXoppureGG(odds) : cat[c]?.odd ?? estimateMarketOdd(c, odds);
-    if (!quota || quota < 1.4 || quota > 1.6 + 1e-9) continue;
+    // X o GG e' la giocata "di sicurezza": vale solo se il book la paga almeno 1,62 (Rossi 19/10/2026,
+    // Paris FC-Rennes: "per X o GG serve la quota 1,62, senno' ripiega in GG"). Le altre da 1,40 a 1,60.
+    const xogg = c === "X oppure GG";
+    if (!quota || (xogg ? quota < 1.62 || quota > 1.9 : quota < 1.4 || quota > 1.6 + 1e-9)) continue;
     const soloIncertezza = !delloScenario.has(chiavePronostico(c)) && chiavePronostico(c) !== chiavePronostico("GG");
     opzioni.push({ codice: c, nome: nomeDi(c), quota, stimata: !(reale && reale > 1), ...(soloIncertezza ? { soloIncertezza } : {}) });
   }
@@ -109,7 +112,17 @@ Ragiona in questi 5 passi, nell'ordine:
 3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
 4. CHI SEGNA E CHI PRENDE GOL, usando i FATTI GIA' CONTATI DAL PROGRAMMA (se la favorita ha assenti pesanti in ATTACCO, il pareggio diventa piu' probabile: se fra le opzioni c'e' la doppia chance + Over 1,5, preferiscila al segno secco): per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
 5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
-Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
+COME SI LEGGONO LE QUOTE (regole del proprietario):
+- Doppia chance: quella piu' bassa (1X o X2) indica da che parte pende la partita; se e' sotto 1,40 non ha valore, non rischiarla.
+- Over 1,5 basso = almeno 2 gol. Over 2,5 = via di mezzo. Under 3,5 sotto 1,50 = partita non troppo esplosiva, da 2 a 4 (forse 5) gol.
+- Over 1,5 e Under 3,5 molto simili, e Over/Under 2,5 vicini = il book NON sa quanti gol: non si gioca sulla quantita' di gol, si guarda chi puo' segnare.
+- GG basso (sotto 1,60) e AI/numeri che dicono "segnano entrambe" = GG. GG a 1,70 o piu' = il book non e' sicuro.
+- X oppure GG e' la scelta di sicurezza (copre pareggio e GG): compare tra le opzioni solo quando e' pagata almeno 1,62; altrimenti si ripiega sul GG.
+- LASCIARE ("nessuna") e' una scelta giusta quando: la quantita' di gol non si legge, il GG non e' sicuro e la direzione non ha valore (quota troppo bassa). Meglio lasciare che giocare senza valore.
+ESEMPI DI RAGIONAMENTO:
+- Paris FC-Rennes (Equilibrio; 1X 1,33, X2 1,67; Over 1,5 1,18; Over 2,5 1,65; Under 3,5 1,45; GG 1,52): 1X piu' basso = pende per il Paris FC, ma 1,33 e' troppo bassa. Over 1,5 basso e Under 3,5 sotto 1,50 = da 2 a 4-5 gol. GG basso e segnano entrambe = GG. X o GG solo se pagato 1,62, altrimenti GG. GIOCATA: GG.
+- Lorient-Monaco (Equilibrio; Over 1,5 e Under 3,5 entrambi 1,27; Over 2,5 1,90 e Under 2,5 1,80; GG 1,72; X2 1,28): il book non sa se saranno meno o piu' di 2,5 gol; GG a 1,72 non e' sicuro; la direzione (Monaco vince o pareggia) ha solo X2 a 1,28, senza valore. Partita troppo rischiosa: GIOCATA: nessuna.
+Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" quando ogni opzione perde con il risultato piu' probabile, oppure nel caso LASCIARE descritto sopra.
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
 La "giocata" e' OBBLIGATORIA: scrivi sempre un codice dell'elenco (o "nessuna" solo nel caso detto sopra), mai vuota.
 Rispondi SOLO con questo JSON:
