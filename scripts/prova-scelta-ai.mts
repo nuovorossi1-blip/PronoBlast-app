@@ -5,7 +5,7 @@
  * Uso (dalla cartella server-locale): npx tsx --env-file=.env ../scripts/prova-scelta-ai.mts <id> [<id> ...] [--pro]
  */
 import { datiLettura, MODELLI_GRATIS } from "../netlify/functions/lib/letturaPartita";
-import { testoScelta, SISTEMA_SCELTA, giocataValida } from "../netlify/functions/lib/sceltaAI";
+import { testoScelta, testoFatti, SISTEMA_SCELTA, giocataValida } from "../netlify/functions/lib/sceltaAI";
 import { callLlm } from "../netlify/functions/lib/llmProviders";
 import { opzioneDaId, modelloScelto } from "../netlify/functions/lib/llmScelta";
 
@@ -26,7 +26,7 @@ for (const id of ids) {
   for (const opt of modelli) {
     if (!opt || fatto) continue;
     try {
-      const r = await callLlm(opt, SISTEMA_SCELTA, x.testo + "\n" + testo);
+      const r = await callLlm(opt, SISTEMA_SCELTA, x.testo + testoFatti(x.forma, { casa: m.squadra1, ospite: m.squadra2 }) + "\n" + testo);
       const j = JSON.parse((r.match(/\{[\s\S]*\}/) || [""])[0]);
       const g = giocataValida(j.giocata, opzioni);
       console.log(`[${opt.label}] direzione ${j.direzione} · risultati ${JSON.stringify(j.risultati_probabili)}`);

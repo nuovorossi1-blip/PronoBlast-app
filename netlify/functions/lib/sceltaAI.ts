@@ -61,6 +61,27 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
   return { scenario, opzioni };
 }
 
+/**
+ * I FATTI GIA' CONTATI (19/10/2026, Rossi: "deve farlo l'AI, senno' a che serve"): il modello gratis
+ * sbagliava a contare (Paris FC "3 gol nelle ultime 3" elencandone 4). Il programma conta, l'AI ragiona.
+ * Ultime 5 dello stesso tipo di competizione (formaGol), per squadra.
+ */
+export function testoFatti(forma: any, nomi: { casa: string; ospite: string }): string {
+  if (!forma?.casa?.totale?.partite || !forma?.ospite?.totale?.partite) return "";
+  const riga = (s: any, nome: string) => {
+    const p: any[] = s.totale.partite || [];
+    if (!p.length) return `  - ${nome}: nessuna partita`;
+    const segn = p.filter((x) => x.fatti > 0).length, sub = p.filter((x) => x.subiti > 0).length;
+    const gg = p.filter((x) => x.fatti > 0 && x.subiti > 0).length, o25 = p.filter((x) => x.fatti + x.subiti >= 3).length;
+    const fatti = p.reduce((a, x) => a + x.fatti, 0), subiti = p.reduce((a, x) => a + x.subiti, 0);
+    const v = p.filter((x) => x.fatti > x.subiti).length, n = p.filter((x) => x.fatti === x.subiti).length;
+    return `  - ${nome} (ultime ${p.length}): ha segnato in ${segn}/${p.length}, ha preso gol in ${sub}/${p.length}, GG in ${gg}/${p.length}, almeno 3 gol in ${o25}/${p.length}; ` +
+      `${fatti} gol fatti e ${subiti} subiti; ${v} vinte, ${n} pari, ${p.length - v - n} perse (${p.map((x) => `${x.in_casa ? "" : "@"}${x.avversario} ${x.fatti}-${x.subiti}`).join(", ")})`;
+  };
+  const tipo = forma.tipo ? `partite di ${forma.tipo} come questa` : "tutte le competizioni";
+  return `\nFATTI GIA' CONTATI DAL PROGRAMMA (${tipo}; usali cosi', non ricontare):\n${riga(forma.casa, nomi.casa)}\n${riga(forma.ospite, nomi.ospite)}`;
+}
+
 /** Il blocco da aggiungere al testo della partita: lettura del book e opzioni giocabili. */
 export function testoScelta(m: any, direzioneAI?: string | null, assenti?: { casa?: number | null; ospite?: number | null } | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
   const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true, assenti);
@@ -86,10 +107,11 @@ Ragiona in questi 5 passi, nell'ordine:
 1. SCENARIO: e' gia' scritto (Gap Tecnico, Gap falso, Progressione, Equilibrio). Le opzioni sono gia' solo quelle dello scenario.
 2. IL BOOK: leggi la LETTURA DEL BOOK. Over 1,5 molto basso = almeno 2 gol quasi sicuri. Under 3,5 basso o Under e Over 3,5 vicini = il book NON crede a 4 o piu' gol. Over 3,5 sotto 1,60 = goleada possibile. GG basso (sotto 1,60) = segnano tutte e due. Scrivi la fascia di gol che il book si aspetta (es. "2-4 gol, segnano entrambe").
 3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
-4. CHI SEGNA E CHI PRENDE GOL (se la favorita ha assenti pesanti in ATTACCO, il pareggio diventa piu' probabile: se fra le opzioni c'e' la doppia chance + Over 1,5, preferiscila al segno secco): per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
+4. CHI SEGNA E CHI PRENDE GOL, usando i FATTI GIA' CONTATI DAL PROGRAMMA (se la favorita ha assenti pesanti in ATTACCO, il pareggio diventa piu' probabile: se fra le opzioni c'e' la doppia chance + Over 1,5, preferiscila al segno secco): per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
 5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
 Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni del gruppo A valgono sempre, con o senza vincitore. Quelle del gruppo B si aggiungono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
 Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
+La "giocata" e' OBBLIGATORIA: scrivi sempre un codice dell'elenco (o "nessuna" solo nel caso detto sopra), mai vuota.
 Rispondi SOLO con questo JSON:
 {"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra, con i numeri delle ultime partite dello stesso tipo","ragionamento":{"book":"passo 2 in una frase","direzione":"passo 3 in una frase","segnano":"passo 4 con i numeri","scelta":"passo 5: perche' questa e non le altre"},"giocata":"codice esatto dall'elenco, oppure nessuna","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
 

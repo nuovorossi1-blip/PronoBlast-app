@@ -23,7 +23,7 @@ import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
 import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
-import { testoScelta, SISTEMA_SCELTA, opzioniGiocabili, giocataValida, controllaScelta } from "./sceltaAI";
+import { testoScelta, testoFatti, SISTEMA_SCELTA, opzioniGiocabili, giocataValida, controllaScelta } from "./sceltaAI";
 
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
@@ -173,7 +173,7 @@ export async function generaLetturaAI(
       // Scelta ragionata (19/10/2026, "ok AI"): stesse istruzioni per la gratis e per il Pronostico AI,
       // con la lettura del book e le opzioni giocabili della partita.
       const scelta = testoScelta(x.match, x.numeri?.lettura_ai?.direzione ?? null, { casa: x.programma?.assenti_casa, ospite: x.programma?.assenti_ospite });
-      const risposta = await callLlm(opt, SISTEMA_SCELTA, x.testo + "\n" + scelta.testo);
+      const risposta = await callLlm(opt, SISTEMA_SCELTA, x.testo + testoFatti(x.forma, { casa: x.match.squadra1, ospite: x.match.squadra2 }) + "\n" + scelta.testo);
       const j = JSON.parse((risposta.match(/\{[\s\S]*\}/) || [""])[0]);
       if (!j?.lettura || String(j.lettura).replace(/[^a-z]/gi, "").length < 40) continue;   // vuota o a puntini
       const str = (v: any, max = 600) => (typeof v === "string" ? v.trim().slice(0, max) : "");
