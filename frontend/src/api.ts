@@ -3523,6 +3523,8 @@ export type ConsigliatoSalvato = {
   rifatto?: string;
   /** Copertura (non giocata principale): es. 1X + Over 1,5 con la favorita senza 3+ giocatori (19/10/2026). */
   copertura?: { market: string; nome: string; quota: number; perche: string } | null;
+  /** Book, AI e storico d'accordo sulla giocata (19/10/2026): n su su. */
+  coerenza?: { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number } | null;
 };
 
 /** Una giocata del Pronostico regole. p: archivio (n >= 300) o misura delle coppe; se mancano, il modello (15/10/2026). */

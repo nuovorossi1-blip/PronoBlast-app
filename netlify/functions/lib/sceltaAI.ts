@@ -152,6 +152,53 @@ export function controllaScelta(
   return { giocata: migliore, corretta: true };
 }
 
+/**
+ * BOOK, AI E STORICO (19/10/2026, Rossi: "devono essere coerenti book, AI e storico: se 2 su 3 saltano non si
+ * gioca, se 2 su 3 sono coerenti si valuta, se 3 su 3 sono coerenti si prende").
+ *  - book: la quota conferma la lettura del mercato (regole di lettura del proprietario);
+ *  - AI: la giocata vince in almeno 2 dei 3 risultati attesi;
+ *  - storico: nelle partite simili in archivio entra almeno il 60% (pStorico).
+ */
+export type Coerenza = { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number };
+export function bookConferma(codice: string, m: any): boolean {
+  const q = (k: string) => Number(m[k]) > 1 ? Number(m[k]) : null;
+  const q1 = q("odd_1"), q2 = q("odd_2"), d1 = q("odd_1x"), d2 = q("odd_x2");
+  const o15 = q("odd_o15"), o25 = q("odd_o25"), u35 = q("odd_u35"), o35 = q("odd_o35"), gg = q("odd_gg");
+  const fav = q1 != null && q2 != null ? (q1 <= q2 ? "1" : "2") : null;
+  const qFav = fav === "1" ? q1 : q2;
+  const lato = fav === "1" ? "casa" : "ospite";
+  const c = codice.trim();
+  if (c === "1" || c === "2") return c === fav && qFav != null && qFav < 2;
+  if (c === "1X" || c === "X2" || /^DC (1X|X2) \+/.test(c)) {
+    const lungo = c.includes("1X") ? "1X" : "X2";
+    const alto = lungo === "1X" ? d1 : d2, altro = lungo === "1X" ? d2 : d1;
+    return alto != null && (altro == null || alto <= altro);
+  }
+  if (c === "GG") return gg != null && gg < 1.7;
+  if (c === "GG + O2.5") return gg != null && gg < 1.6 && o25 != null && o25 < 1.6;
+  if (c === "O2.5") return o25 != null && o25 < 1.7;
+  if (c === "U3.5") return u35 != null && u35 < 1.55;
+  if (c === "X oppure GG") return gg != null && gg < 1.7;
+  if (c === "MG 2-4 totali") return o15 != null && o15 < 1.35 && u35 != null && u35 < 1.6;
+  if (c === "MG 1-3 totali") return u35 != null && u35 < 1.5;
+  if (c === "MG 3-6 totali") return o25 != null && o25 < 1.55;
+  const mg = /^MG (\d)-(\d) (casa|ospite)$/.exec(c);
+  if (mg) {
+    if (mg[3] !== lato) return u35 != null && u35 < 1.6; // MG della sfavorita: partita non esplosiva
+    return qFav != null && qFav < 2 && (mg[2] === "4" ? o35 != null && o35 < 2.3 : u35 != null && u35 < 1.7);
+  }
+  if (/^MG \d-\d (casa|ospite) \+ MG \d-\d (casa|ospite)$/.test(c)) return qFav != null && qFav < 2 && u35 != null && u35 < 1.7;
+  return false;
+}
+export function coerenza(codice: string, m: any, risultatiAI: unknown, pStorico: number | null): Coerenza {
+  const ris = (Array.isArray(risultatiAI) ? risultatiAI : []).map((r) => String(r).replace(/\s/g, "")).filter((r) => /^\d+-\d+$/.test(r));
+  const book = bookConferma(codice, m);
+  const ai = ris.length >= 3 ? ris.filter((r) => evaluateMarketOutcome(codice, r) === true).length >= 2 : null;
+  const storico = pStorico == null ? null : pStorico >= 0.6;
+  const voci = [book, ai, storico].filter((v) => v !== null) as boolean[];
+  return { book, ai, storico, n: voci.filter(Boolean).length, su: voci.length };
+}
+
 /** La giocata dell'AI e' valida solo se e' una delle opzioni giocabili. */
 export function giocataValida(giocata: unknown, opzioni: OpzioneGiocabile[]): OpzioneGiocabile | null {
   // Il modello a volte ricopia la riga intera ("X oppure GG = X oppure GG @1,55 (quota stimata)"): conta il codice.

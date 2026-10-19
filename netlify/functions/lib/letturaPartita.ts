@@ -23,7 +23,7 @@ import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
 import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
-import { testoScelta, testoFatti, SISTEMA_SCELTA, opzioniGiocabili, giocataValida, controllaScelta } from "./sceltaAI";
+import { testoScelta, testoFatti, SISTEMA_SCELTA, opzioniGiocabili, giocataValida, controllaScelta, coerenza } from "./sceltaAI";
 
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
@@ -246,6 +246,8 @@ export type ConsigliatoSalvato = {
   rifatto?: string;
   /** Copertura (non giocata principale): es. 1X + Over 1,5 con la favorita senza 3+ giocatori (19/10/2026). */
   copertura?: { market: string; nome: string; quota: number; perche: string } | null;
+  /** Book, AI e storico d'accordo sulla giocata (19/10/2026): n su su. */
+  coerenza?: { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number } | null;
 };
 
 /** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
@@ -417,19 +419,43 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     // sceglie al suo posto solo se la giocata manca o non e' fra le opzioni.
     const aiLascia = /^\s*nessuna\s*$/i.test(String(lAI.giocata || ""));
     const controllo = aiLascia ? { giocata: null, corretta: false } : controllaScelta(giocataValida(lAI.giocata, opzioni), opzioni, lAI.risultati_probabili, lAI.direzione);
+    // Direzione: il Pronostico AI (se c'e', con le quote di adesso) conta piu' della lettura gratis (19/10/2026).
+    const proOra = x.numeri?.lettura_pro && !quoteCambiate(x.numeri.lettura_pro.quote, out.quote) ? x.numeri.lettura_pro : null;
+    const dirEff = String(proOra?.direzione ?? lAI.direzione ?? "").trim().toLowerCase();
+    const senzaVincitore = dirEff === "nessuna" || dirEff === "x";
     // GAP, FAVORITA CON 3+ ASSENTI (19/10/2026, Rossi: "si"): il segno secco diventa doppia chance + Over 1,5
     // (pareggi 20% contro 15%; 1X/X2 + Over 1,5 77% contro il fisso 73%), se e' fra le opzioni e vince in
     // almeno 2 dei risultati attesi dell'AI.
     const favCasa = Number(m.odd_1) <= Number(m.odd_2);
     const assFav = Number(favCasa ? pr?.assenti_casa : pr?.assenti_ospite);
     const dcO15 = opzioni.find((o) => o.codice === (favCasa ? "DC 1X + O1.5" : "DC X2 + O1.5"));
-    const sceltaSegno = controllo.giocata && controllo.giocata.codice === (favCasa ? "1" : "2");
+    const sceltaSegno = controllo.giocata && controllo.giocata.codice === (favCasa ? "1" : "2") && !senzaVincitore;
     const risAI = (lAI.risultati_probabili || []).map((r: string) => String(r).replace(/\s/g, ""));
     const dcViteAI = dcO15 ? risAI.filter((r: string) => { const [h, a] = r.split("-").map(Number); const f = favCasa ? h : a, s2 = favCasa ? a : h; return f >= s2 && h + a >= 2; }).length : 0;
     // 19/10/2026 (Rossi): "1X + Over 1,5 e' una copertura quando non ci fidiamo dell'1 per troppi assenti,
     // ma non e' un pick principale": la giocata resta il segno, la doppia chance si mostra come copertura.
     const copertura = !!(sceltaSegno && dcO15 && assFav >= 3 && dcViteAI >= 2);
-    const g = controllo.giocata;
+    // REGOLE DEL BOOK SULLA SCELTA (19/10/2026, Rossi, Juve-Lazio: "l'AI dice nessun vincitore, proposta GG,
+    // e il book dice di no, quindi ripieghiamo; se avesse detto 1 fisso allora si'"):
+    //  - il Pronostico AI (se c'e', con le quote di adesso) conta piu' della lettura gratis per la direzione;
+    //  - senza vincitore niente segno (1, 2, 1X, X2, doppie chance);
+    //  - GG pagato 1,80 o piu' = il book dice no;
+    //  - si ripiega su MG 2-4 totali (dove rientrano piu' risultati), altrimenti sull'opzione che copre di
+    //    piu' i risultati attesi.
+    const vietata = (o: { codice: string }) =>
+      (senzaVincitore && /^(1|2|1X|X2)$|^DC /.test(o.codice)) || (o.codice === "GG" && Number(m.odd_gg) >= 1.8);
+    let g = controllo.giocata;
+    let ripiego: string | null = null;
+    if (g && vietata(g)) {
+      const ammesse = opzioni.filter((o) => !vietata(o) && (senzaVincitore || !o.soloIncertezza));
+      const risRif = (proOra?.risultati_probabili?.length ? proOra.risultati_probabili : lAI.risultati_probabili) || [];
+      const migliore = ammesse.find((o) => o.codice === "MG 2-4 totali")
+        ?? controllaScelta(null, ammesse, risRif, senzaVincitore ? "nessuna" : dirEff).giocata;
+      ripiego = `${senzaVincitore ? `${proOra ? "il Pronostico AI" : "l'AI"} non vede un vincitore` : "la scelta non regge"}` +
+        `${g.codice === "GG" || proOra?.mercato === "GG" ? ` e il GG il book lo paga ${String(m.odd_gg).replace(".", ",")}, cioe' dice di no` : ""}` +
+        (migliore ? `: si ripiega su ${migliore.nome}, dove rientrano piu' risultati` : ": nessuna giocata regge, meglio lasciare");
+      g = migliore;
+    }
     out.copertura = copertura
       ? { market: dcO15!.codice, nome: dcO15!.nome, quota: dcO15!.quota, perche: `la favorita ha ${assFav} assenti: se non ti fidi del segno, copri anche il pareggio (con tanti assenti i pareggi salgono dal 15% al 20%)` }
       : null;
@@ -437,15 +463,27 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     out.ai = "scelta";
     const attesi = (lAI.risultati_probabili || []).join(", ");
     const aiNessuna = !lAI.giocata || /^nessuna$/i.test(String(lAI.giocata).trim());
-    out.perche = controllo.corretta && g
+    out.perche = ripiego ? ripiego
+      : controllo.corretta && g
       ? (aiNessuna
         ? `l'AI non ha scelto una giocata, ma i suoi risultati attesi (${attesi}) li copre meglio ${g.nome}`
         : `l'AI aveva scelto ${lAI.giocata}, che non va d'accordo con i suoi risultati attesi (${attesi}): vale ${g.nome}, che li copre meglio`)
       : lAI.ragionamento?.scelta || null;
-    if (g) {
-      const r = a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(g.codice));
+    // BOOK, AI E STORICO (19/10/2026, Rossi): 3 su 3 si prende, 2 su 3 si valuta, meno non si gioca.
+    const rG = g ? a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(g!.codice)) : undefined;
+    const pSt = rG ? (rG.misurata ? Math.min(rG.misurata.pA, rG.misurata.pB) : rG.stima) : null;
+    const risCoer = (proOra?.risultati_probabili?.length ? proOra.risultati_probabili : lAI.risultati_probabili) || [];
+    const co = g ? coerenza(g.codice, m, risCoer, pSt ?? null) : null;
+    out.coerenza = co;
+    const nomiVoci = (c: NonNullable<typeof co>) => [c.book ? null : "il book", c.ai === false ? "l'AI" : null, c.storico === false ? "lo storico" : null].filter(Boolean).join(" e ");
+    if (g && co && co.su >= 2 && co.n < 2) {
+      out.market = null; out.quota = null; out.copertura = null;
+      out.daLasciare = `${g.nome}: non sono d'accordo ${nomiVoci(co)} (${co.n} su ${co.su}), non si gioca`;
+    } else if (g) {
+      const r = rG;
       out.market = g.codice; out.nome = g.nome; out.quota = g.quota; out.stimata = g.stimata; out.daLasciare = null;
       out.pA = r?.misurata?.pA ?? r?.stima ?? null; out.pB = r?.misurata?.pB ?? r?.stima ?? null; out.n = r?.misurata?.n ?? null;
+      if (co && co.n < co.su) out.avvisi = [...(out.avvisi || []), `da valutare: ${co.n} su ${co.su} d'accordo (non conferma ${nomiVoci(co)})`];
     } else {
       out.market = null; out.quota = null;
       out.daLasciare = `per la valutazione AI nessuna giocata è coerente${lAI.ragionamento?.scelta ? `: ${lAI.ragionamento.scelta}` : ""}`;
@@ -554,7 +592,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-6";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-8";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

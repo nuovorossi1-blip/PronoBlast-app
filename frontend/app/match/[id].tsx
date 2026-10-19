@@ -793,6 +793,11 @@ export default function MatchDetail() {
               ) : (
                 <Text style={styles.golTesto}>{`Da lasciare${cs?.daLasciare ? `: ${cs.daLasciare}` : ": nessuna giocata convincente"}.`}</Text>
               )}
+              {cs?.market && cs.coerenza ? (
+                <Text style={[styles.golTesto, { color: cs.coerenza.n === cs.coerenza.su ? colors.success : colors.warning }]}>
+                  {`Book ${cs.coerenza.book ? "✓" : "✗"} · AI ${cs.coerenza.ai == null ? "–" : cs.coerenza.ai ? "✓" : "✗"} · Storico ${cs.coerenza.storico == null ? "–" : cs.coerenza.storico ? "✓" : "✗"} → ${cs.coerenza.n === cs.coerenza.su ? "si prende" : "da valutare"} (${cs.coerenza.n} su ${cs.coerenza.su})`}
+                </Text>
+              ) : null}
               {cs?.copertura ? (
                 <Text style={[styles.golTesto, { color: colors.warning }]}>
                   {`Copertura: ${cs.copertura.nome.replace(/^DC /, "")} @${q2(cs.copertura.quota)}${match.result ? (evaluateMarketOutcome(cs.copertura.market, match.result) ? "  ✓" : "  ✗") : ""} — ${cs.copertura.perche}`}
