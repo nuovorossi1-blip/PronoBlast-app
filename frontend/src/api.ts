@@ -3761,10 +3761,21 @@ export function analizzaGiocate(x: {
   const elenco = [...(x.manuali || []), ...(x.xoggAI ? ["X oppure GG"] : [])];
   const nelElenco = (m: string) => isMercatoAmmesso(m, elenco);
 
+  // RISCHIO GOLEADA (19/10/2026, Rossi): Gap Tecnico con Over 3,5 sotto 1,60 -> mai una Multigol stretta
+  // (fino a 4 gol) della favorita, anche se e' la piu' facile: e' quella che salta quando la favorita dilaga.
+  const qo35 = Number((x.odds as any).odd_O35 ?? (x.odds as any).odd_o35);
+  const goleada = x.scenario === "Gap Tecnico" && qo35 > 1 && qo35 < 1.6;
+  const favLato = Number(x.odds.odd_1) <= Number(x.odds.odd_2) ? "CASA" : "OSPITE";
+  const mgStrettaFav = (m: string) => {
+    const k = normalizeMarket(m).replace(/^MG (CASA|OSPITE) (\d)-(\d)$/, "MG $2-$3 $1");
+    const mm = /^MG \d-(\d) (CASA|OSPITE)$/.exec(k);
+    return !!mm && mm[2] === favLato && Number(mm[1]) <= 4;
+  };
   // Candidati e punteggio
   for (const r of righe) {
     if (isMercatoVietato(r.market)) continue;
     if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
+    if (goleada && mgStrettaFav(r.market)) continue;
     const pm = Math.min(r.misurata.pA, r.misurata.pB);
     if (pm < 0.58) continue;
     const p = r.stima != null ? Math.min(pm, r.stima) : pm;
@@ -3815,6 +3826,7 @@ export function analizzaGiocate(x: {
     else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
     else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
+    else if (goleada && mgStrettaFav(r.market)) r.perche = "rischio goleada (Over 3,5 sotto 1,60): niente Multigol stretta della favorita.";
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
     else if (/^GG\b/i.test(r.market.trim()) && deboleSegna && deboleSegna.f <= 1.1) r.perche = `serve un gol di ${deboleSegna.nome}, che contro squadre come ${deboleSegna.contro} fa ${g1(deboleSegna.f)} a partita: quasi testa o croce.`;

@@ -72,3 +72,15 @@ describe("classifica del Gap Tecnico", () => {
     }
   });
 });
+
+import { mgStrettaFavorita } from "../netlify/functions/lib/letturaPartita";
+
+describe("alzata e goleada (19/10/2026)", () => {
+  it("Multigol stretta della favorita riconosciuta nei due modi di scriverla", () => {
+    assert.equal(mgStrettaFavorita("MG 1-3 casa", "1"), true);
+    assert.equal(mgStrettaFavorita("MG casa 2-4", "1"), true);
+    assert.equal(mgStrettaFavorita("MG 2-5 casa", "1"), false);
+    assert.equal(mgStrettaFavorita("MG 1-3 ospite", "1"), false);
+    assert.equal(mgStrettaFavorita("MG 2-4 totali", "1"), false);
+  });
+});

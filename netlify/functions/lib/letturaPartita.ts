@@ -251,7 +251,19 @@ const forchetta = (s: unknown): [number, number] | null => {
  * sua direzione ne' contro il suo mercato, gol nella sua forchetta.
  * Solida: la probabilita' piu' bassa fra archivio (se misurata) e motore.
  */
-export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>): RigaGiocata | null {
+/** Multigol stretta della favorita (fino a 4 gol): con il rischio goleada si rompe (19/10/2026). */
+export const mgStrettaFavorita = (mk: string, fav: "1" | "2" | null | undefined) => {
+  const m = /^MG (?:(casa|ospite) (\d)-(\d)|(\d)-(\d) (casa|ospite))$/i.exec(mk.trim());
+  if (!m || !fav) return false;
+  const lato = (m[1] || m[6]).toLowerCase(), alto = Number(m[3] || m[5]);
+  return lato === (fav === "1" ? "casa" : "ospite") && alto <= 4;
+};
+
+/**
+ * 19/10/2026 (Rossi, "sistema alzata"): la giocata presa al posto della proposta AI sta fra 1,40 e 1,60
+ * (prima fino a QUOTA_MAX_AI) e, con il rischio goleada, mai una Multigol stretta della favorita.
+ */
+export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>, opz: { goleadaFav?: "1" | "2" | null } = {}): RigaGiocata | null {
   const dir = String(pro?.direzione || "");
   const gol = forchetta(pro?.gol_totali);
   const totAI = gol ? (gol[0] + gol[1]) / 2 : null;
@@ -260,7 +272,8 @@ export function salitaDaProposta(pro: any, a: ReturnType<typeof analizzaGiocate>
   const esitiAI = pro?.mercato ? esitiDelSegno(String(pro.mercato)) : null;
   let best: RigaGiocata | null = null, bestP = -1;
   for (const r of a.righe) {
-    if (!(r.quota >= 1.40) || r.quota > QUOTA_MAX_AI + 1e-9 || isMercatoVietato(r.market)) continue;
+    if (!(r.quota >= 1.40) || r.quota > 1.60 + 1e-9 || isMercatoVietato(r.market)) continue;
+    if (opz.goleadaFav && mgStrettaFavorita(r.market, opz.goleadaFav)) continue;
     if (a.esclusa?.(r.market)) continue; // regole inderogabili anche per l'AI (15/10/2026)
     const seg = r.market.trim().toUpperCase().replace(/^DC\s+/, "");
     if (dir === "2" && /^(1|1X)(\s|$|\+)|^1 (DNB|AH)/.test(seg)) continue;
@@ -375,7 +388,12 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
       const v0 = mercatoAIValido(pro.mercato, a, [...(nota?.markets || []), ...(xoggDaAI(x.numeri) ? ["X oppure GG"] : [])], pro.risultati_probabili);
       // Regole inderogabili anche per l'AI (15/10/2026, audit difetto C): una giocata esclusa
       // dalle regole non torna per la notizia; si prova la salita, altrimenti decidono i numeri.
-      const esclusaAI = v0.ok && v0.market ? a.esclusa?.(v0.market) ?? null : null;
+      const goleadaFav = nota?.scenario === "Gap Tecnico" && Number(m.odd_o35) > 1 && Number(m.odd_o35) < 1.6 ? nota.favorita ?? null : null;
+      const fuoriFascia = v0.ok && v0.quota != null && (v0.quota < 1.4 || v0.quota > 1.6 + 1e-9);
+      const esclusaAI = v0.ok && v0.market
+        ? a.esclusa?.(v0.market) ?? (goleadaFav && mgStrettaFavorita(v0.market, goleadaFav) ? "rischio goleada: niente Multigol stretta della favorita" : null)
+          ?? (fuoriFascia ? `quota ${v0.quota!.toFixed(2).replace(".", ",")} fuori da 1,40-1,60` : null)
+        : null;
       const v = esclusaAI ? { ...v0, ok: false, motivo: `esclusa dalle regole: ${esclusaAI}` } : v0;
       // Probabilita' della giocata nuova (13/10/2026): prima restavano quelle
       // della giocata dei numeri, o 0 se i numeri dicevano "da lasciare".
@@ -406,7 +424,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
         // con i suoi stessi risultati probabili l'AI si contraddice: niente
         // salita guidata da lei, decidono i numeri (Viking-Bayern: la sua
         // lettura "pochi gol" portava a MG 1-3 Bayern).
-        const salita = v.motivo === "fuori scala" || esclusaAI ? salitaDaProposta(pro, a) : null;
+        const salita = v.motivo === "fuori scala" || esclusaAI ? salitaDaProposta(pro, a, { goleadaFav }) : null;
         const perche = esclusaAI ? `esclusa dalle regole: ${esclusaAI}`
           : v.quota != null && v.quota > QUOTA_MAX_AI ? `sopra ${QUOTA_MAX_AI.toFixed(2).replace(".", ",")}` : "sotto 1,40";
         if (salita && (!out.market || normalizeMarket(salita.market) !== normalizeMarket(out.market))) {
@@ -467,7 +485,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-piu-facile-2";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-alzata";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
