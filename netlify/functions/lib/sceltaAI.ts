@@ -16,7 +16,7 @@ import { rowToOdds } from "./supabaseRest";
 import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis } from "./clusterEngine";
 import { getScenarioNote, pronosticiDelloScenario, chiavePronostico, mgFavoritaEsclusa, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
-export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean };
+export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean; soloCopertura?: boolean };
 
 const REALI: Record<string, string> = { "1": "odd_1", "2": "odd_2", "1X": "odd_1x", X2: "odd_x2", "O2.5": "odd_o25", "U3.5": "odd_u35", GG: "odd_gg" };
 const q2 = (x: number | null | undefined) => (x == null || !(Number(x) > 1) ? "n/d" : Number(x).toFixed(2).replace(".", ","));
@@ -59,7 +59,9 @@ export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPromp
     const xogg = c === "X oppure GG";
     if (!quota || (xogg ? quota < 1.62 || quota > 1.9 : quota < 1.4 || quota > 1.6 + 1e-9)) continue;
     const soloIncertezza = !delloScenario.has(chiavePronostico(c)) && chiavePronostico(c) !== chiavePronostico("GG");
-    opzioni.push({ codice: c, nome: nomeDi(c), quota, stimata: !(reale && reale > 1), ...(soloIncertezza ? { soloIncertezza } : {}) });
+    // Nel Gap la doppia chance + Over 1,5 c'e' solo per gli assenti: e' una copertura, non un pick principale (Rossi 19/10).
+    const soloCopertura = scenario.startsWith("Gap Tecnico") && /^DC (1X|X2) \+ O1\.5$/.test(c);
+    opzioni.push({ codice: c, nome: nomeDi(c), quota, stimata: !(reale && reale > 1), ...(soloIncertezza ? { soloIncertezza } : {}), ...(soloCopertura ? { soloCopertura } : {}) });
   }
   return { scenario, opzioni };
 }

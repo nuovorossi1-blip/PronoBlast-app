@@ -15,7 +15,7 @@
  * Quindi l'AI riceve i calcoli gia' fatti e li spiega; non li rifa'.
  */
 import { pgGet, pgGetAll, pgPatch, pgPost, rowToOdds } from "./supabaseRest";
-import { structuralAnalysis, quoteCatalogo, contraddice } from "./clusterEngine";
+import { structuralAnalysis, quoteCatalogo, contraddice, fullDistribution, deriveLambdas } from "./clusterEngine";
 import { getScenarioNote, chiaveScenario, inizioPartitaMs, analizzaGiocate, evaluateMarketOutcome, letturaGol, normalizeMarket, isVerdictMarket, isMercatoAmmesso, isMercatoVietato, MERCATI_VIETATI, mercatoAIValido, coerenteConGol, controRisultatiAI, esitiDelSegno, QUOTA_MAX_AI, mgFavoritaEsclusa, type RigaGiocata, QuoteFirma, firmaQuote, quoteCambiate, ConsigliatoSalvato } from "../../../frontend/src/api";
 import { formaGol, type FormaGol } from "./formaGol";
 import { letturaProgramma, type LetturaProgramma } from "./letturaProgramma";
@@ -474,17 +474,25 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     const pDi = (codice: string) => { const r0 = rigaDi(codice); return r0 ? (r0.misurata ? Math.min(r0.misurata.pA, r0.misurata.pB) : r0.stima) : null; };
     const risCoer = (proOra?.risultati_probabili?.length ? proOra.risultati_probabili : lAI.risultati_probabili) || [];
     let co = g ? coerenza(g.codice, m, risCoer, pDi(g.codice) ?? null) : null;
-    // Se la scelta dell'AI non e' 3 su 3 si guardano TUTTE le opzioni (19/10/2026, Rossi, Leverkusen-Friburgo:
-    // "la lascia se GG e' il pick migliore?"): vince quella con piu' voci d'accordo; a parita' quella
-    // dell'AI, poi quella che vince in piu' risultati attesi, poi la quota piu' bassa.
-    if (!aiLascia && (!co || co.n < co.su)) {
-      const valide = opzioni.filter((o) => !vietata(o) && (senzaVincitore || !o.soloIncertezza));
+    // Si guardano TUTTE le opzioni (19/10/2026, Rossi, Leverkusen-Friburgo: "la lascia se GG e' il pick
+    // migliore?"; Angers-Marsiglia: "a parita' vince quella che copre piu' risultati realistici, ovvio"):
+    // vince quella con piu' voci d'accordo fra book, AI e storico; a parita' quella che copre piu' risultati
+    // secondo le quote del book (somma delle probabilita' dei risultati che vince), poi quella dell'AI.
+    let distr: { home: number; away: number; p: number }[] | null = null;
+    try { distr = fullDistribution({} as any, 10, deriveLambdas(odds) as [number, number]) as any; } catch { distr = null; }
+    const copre = (cod: string) => distr ? distr.reduce((t, c) => t + (evaluateMarketOutcome(cod, `${c.home}-${c.away}`) === true ? c.p : 0), 0) : 0;
+    if (!aiLascia) {
+      const valide = opzioni.filter((o) => !vietata(o) && !o.soloCopertura && (senzaVincitore || !o.soloIncertezza));
       const prov = valide.map((o) => ({ o, c: coerenza(o.codice, m, risCoer, pDi(o.codice) ?? null) }));
       const vite = (cod: string) => risCoer.filter((r: string) => evaluateMarketOutcome(cod, String(r).replace(/\s/g, "")) === true).length;
-      prov.sort((x1, x2) => x2.c.n - x1.c.n || Number(x2.o.codice === g?.codice) - Number(x1.o.codice === g?.codice) || vite(x2.o.codice) - vite(x1.o.codice) || x1.o.quota - x2.o.quota);
+      prov.sort((x1, x2) => x2.c.n - x1.c.n || copre(x2.o.codice) - copre(x1.o.codice) || Number(x2.o.codice === g?.codice) - Number(x1.o.codice === g?.codice) || vite(x2.o.codice) - vite(x1.o.codice));
       const top = prov[0];
-      if (top && (!co || top.c.n > co.n)) {
-        ripiego = `${g ? `la scelta dell'AI (${g.nome}) ha ${co?.n ?? 0} su ${co?.su ?? 3} d'accordo` : "l'AI non ha una giocata valida"}: ${top.o.nome} ne ha ${top.c.n} su ${top.c.su} (book, AI e storico)`;
+      const meglio = top && (!co || top.c.n > co.n || (top.c.n === co.n && top.o.codice !== g?.codice && copre(top.o.codice) > copre(g!.codice) + 0.005));
+      if (top && meglio) {
+        const pc = (x: number) => `${Math.round(x * 100)}%`;
+        ripiego = top.c.n > (co?.n ?? -1)
+          ? `${g ? `la scelta dell'AI (${g.nome}) ha ${co?.n ?? 0} su ${co?.su ?? 3} d'accordo` : "l'AI non ha una giocata valida"}: ${top.o.nome} ne ha ${top.c.n} su ${top.c.su} (book, AI e storico)`
+          : `${g!.nome} e ${top.o.nome} sono d'accordo con book, AI e storico allo stesso modo (${top.c.n} su ${top.c.su}), ma ${top.o.nome} copre piu' risultati secondo le quote (${pc(copre(top.o.codice))} contro ${pc(copre(g!.codice))})`;
         g = top.o; co = top.c;
         out.perche = ripiego;
         if (g.codice !== controllo.giocata?.codice) out.copertura = null;
@@ -609,7 +617,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-9";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai-10";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
