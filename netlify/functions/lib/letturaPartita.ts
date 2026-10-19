@@ -222,6 +222,8 @@ export type ConsigliatoSalvato = {
   /** Se proposta AI scartata: motivo e mercato */
   proposta_scartata?: { mercato: string; motivo: string } | null;
   quote: QuoteFirma; quando: string;
+  perche?: string | null;
+  regole_versione?: string;
 };
 
 /** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
@@ -356,6 +358,8 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     lasciata_market: a.seNonLasciata?.market ?? null, lasciata_quota: a.seNonLasciata?.quota ?? null,
     tabella_versione: tabVersione,
     tradotto_da: null,
+    perche: c?.perche ? c.perche.replace(/^★ consigliato:\s*/, "") : null,
+    regole_versione: VERSIONE_CONSIGLIATO,
   };
   const pro = x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
@@ -448,10 +452,15 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // UN UNICO PRONOSTICO (15/10/2026 sera, Rossi): il consigliato salvato resta finche' non cambiano le
 // quote o non arriva una lettura AI nuova; la tabella scenari aggiornata non lo cambia piu' (prima:
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
+/** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
+ *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
+export const VERSIONE_CONSIGLIATO = "2026-10-19-classifica";
+
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;
   if (!c) return null;
   if (match && quoteCambiate(c.quote, firmaQuote(match))) return null;
+  if (match && c.regole_versione !== VERSIONE_CONSIGLIATO && !partitaIniziata(match)) return null;
   return c;
 }
 

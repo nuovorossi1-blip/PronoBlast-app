@@ -3446,6 +3446,8 @@ export type ConsigliatoSalvato = {
   quote?: QuoteFirma | any; quando?: string;
   tabella_versione?: string | null;
   tradotto_da?: string | null;
+  /** Perche' e' stata scelta (19/10/2026); assente nei consigliati salvati prima. */
+  perche?: string | null;
 };
 
 /** Una giocata del Pronostico regole. p: archivio (n >= 300) o misura delle coppe; se mancano, il modello (15/10/2026). */
@@ -3717,6 +3719,11 @@ export function analizzaGiocate(x: {
   const sceltaClassifica = classifica?.scelta
     ? righe.find((r) => normalizeMarket(r.market) === normalizeMarket(classifica.voci.find((v) => v.mercato === classifica.scelta)!.codice)) ?? null
     : null;
+  // La probabilita' mostrata e' quella della classifica (misurata proprio su questo tipo di partita).
+  if (sceltaClassifica) {
+    const vc = classifica!.voci.find((v) => v.mercato === classifica!.scelta)!;
+    sceltaClassifica.misurata = { pA: vc.pct / 100, pB: vc.pct / 100, n: classifica!.partite };
+  }
   const primo = gapFalso ? candidati.find((r) => normalizeMarket(r.market) === "U3.5") ?? null
     : classifica ? sceltaClassifica : primoElenco;
   const lascia = gapFalso && !primo ? "Gap falso (l'avversario sta sotto 4, nessun divario vero): meglio non giocarla, oppure solo Under 3,5"

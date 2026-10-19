@@ -19,7 +19,7 @@ import {
   VERDICT_WHITELIST as CLUSTER_WHITELIST,
 } from "../netlify/functions/lib/clusterEngine";
 import { pulisciCacheDispositivo, persistentLetturaCache } from "../frontend/src/utils/cache";
-import { consigliatoValido } from "../netlify/functions/lib/letturaPartita";
+import { consigliatoValido, VERSIONE_CONSIGLIATO } from "../netlify/functions/lib/letturaPartita";
 
 describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)", () => {
   // Catalogo di test con varie quote
@@ -236,8 +236,11 @@ describe("Validazione Consigliato Pronostico AI e Whitelist Mercati (Incarico 2)
       market: "1X", quota: 1.45,
       quote: firmaQuote(match),
       tabella_versione: "2026-10-10T12:00:00Z|9325",
+      regole_versione: VERSIONE_CONSIGLIATO,
     };
     const numeri = { consigliato: cons };
+    // Regole cambiate (19/10/2026): il salvato di una partita non iniziata si rifa'
+    assert.equal(consigliatoValido({ consigliato: { ...cons, regole_versione: undefined } }, match), null);
     assert.equal(consigliatoValido(numeri, match, "2026-10-10T12:00:00Z|9325")?.market, "1X");
     // Tabella nuova: resta lo stesso (prima veniva rifatto e cambiava: Salisburgo-Milan)
     assert.equal(consigliatoValido(numeri, match, "2026-10-10T15:30:00Z|9335")?.market, "1X");

@@ -731,6 +731,9 @@ export default function MatchDetail() {
                   </Text>
                 </Text>
               ) : null}
+              {cs.market && cs.perche && cs.ai !== "cambiato" ? (
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6 }}>{`Perché: ${cs.perche.charAt(0).toUpperCase()}${cs.perche.slice(1).replace(/\.$/, "")}`}</Text>
+              ) : null}
               {(cs.avvisi ?? []).map((a, i) => (
                 <Text key={i} style={{ color: colors.warning, fontSize: 13, marginTop: 4 }}>{`⚠ ${a}`}</Text>
               ))}
