@@ -3582,8 +3582,10 @@ export type VocePercorso = {
   ai: boolean | null;
   pStorico: number | null; nStorico: number | null;
   pCampionato: number | null;
-  /** Ultime 5 delle due squadre (stesso tipo di competizione): partite in cui il mercato e' uscito, su quante. */
-  squadre: { vinte: number; su: number } | null;
+  /** Ultime 5 di ognuna delle due squadre (stesso tipo di competizione): partite in cui il mercato e' uscito,
+   *  letto dalla parte della squadra (Rossi 19/10: "quante volte la squadra in casa e quante la squadra fuori
+   *  casa nelle ultime 5 sono finite gol?"). */
+  squadre: { casa: { vinte: number; su: number } | null; ospite: { vinte: number; su: number } | null } | null;
   /** Media delle misure disponibili (storico, campionato, squadre): decide la migliore. */
   pMedia: number | null;
   storico: boolean | null;

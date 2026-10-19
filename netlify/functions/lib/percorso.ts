@@ -47,12 +47,20 @@ export function percorsoScelta(x: {
   const dirAI = String(x.ai?.direzione || "").trim().toLowerCase();
   const camp = x.campionato && x.campionato.n >= 30 ? x.campionato : null;
   const riga = (c: string) => x.righe.find((r) => normalizeMarket(r.market) === normalizeMarket(c));
-  // Le ultime 5 di ognuna: solo i mercati che non dipendono da chi gioca in casa (gol totali, GG, X o GG).
-  const ultime = [...(x.forma?.casa?.totale?.partite ?? []).slice(0, 5), ...(x.forma?.ospite?.totale?.partite ?? []).slice(0, 5)]
-    .filter((p) => Number.isFinite(p.fatti) && Number.isFinite(p.subiti));
-  const simmetrico = (c: string) => /totali$|^GG|^O\d|^U\d|^X oppure GG$/.test(c) && !/casa|ospite/.test(c);
-  const squadreDi = (c: string) => simmetrico(c) && ultime.length >= 6
-    ? { vinte: ultime.filter((p) => evaluateMarketOutcome(c, `${p.fatti}-${p.subiti}`) === true).length, su: ultime.length } : null;
+  // Le ultime 5 di ognuna, lette dalla sua parte: la squadra di casa come "casa" (fatti-subiti), quella in
+  // trasferta come "ospite" (subiti-fatti). Cosi' vale per ogni mercato: GG, Over, 1X (casa non perde / ospite
+  // non vince), MG casa 2-4 (casa ne segna 2-4 / ospite ne prende 2-4), combo...
+  const ultime = (lato: "casa" | "ospite") => (x.forma?.[lato]?.totale?.partite ?? []).slice(0, 5)
+    .filter((p) => Number.isFinite(p.fatti) && Number.isFinite(p.subiti))
+    .map((p) => lato === "casa" ? `${p.fatti}-${p.subiti}` : `${p.subiti}-${p.fatti}`);
+  const contaLato = (c: string, lato: "casa" | "ospite") => {
+    const r = ultime(lato);
+    return r.length >= 3 ? { vinte: r.filter((s) => evaluateMarketOutcome(c, s) === true).length, su: r.length } : null;
+  };
+  const squadreDi = (c: string) => {
+    const casa = contaLato(c, "casa"), ospite = contaLato(c, "ospite");
+    return casa || ospite ? { casa, ospite } : null;
+  };
 
   const voce = (codice: string, gruppo: "scenario" | "ripiego"): VocePercorso => {
     const q = quotaMercato(m, codice);
@@ -69,7 +77,9 @@ export function percorsoScelta(x: {
     const pCampionato = camp ? camp.ris.filter((s) => evaluateMarketOutcome(codice, s) === true).length / camp.n : null;
     const pRif = pStorico ?? pCampionato;
     const squadre = squadreDi(codice);
-    const misure = [pStorico, pCampionato, squadre ? squadre.vinte / squadre.su : null].filter((v) => v != null) as number[];
+    const lati = [squadre?.casa, squadre?.ospite].filter(Boolean) as { vinte: number; su: number }[];
+    const pSquadre = lati.length ? lati.reduce((t, l) => t + l.vinte, 0) / lati.reduce((t, l) => t + l.su, 0) : null;
+    const misure = [pStorico, pCampionato, pSquadre].filter((v) => v != null) as number[];
     const pMedia = misure.length ? misure.reduce((t, v) => t + v, 0) / misure.length : null;
     // Regge come il vecchio "buona" (almeno 58% nel caso peggiore: MG 2-4 al 61% / 59% su Monza e Kalmar).
     const storico = pRif == null ? null : pRif >= 0.58;
@@ -86,7 +96,7 @@ export function percorsoScelta(x: {
   const misureDi = (v: VocePercorso) => [
     v.pStorico != null ? `storico ${pc(v.pStorico)}` : null,
     v.pCampionato != null ? `campionato ${pc(v.pCampionato)}` : null,
-    v.squadre ? `ultime 5 delle due squadre ${v.squadre.vinte} su ${v.squadre.su}` : null,
+    v.squadre ? `ultime 5: ${[v.squadre.casa ? `${casa} ${v.squadre.casa.vinte} su ${v.squadre.casa.su}` : null, v.squadre.ospite ? `${ospite} ${v.squadre.ospite.vinte} su ${v.squadre.ospite.su}` : null].filter(Boolean).join(", ")}` : null,
   ].filter(Boolean).join(", ");
 
   const passi: Percorso["passi"] = [];
