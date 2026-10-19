@@ -3240,12 +3240,12 @@ export function classificaEquilibrio(odds: Odds): ClassificaScenario | null {
 // bookmaker: si usa quella stimata dall'app (da controllare). Sotto 1,40 una giocata non si sceglie.
 // SOLO DA LEGGERE: non decide consigliato ne' Pronostico prima del via (misura 19/10: resa -6,2%).
 // ============================================================================
-// [partite, fisso, DC fav + GG, MG fav 2-4, MG fav 1-3, Over 2,5, GG]
+// [partite, fisso, DC fav + GG, MG fav 2-4, MG fav 1-3, Over 2,5, GG, GG + Over 2,5]
 const TABELLA_GAP: Record<string, Record<"forte" | "media" | "leggera", number[]>> = {
-  "sotto 1,60": { forte: [129, 85, 53, 55, 51, 81, 60], media: [158, 80, 58, 55, 54, 80, 65], leggera: [158, 80, 58, 55, 54, 80, 65] },
-  "1,60-1,99": { forte: [508, 81, 48, 63, 61, 73, 53], media: [215, 62, 54, 63, 67, 73, 64], leggera: [61, 61, 56, 64, 61, 74, 66] },
-  "2,00-2,29": { forte: [411, 78, 40, 59, 66, 64, 45], media: [337, 64, 41, 50, 71, 59, 52], leggera: [124, 52, 44, 49, 73, 65, 59] },
-  "da 2,30": { forte: [660, 75, 41, 60, 73, 55, 45], media: [757, 65, 44, 54, 73, 57, 52], leggera: [156, 59, 43, 53, 73, 61, 56] },
+  "sotto 1,60": { forte: [129, 85, 53, 55, 51, 81, 60, 57], media: [158, 80, 58, 55, 54, 80, 65, 59], leggera: [158, 80, 58, 55, 54, 80, 65, 59] },
+  "1,60-1,99": { forte: [508, 81, 48, 63, 61, 73, 53, 46], media: [215, 62, 54, 63, 67, 73, 64, 55], leggera: [61, 61, 56, 64, 61, 74, 66, 64] },
+  "2,00-2,29": { forte: [411, 78, 40, 59, 66, 64, 45, 40], media: [337, 64, 41, 50, 71, 59, 52, 42], leggera: [124, 52, 44, 49, 73, 65, 59, 48] },
+  "da 2,30": { forte: [660, 75, 41, 60, 73, 55, 45, 37], media: [757, 65, 44, 54, 73, 57, 52, 42], leggera: [156, 59, 43, 53, 73, 61, 56, 47] },
 };
 
 /** stimate: quote del catalogo dell'app (quoteCatalogo / market_odds) per Multigol e combo. */
@@ -3261,15 +3261,15 @@ export function classificaGap(odds: Odds, stimate?: Record<string, { odd: number
   const forza = qf < 1.4 ? "forte" : qf < 1.6 ? "media" : "leggera";
   const [partite, ...pcts] = TABELLA_GAP[fascia][forza];
   const lato = fav === "1" ? "casa" : "ospite";
-  const mercati = [`${fav} fisso`, `${fav === "1" ? "1X" : "X2"} + GG`, `MG ${lato} 2-4`, `MG ${lato} 1-3`, "Over 2,5", "GG"];
-  const codici = [fav, `DC ${fav === "1" ? "1X" : "X2"} + GG`, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, "O2.5", "GG"];
+  const mercati = [`${fav} fisso`, `${fav === "1" ? "1X" : "X2"} + GG`, `MG ${lato} 2-4`, `MG ${lato} 1-3`, "Over 2,5", "GG", "GG + Over 2,5"];
+  const codici = [fav, `DC ${fav === "1" ? "1X" : "X2"} + GG`, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, "O2.5", "GG", "GG + O2.5"];
   const stima = (k: string) => stimate?.[k]?.odd ?? null;
-  const quote: (number | null)[] = [qf, stima(codici[1]), stima(codici[2]), stima(codici[3]), o.odd_O25 ?? null, o.odd_GG ?? null];
+  const quote: (number | null)[] = [qf, stima(codici[1]), stima(codici[2]), stima(codici[3]), o.odd_O25 ?? null, o.odd_GG ?? null, stima(codici[6])];
   const voci = mercati.map((mercato, i): VoceClassifica => {
     const pct = pcts[i];
     const quotaMinima = Math.ceil((100 / pct) * 100) / 100;
     const quota = quote[i];
-    return { mercato, codice: codici[i], pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55, stimata: i >= 1 && i <= 3 };
+    return { mercato, codice: codici[i], pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55, stimata: (i >= 1 && i <= 3) || i === 6 };
   }).sort((a, b) => b.pct - a.pct);
   const scelta = voci.find((v) => !v.daEvitare && v.pagata === true && (v.quota ?? 0) >= 1.4)?.mercato ?? null;
   return { tipo: "gap", fascia, direzione: lato, fasciaFavorita: forza === "forte" ? "sotto 1,40" : forza === "media" ? "1,40-1,59" : "1,60-1,99", partite, voci, scelta };
