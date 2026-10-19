@@ -727,7 +727,8 @@ export default function MatchDetail() {
           const nomeScelta = cs?.nome || (scelta ? scelta.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2) : null);
           const quotaScelta = cs?.quota ?? rigaScelta?.quota ?? null;
           const vinto = match.result && scelta ? evaluateMarketOutcome(scelta, match.result) : null;
-          const perche = cs?.ai === "cambiato" ? `cambiata dal Pronostico AI${cs.notizia ? `: ${cs.notizia}` : ""}`
+          const perche = cs?.ai === "scelta" ? (cs.perche ? `scelta dall'AI: ${cs.perche}` : null)
+            : cs?.ai === "cambiato" ? `cambiata dal Pronostico AI${cs.notizia ? `: ${cs.notizia}` : ""}`
             : cs?.perche || (rigaScelta ? `entra il ${pc(pRiga(rigaScelta) ?? 0)} a quote simili ed è il miglior equilibrio fra probabilità e quota` : null);
           const ragioni: { ok: boolean; t: string }[] = [
             ...(regole?.ragioni ?? []),
@@ -758,6 +759,8 @@ export default function MatchDetail() {
                   <Text style={styles.golTesto}>{`Direzione: ${ai.direzione === "1" ? match.squadra1 : ai.direzione === "2" ? match.squadra2 : "nessun vincitore chiaro"}${ai.mercato ? ` · proposta: ${ai.mercato}` : ""}`}</Text>
                   {ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${ai.notizia}`}</Text> : null}
                   {ai.come_stanno ? <Text style={styles.golTesto}>{`Come stanno: ${ai.come_stanno}`}</Text> : null}
+                  {ai.ragionamento?.book ? <Text style={styles.golTesto}>{`Il book: ${ai.ragionamento.book}`}</Text> : null}
+                  {ai.ragionamento?.segnano ? <Text style={styles.golTesto}>{`Chi segna e chi prende gol: ${ai.ragionamento.segnano}`}</Text> : null}
                   {ai.lettura ? <Text style={styles.golTesto}>{ai.lettura}</Text> : null}
                 </>
               ) : <Text style={styles.golPic}>{letturaInCorso ? "La valutazione AI sta arrivando…" : "Non ancora disponibile."}</Text>}

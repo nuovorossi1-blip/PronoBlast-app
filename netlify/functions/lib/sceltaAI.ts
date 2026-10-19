@@ -1,0 +1,86 @@
+/**
+ * LA SCELTA RAGIONATA DELL'AI (19/10/2026, Rossi: "ok AI").
+ *
+ * Il ragionamento fatto insieme sulle partite del 18/10, passo per passo:
+ *  1. SCENARIO -> solo i pronostici di quello scenario, pagati da 1,40 a 1,60 (+ GG se il book lo paga
+ *     sotto 1,60, + quelli dell'incertezza se l'AI non vede un vincitore);
+ *  2. IL BOOK -> Over 1,5, Under/Over 2,5 e 3,5, GG/NG dicono quanti gol si aspetta e se segnano entrambe
+ *     ("capire se il book ci sta ingannando");
+ *  3. DIREZIONE -> quote, risultati e notizie;
+ *  4. CHI SEGNA E CHI PRENDE GOL -> ultime 5 dello STESSO tipo di competizione, con gli assenti;
+ *  5. SCELTA -> fra le opzioni coerenti, quella che copre piu' risultati realistici (l'1 copre l'1-0, il
+ *     GG no; X2 + Over 1,5 copre lo 0-2 che il GG perde).
+ * L'elenco delle opzioni lo prepara il programma: l'AI sceglie, non inventa mercati.
+ */
+import { rowToOdds } from "./supabaseRest";
+import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis } from "./clusterEngine";
+import { getScenarioNote, pronosticiDelloScenario, chiavePronostico, mgFavoritaEsclusa, isMercatoVietato } from "../../../frontend/src/api";
+
+export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean };
+
+const REALI: Record<string, string> = { "1": "odd_1", "2": "odd_2", "1X": "odd_1x", X2: "odd_x2", "O2.5": "odd_o25", "U3.5": "odd_u35", GG: "odd_gg" };
+const q2 = (x: number | null | undefined) => (x == null || !(Number(x) > 1) ? "n/d" : Number(x).toFixed(2).replace(".", ","));
+
+/** Le opzioni giocabili di una partita (riga di `matches`), con la direzione dell'AI se c'e' gia'. */
+export function opzioniGiocabili(m: any, direzioneAI?: string | null, perIlPrompt = false): { scenario: string; opzioni: OpzioneGiocabile[] } {
+  const odds: any = rowToOdds(m);
+  const st: any = (structuralAnalysis(odds, 1.4) as any).structure;
+  const nota = getScenarioNote(odds, st);
+  const scenario = nota?.scenario ?? "senza scenario";
+  const dir = String(direzioneAI || "").trim().toLowerCase();
+  // Per il prompt l'AI vede anche i pronostici dell'incertezza (segnati): la direzione la decide lei.
+  const chiavi = pronosticiDelloScenario(scenario, odds, perIlPrompt || dir === "nessuna" || dir === "x");
+  const delloScenario = pronosticiDelloScenario(scenario, odds, false);
+  // GG in ogni scenario quando il book lo paga sotto 1,60 (19/10/2026: "segnano tutte e due").
+  if (Number(m.odd_gg) > 1 && Number(m.odd_gg) <= 1.6) chiavi.add(chiavePronostico("GG"));
+  const cat: any = quoteCatalogo(odds);
+  const nomeDi = (c: string) => c.replace(/\bcasa\b/gi, m.squadra1).replace(/\bospite\b/gi, m.squadra2)
+    .replace(/^1$/, `1 (vince ${m.squadra1})`).replace(/^2$/, `2 (vince ${m.squadra2})`)
+    .replace(/^1X$/, `1X (${m.squadra1} non perde)`).replace(/^X2$/, `X2 (${m.squadra2} non perde)`);
+  const codici = ["1", "2", "1X", "X2", "GG", "O2.5", "U3.5", "X oppure GG", "GG + O2.5",
+    "MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "MG 3-6 totali",
+    "MG 1-3 casa + MG 0-2 ospite", "MG 0-2 casa + MG 1-3 ospite", "DC 1X + O1.5", "DC X2 + O1.5", "DC 1X + GG", "DC X2 + GG"];
+  const opzioni: OpzioneGiocabile[] = [];
+  for (const c of codici) {
+    if (!chiavi.has(chiavePronostico(c)) || isMercatoVietato(c) || mgFavoritaEsclusa(c, scenario, odds)) continue;
+    const reale = REALI[c] ? Number(m[REALI[c]]) : null;
+    const quota = reale && reale > 1 ? reale : c === "X oppure GG" ? quotaXoppureGG(odds) : cat[c]?.odd ?? estimateMarketOdd(c, odds);
+    if (!quota || quota < 1.4 || quota > 1.6 + 1e-9) continue;
+    const soloIncertezza = !delloScenario.has(chiavePronostico(c)) && chiavePronostico(c) !== chiavePronostico("GG");
+    opzioni.push({ codice: c, nome: nomeDi(c), quota, stimata: !(reale && reale > 1), ...(soloIncertezza ? { soloIncertezza } : {}) });
+  }
+  return { scenario, opzioni };
+}
+
+/** Il blocco da aggiungere al testo della partita: lettura del book e opzioni giocabili. */
+export function testoScelta(m: any, direzioneAI?: string | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
+  const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true);
+  const testo = `
+LETTURA DEL BOOK (quote dei gol):
+  Over 1,5 ${q2(m.odd_o15)} · Under 2,5 ${q2(m.odd_u25)} / Over 2,5 ${q2(m.odd_o25)} · Under 3,5 ${q2(m.odd_u35)} / Over 3,5 ${q2(m.odd_o35)} · GG ${q2(m.odd_gg)} / NG ${q2(m.odd_ng)}
+  1X2: 1 ${q2(m.odd_1)} · X ${q2(m.odd_x)} · 2 ${q2(m.odd_2)} · 1X ${q2(m.odd_1x)} · X2 ${q2(m.odd_x2)}
+SCENARIO DEL PROGRAMMA: ${scenario}
+OPZIONI GIOCABILI (pronostici dello scenario pagati da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il codice esatto):
+${opzioni.length ? opzioni.map((o) => `  - ${o.codice} = ${o.nome} @${q2(o.quota)}${o.stimata ? " (quota stimata)" : ""}${o.soloIncertezza ? " [SOLO se direzione = nessuna]" : ""}`).join("\n") : "  (nessuna: rispondi \"nessuna\")"}`;
+  return { testo, opzioni, scenario };
+}
+
+export const SISTEMA_SCELTA = `Sei un analista di calcio che sceglie UNA giocata per uno scommettitore, in italiano semplice.
+Hai SOLO i dati qui sotto, raccolti PRIMA della partita. Non inventare niente: se un numero non c'e', non scriverlo.
+Ragiona in questi 5 passi, nell'ordine:
+1. SCENARIO: e' gia' scritto (Gap Tecnico, Gap falso, Progressione, Equilibrio). Le opzioni sono gia' solo quelle dello scenario.
+2. IL BOOK: leggi la LETTURA DEL BOOK. Over 1,5 molto basso = almeno 2 gol quasi sicuri. Under 3,5 basso o Under e Over 3,5 vicini = il book NON crede a 4 o piu' gol. Over 3,5 sotto 1,60 = goleada possibile. GG basso (sotto 1,60) = segnano tutte e due. Scrivi la fascia di gol che il book si aspetta (es. "2-4 gol, segnano entrambe").
+3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
+4. CHI SEGNA E CHI PRENDE GOL: per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
+5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
+Regole sulla giocata: SOLO un codice dell'elenco OPZIONI GIOCABILI, scritto esattamente (mai mercati fuori elenco, anche se ti sembrano migliori). Le quote "stimate" sono affidabili: non scartare un'opzione perche' la quota e' stimata. Le opzioni segnate [SOLO se direzione = nessuna] valgono solo se al passo 3 non trovi un vincitore. Una giocata NON deve coprire tutti i risultati possibili: basta che vinca con i risultati piu' probabili della tua lettura (es. MG 2-4 totali va bene se ti aspetti 2-3 gol, anche se comprende il 4). "nessuna" SOLO se ogni opzione perde con il risultato che ritieni piu' probabile.
+Direzione, gol, risultati probabili e giocata devono essere coerenti fra loro.
+Rispondi SOLO con questo JSON:
+{"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra, con i numeri delle ultime partite dello stesso tipo","ragionamento":{"book":"passo 2 in una frase","direzione":"passo 3 in una frase","segnano":"passo 4 con i numeri","scelta":"passo 5: perche' questa e non le altre"},"giocata":"codice esatto dall'elenco, oppure nessuna","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
+
+/** La giocata dell'AI e' valida solo se e' una delle opzioni giocabili. */
+export function giocataValida(giocata: unknown, opzioni: OpzioneGiocabile[]): OpzioneGiocabile | null {
+  const g = String(giocata || "").trim();
+  if (!g || /^nessuna$/i.test(g)) return null;
+  return opzioni.find((o) => chiavePronostico(o.codice) === chiavePronostico(g)) ?? null;
+}

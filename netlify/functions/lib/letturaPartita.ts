@@ -23,6 +23,7 @@ import { tabellaScenari, versioneTabellaCorrente } from "./tabellaScenari";
 import { callLlm } from "./llmProviders";
 import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
+import { testoScelta, SISTEMA_SCELTA, opzioniGiocabili, giocataValida } from "./sceltaAI";
 
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
@@ -36,6 +37,9 @@ export type LetturaAI = {
   mercato?: string; notizia_verificata?: boolean; pro?: boolean;
   direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
+  /** Scelta ragionata (19/10/2026, "ok AI"): la giocata fra le opzioni giocabili e i passi del ragionamento. */
+  giocata?: string; ragionamento?: { book?: string; direzione?: string; segnano?: string; scelta?: string };
+  come_stanno?: string;
 };
 
 const SISTEMA = `Sei un analista di calcio che spiega la partita a uno scommettitore, in italiano semplice.
@@ -62,7 +66,8 @@ const n1 = (x: any) => (x == null ? "n/d" : Number(x).toFixed(1));
 /** La lettura gratis va fatta (o rifatta)? */
 export function letturaDaRifare(numeri: any, match: any): boolean {
   const l = numeri?.lettura_ai;
-  return !l || quoteCambiate(l.quote, firmaQuote(match));
+  // 19/10/2026: le letture senza scelta ragionata (formato vecchio) si rifanno.
+  return !l || !l.ragionamento || quoteCambiate(l.quote, firmaQuote(match));
 }
 
 // LIMITE DEI MODELLI GRATIS: OpenRouter ne concede 1000 al giorno all'account
@@ -165,7 +170,10 @@ export async function generaLetturaAI(
     if (!opt) continue;
     try {
       if (!pro) await contaLettura();
-      const risposta = await callLlm(opt, pro ? SISTEMA_PRO : SISTEMA, x.testo);
+      // Scelta ragionata (19/10/2026, "ok AI"): stesse istruzioni per la gratis e per il Pronostico AI,
+      // con la lettura del book e le opzioni giocabili della partita.
+      const scelta = testoScelta(x.match, x.numeri?.lettura_ai?.direzione ?? null);
+      const risposta = await callLlm(opt, SISTEMA_SCELTA, x.testo + "\n" + scelta.testo);
       const j = JSON.parse((risposta.match(/\{[\s\S]*\}/) || [""])[0]);
       if (!j?.lettura || String(j.lettura).replace(/[^a-z]/gi, "").length < 40) continue;   // vuota o a puntini
       const str = (v: any, max = 600) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -175,10 +183,15 @@ export async function generaLetturaAI(
         forma_e_quote: str(j.forma_e_quote, 30), notizia: str(j.notizia, 300), come_stanno: str(j.come_stanno, 500),
         risultati_probabili: (Array.isArray(j.risultati_probabili) ? j.risultati_probabili : []).map((r: any) => str(r, 8)).filter(Boolean).slice(0, 4),
         lettura: str(j.lettura, 900),
+        giocata: str(j.giocata, 40),
+        ragionamento: {
+          book: str(j.ragionamento?.book, 400), direzione: str(j.ragionamento?.direzione, 400),
+          segnano: str(j.ragionamento?.segnano, 600), scelta: str(j.ragionamento?.scelta, 600),
+        },
       };
       if (pro) {
         l.pro = true;
-        l.mercato = str(j.mercato, 40);
+        l.mercato = str(j.giocata || j.mercato, 40);
         l.notizia_verificata = !!l.mercato && notiziaVerificata(l.notizia, x.testo);
       }
       // Rilegge i numeri: un'altra lettura puo' averli cambiati nel frattempo.
@@ -213,7 +226,7 @@ export type ConsigliatoSalvato = {
   pA: number | null; pB: number | null; n: number | null;
   daLasciare: string | null; avvisi: string[];
   alternative: { market: string; nome: string; quota: number; stimata: boolean; p: number }[];
-  ai: "confermato" | "cambiato" | null; notizia: string | null;
+  ai: "confermato" | "cambiato" | "scelta" | null; notizia: string | null;
   /** Se l'AI ha cambiato: la giocata dei numeri, per tornare indietro e per
    *  misurare chi ha ragione (pagella, Rossi 07/10/2026). */
   numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
@@ -385,7 +398,27 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
     perche: c?.perche ? c.perche.replace(/^★ consigliato:\s*/, "") : null,
     regole_versione: VERSIONE_CONSIGLIATO,
   };
-  const pro = x.numeri?.lettura_pro;
+  // SCELTA RAGIONATA DELL'AI (19/10/2026, Rossi: "ok AI"): se la valutazione AI (Pro se c'e', altrimenti
+  // la gratis) e' del formato nuovo e fatta con le quote di adesso, la scelta finale e' la sua giocata,
+  // purche' sia fra le opzioni giocabili; "nessuna" -> la partita si lascia con il suo motivo.
+  const recente = (l: any) => l?.ragionamento && !quoteCambiate(l.quote, out.quote) ? l : null;
+  const lAI = recente(x.numeri?.lettura_pro) ?? recente(x.numeri?.lettura_ai);
+  if (lAI) {
+    const { opzioni } = opzioniGiocabili(m, lAI.direzione);
+    const g = giocataValida(lAI.giocata, opzioni);
+    out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
+    out.ai = "scelta";
+    out.perche = lAI.ragionamento?.scelta || null;
+    if (g) {
+      const r = a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(g.codice));
+      out.market = g.codice; out.nome = g.nome; out.quota = g.quota; out.stimata = g.stimata; out.daLasciare = null;
+      out.pA = r?.misurata?.pA ?? r?.stima ?? null; out.pB = r?.misurata?.pB ?? r?.stima ?? null; out.n = r?.misurata?.n ?? null;
+    } else {
+      out.market = null; out.quota = null;
+      out.daLasciare = `per la valutazione AI nessuna giocata è coerente${lAI.ragionamento?.scelta ? `: ${lAI.ragionamento.scelta}` : ""}`;
+    }
+  }
+  const pro = lAI ? null : x.numeri?.lettura_pro;
   if (pro && !quoteCambiate(pro.quote, out.quote)) {
     if (pro.notizia_verificata && pro.mercato) {
       const v0 = mercatoAIValido(pro.mercato, a, [...(nota?.markets || []), ...(xoggDaAI(x.numeri) ? ["X oppure GG"] : [])], pro.risultati_probabili);
@@ -488,7 +521,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-scenario";
+export const VERSIONE_CONSIGLIATO = "2026-10-19-scelta-ai";
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

@@ -3466,6 +3466,8 @@ export type LetturaAI = {
   mercato?: string; notizia_verificata?: boolean; pro?: boolean;
   /** Come stanno andando le due squadre (ultime 5 fra campionato e coppa, gol fatti e subiti): dal 19/10/2026. */
   come_stanno?: string;
+  /** Scelta ragionata (19/10/2026, "ok AI"). */
+  giocata?: string; ragionamento?: { book?: string; direzione?: string; segnano?: string; scelta?: string };
 };
 export type QuoteFirma = Record<string, number | null>;
 
@@ -3508,7 +3510,7 @@ export type ConsigliatoSalvato = {
   pA?: number | null; pB?: number | null; n?: number | null;
   daLasciare?: string | null; avvisi?: string[];
   alternative?: { market: string; nome: string; quota: number; stimata: boolean; p: number }[];
-  ai?: "confermato" | "cambiato" | null; notizia?: string | null;
+  ai?: "confermato" | "cambiato" | "scelta" | null; notizia?: string | null;
   numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
   lasciata_market?: string | null; lasciata_quota?: number | null;
   proposta_scartata?: { mercato: string; motivo: string } | null;
@@ -3567,7 +3569,7 @@ export const DA_GIOCARE_SCARTO_QUOTA = 0.10;
 export type DaGiocare = { market: string; nome: string; quota: number | null; stimata: boolean; fonte: "numeri" | "ai"; perche: string };
 export function daGiocare(c: {
   market?: string | null; nome?: string | null; quota?: number | null; stimata?: boolean;
-  ai?: "confermato" | "cambiato" | null; daLasciare?: string | null;
+  ai?: "confermato" | "cambiato" | "scelta" | null; daLasciare?: string | null;
   numeri_market?: string | null; numeri_nome?: string | null; numeri_quota?: number | null;
   proposta_scartata?: { mercato: string; motivo: string } | null;
 } | null | undefined): DaGiocare | null {
@@ -3700,8 +3702,8 @@ export function pronosticiDelloScenario(scenario: string | null | undefined, odd
   let base: string[] = [];
   if (sc.startsWith("Gap Tecnico")) base = [fav, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, `DC ${dc} + GG`, "GG", "O2.5", "GG + O2.5"];
   else if (sc === "Gap falso") base = ["U3.5"];
-  else if (sc === "Progressione") base = [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`, fav, `DC ${dc} + O1.5`];
-  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 2-4 totali"];
+  else if (sc === "Progressione") base = [fav === "1" ? "MG 1-3 casa + MG 0-2 ospite" : "MG 0-2 casa + MG 1-3 ospite", `MG 1-3 ${lato}`, fav, `DC ${dc} + O1.5`, "GG"];
+  else if (sc === "Equilibrio") base = ["GG", "O2.5", "1X", "X2", "X oppure GG", "MG 2-4 totali", "MG 3-6 totali"];
   const incertezza = aiSenzaVincitore ? ["MG 1-3 casa", "MG 2-4 casa", "MG 1-3 ospite", "MG 2-4 ospite", "MG 1-3 totali", "MG 2-4 totali", "U3.5", "X oppure GG"] : [];
   void altro;
   return new Set([...base, ...incertezza].map(chiavePronostico));
