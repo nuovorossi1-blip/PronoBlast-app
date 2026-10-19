@@ -50,6 +50,29 @@ async function fixtures(id: number): Promise<any[]> {
 
 export type PartitaConAvversario = PartitaForma & { id_avversario: number };
 
+/**
+ * TIPO DI COMPETIZIONE (19/10/2026, Rossi: "deve leggere esclusivamente campionato nel campionato, coppa
+ * nella coppa, amichevole nell'amichevole, nazionale nella nazionale"). Dal nome del torneo FotMob.
+ */
+export type TipoCompetizione = "campionato" | "coppa" | "amichevole" | "nazionale";
+export function tipoCompetizione(nome: string | null | undefined): TipoCompetizione {
+  const t = String(nome || "").toLowerCase();
+  if (/world cup|wc qual|nations league|euro qual|european championship|^euro\b|international friendl|africa cup|afcon|copa am[eé]rica|gold cup|asian cup|arab cup|ofc nations/.test(t)) return "nazionale";
+  if (/friendl|amichev/.test(t)) return "amichevole";
+  if (/cup|copa|coupe|coppa|pokal|beker|ta[cç]a|trophy|troph[eé]e|champions league|europa league|conference league|libertadores|sudamericana|supercopa|super ?cup|shield/.test(t)) return "coppa";
+  return "campionato";
+}
+/** Minimo di partite dello stesso tipo: sotto si usano le ufficiali (campionato + coppa). */
+export const MIN_STESSO_TIPO = 3;
+/** Le partite dello stesso tipo della partita da pronosticare (ripiego: le ufficiali, mai le amichevoli). */
+export function stessoTipo<T extends { torneo: string }>(partite: T[], tipo: TipoCompetizione | null | undefined): { partite: T[]; stesso: boolean } {
+  if (!tipo) return { partite, stesso: false };
+  const uguali = partite.filter((p) => tipoCompetizione(p.torneo) === tipo);
+  if (uguali.length >= MIN_STESSO_TIPO) return { partite: uguali, stesso: true };
+  const ufficiali = tipo === "amichevole" ? partite : partite.filter((p) => { const k = tipoCompetizione(p.torneo); return k === "campionato" || k === "coppa"; });
+  return { partite: ufficiali.length >= MIN_STESSO_TIPO ? ufficiali : partite, stesso: false };
+}
+
 /** Partite finite nei 90 minuti prima di `primaMs`, dalla piu' vecchia. */
 export async function partiteFinite(id: number, primaMs: number): Promise<PartitaConAvversario[]> {
   const tutte: PartitaConAvversario[] = [];
@@ -71,12 +94,13 @@ export async function partiteFinite(id: number, primaMs: number): Promise<Partit
   return tutte.sort((a, b) => a.data.localeCompare(b.data));
 }
 
-async function formaSquadra(id: number, nome: string, primaMs: number, inCasa: boolean): Promise<FormaSquadra> {
-  const tutte: PartitaForma[] = (await partiteFinite(id, primaMs)).map(({ id_avversario, ...p }) => p);
+async function formaSquadra(id: number, nome: string, primaMs: number, inCasa: boolean, tipo: TipoCompetizione | null): Promise<FormaSquadra & { stesso_tipo: boolean }> {
+  const { partite: tutte, stesso } = stessoTipo((await partiteFinite(id, primaMs)).map(({ id_avversario, ...p }) => p as PartitaForma), tipo);
   return {
     nome,
     totale: finestra(tutte.slice(-5)),
     sede: finestra(tutte.filter((p) => p.in_casa === inCasa).slice(-5)),
+    stesso_tipo: stesso,
   };
 }
 
@@ -100,12 +124,15 @@ export async function formaGol(
       const d = await getJson(`https://www.fotmob.com/api/data/matchDetails?matchId=${id}`);
       const [tc, to] = d?.header?.teams || [];
       const inizio = Date.parse(d?.general?.matchTimeUTCDate) || p.inizioMs || Date.now();
+      // Il tipo della partita da pronosticare: dal torneo FotMob (nome della lega o della coppa).
+      const torneo = String(d?.general?.leagueName || d?.general?.parentLeagueName || "");
+      const tipo = torneo ? tipoCompetizione(torneo) : null;
       if (tc?.id && to?.id) {
         const [casa, ospite] = await Promise.all([
-          formaSquadra(Number(tc.id), tc.name, inizio, true),
-          formaSquadra(Number(to.id), to.name, inizio, false),
+          formaSquadra(Number(tc.id), tc.name, inizio, true, tipo),
+          formaSquadra(Number(to.id), to.name, inizio, false, tipo),
         ]);
-        dati = { fotmob_id: String(id), casa, ospite, id_casa: Number(tc.id), id_ospite: Number(to.id), inizio_ms: inizio } as FormaGol;
+        dati = { fotmob_id: String(id), casa, ospite, id_casa: Number(tc.id), id_ospite: Number(to.id), inizio_ms: inizio, tipo, torneo } as FormaGol;
       }
     }
   } catch (e) {
@@ -124,6 +151,6 @@ export function testoFormaGol(f: FormaGol | null): string {
     return `  - ${s.nome}: ultime ${s.totale.n} in totale fa ${n(s.totale.fatti)} e prende ${n(s.totale.subiti)} gol a partita; ` +
       `ultime ${s.sede.n} ${sede} fa ${n(s.sede.fatti)} e prende ${n(s.sede.subiti)} (${ris || "nessuna partita"})`;
   };
-  return `\n📊 FORMA GOL (FotMob, solo 90 minuti, numeri A PARTITA):\n${riga(f.casa, "in casa")}\n${riga(f.ospite, "fuori casa")}\n` +
+  return `\n📊 FORMA GOL (FotMob, solo 90 minuti, ${f.tipo ? `solo partite di ${f.tipo} come questa` : "tutte le competizioni"}, numeri A PARTITA):\n${riga(f.casa, "in casa")}\n${riga(f.ospite, "fuori casa")}\n` +
     `Sono gia' nel prezzo delle quote: usali come conferma, non per ribaltare i numeri del motore.\n`;
 }

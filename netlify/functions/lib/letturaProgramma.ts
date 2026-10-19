@@ -20,7 +20,7 @@
  *     direzione opposta.
  *  5. ASSENZE: 3 o piu' assenti in una squadra (dossier FotMob).
  */
-import { partiteFinite, type FormaGol } from "./formaGol";
+import { partiteFinite, stessoTipo, type FormaGol, type TipoCompetizione } from "./formaGol";
 
 const forze = new Map<string, number | null>();
 
@@ -42,8 +42,9 @@ export type FormaPesata = {
   contro: { avversario: string; forza: number | null; fatti: number; subiti: number; peso: number }[];
 };
 
-async function formaPesata(id: number, primaMs: number, forzaOggi: number | null): Promise<FormaPesata | null> {
-  const partite = (await partiteFinite(id, primaMs)).slice(-10);
+async function formaPesata(id: number, primaMs: number, forzaOggi: number | null, tipo: TipoCompetizione | null = null): Promise<FormaPesata | null> {
+  // Solo partite dello stesso tipo della partita da pronosticare (19/10/2026, Rossi).
+  const partite = stessoTipo(await partiteFinite(id, primaMs), tipo).partite.slice(-10);
   if (partite.length < 3) return null;
   // Recenza (07/10/2026, test Estonia-Islanda): con 10 partite a pari peso la
   // serie recente di 1-0 dell'Estonia si diluiva fra le sconfitte del 2025.
@@ -95,8 +96,8 @@ export async function letturaProgramma(
   if (forma?.id_casa && forma?.id_ospite) {
     [out.forza_casa, out.forza_ospite] = await Promise.all([forzaSquadra(forma.id_casa, prima), forzaSquadra(forma.id_ospite, prima)]);
     [out.pesata_casa, out.pesata_ospite] = await Promise.all([
-      formaPesata(forma.id_casa, prima, out.forza_ospite),
-      formaPesata(forma.id_ospite, prima, out.forza_casa),
+      formaPesata(forma.id_casa, prima, out.forza_ospite, forma.tipo ?? null),
+      formaPesata(forma.id_ospite, prima, out.forza_casa, forma.tipo ?? null),
     ]);
   }
   const pc = out.pesata_casa, po = out.pesata_ospite;

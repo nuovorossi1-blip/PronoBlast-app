@@ -134,7 +134,7 @@ export async function datiLettura(matchId: string, opzioni: { completo?: boolean
   const testo = `PARTITA: ${m.squadra1} - ${m.squadra2} (${m.manifestazione}, ${m.day} ${m.time})
 QUOTE: 1 ${m.odd_1} · X ${m.odd_x} · 2 ${m.odd_2} · Over2.5 ${m.odd_o25} · Under2.5 ${m.odd_u25} · GG ${m.odd_gg} · NG ${m.odd_ng}
 SCENARIO: ${scenario}
-FORMA (FotMob, solo 90 minuti):
+FORMA (FotMob, solo 90 minuti, ${forma?.tipo ? `SOLO partite di ${forma.tipo} come questa${forma.casa?.stesso_tipo && forma.ospite?.stesso_tipo ? "" : " (poche: aggiunte le altre ufficiali)"}` : "tutte le competizioni"}):
 ${sq(forma?.casa, "in casa")}
 ${sq(forma?.ospite, "fuori casa")}
 ALTRI DATI (FotMob):

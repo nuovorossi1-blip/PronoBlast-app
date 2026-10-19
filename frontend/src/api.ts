@@ -3314,7 +3314,12 @@ export function perchéClassifica(c: ClassificaScenario): string {
 export type PartitaForma = { data: string; avversario: string; in_casa: boolean; fatti: number; subiti: number; torneo: string };
 export type FinestraForma = { n: number; fatti: number | null; subiti: number | null; partite: PartitaForma[] };
 export type FormaSquadra = { nome: string; totale: FinestraForma; sede: FinestraForma };
-export type FormaGol = { fotmob_id: string; casa: FormaSquadra; ospite: FormaSquadra; id_casa?: number; id_ospite?: number; inizio_ms?: number };
+export type FormaGol = {
+  fotmob_id: string; casa: FormaSquadra & { stesso_tipo?: boolean }; ospite: FormaSquadra & { stesso_tipo?: boolean };
+  id_casa?: number; id_ospite?: number; inizio_ms?: number;
+  /** Tipo della partita (19/10/2026): la forma si legge solo con le partite dello stesso tipo. */
+  tipo?: "campionato" | "coppa" | "amichevole" | "nazionale" | null; torneo?: string;
+};
 
 export type LetturaSquadra = {
   attesi: number;            // gol attesi dalle quote
