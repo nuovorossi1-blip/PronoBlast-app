@@ -697,7 +697,10 @@ export default function MatchDetail() {
           const visti = new Set<string>();
           const righe = (analisi?.righe ?? []).filter((r) => r.quota >= 1.4 && r.quota <= 1.6 && !isMercatoVietato(r.market) && pRiga(r) != null)
             .sort((a, b) => (pRiga(b) ?? 0) - (pRiga(a) ?? 0))
-            .filter((r) => { const k = chiave(r.market); if (visti.has(k)) return false; visti.add(k); return true; });
+            .filter((r) => { const k = chiave(r.market); if (visti.has(k)) return false; visti.add(k); return true; })
+            // Una sola Multigol per squadra (Rossi 19/10: "MG casa 2-4 e MG casa 1-3, uno esclude l'altro"):
+            // resta quella che entra di piu' per questa partita.
+            .filter((r) => { const m = /^MG \d-\d (CASA|OSPITE)$/.exec(chiave(r.market)); if (!m) return true; const k = `MG ${m[1]}`; if (visti.has(k)) return false; visti.add(k); return true; });
           const opzioni = righe.slice(0, 6);
           const rigaScelta = kScelta ? (analisi?.righe ?? []).find((r) => normalizeMarket(r.market) === kScelta) : undefined;
           if (rigaScelta) {
@@ -744,6 +747,7 @@ export default function MatchDetail() {
                 <>
                   <Text style={styles.golTesto}>{`Direzione: ${ai.direzione === "1" ? match.squadra1 : ai.direzione === "2" ? match.squadra2 : "nessun vincitore chiaro"}${ai.mercato ? ` · proposta: ${ai.mercato}` : ""}`}</Text>
                   {ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${ai.notizia}`}</Text> : null}
+                  {ai.come_stanno ? <Text style={styles.golTesto}>{`Come stanno: ${ai.come_stanno}`}</Text> : null}
                   {ai.lettura ? <Text style={styles.golTesto}>{ai.lettura}</Text> : null}
                 </>
               ) : <Text style={styles.golPic}>{letturaInCorso ? "La valutazione AI sta arrivando…" : "Non ancora disponibile."}</Text>}

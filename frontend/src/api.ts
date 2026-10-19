@@ -3452,6 +3452,8 @@ export type LetturaAI = {
   modello: string; quando: string; direzione: string; gol_casa: string; gol_ospite: string; gol_totali: string;
   forma_e_quote: string; notizia: string; risultati_probabili: string[]; lettura: string;
   mercato?: string; notizia_verificata?: boolean; pro?: boolean;
+  /** Come stanno andando le due squadre (ultime 5 fra campionato e coppa, gol fatti e subiti): dal 19/10/2026. */
+  come_stanno?: string;
 };
 export type QuoteFirma = Record<string, number | null>;
 

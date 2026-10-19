@@ -46,7 +46,7 @@ Regole:
 - Se il programma dice che forma e quote NON sono d'accordo, o che ci sono assenze pesanti, la lettura deve spiegarlo e tenerne conto nella direzione e nei gol (anche "nessuna" direzione).
 - Direzione, gol e risultati probabili devono essere coerenti fra loro.
 Rispondi SOLO con questo JSON:
-{"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
+{"direzione":"1|X|2|nessuna","gol_casa":"min-max","gol_ospite":"min-max","gol_totali":"min-max","forma_e_quote":"d'accordo|non d'accordo","notizia":"l'assenza o il fatto che conta, o stringa vuota","risultati_probabili":["a-b","a-b","a-b"],"come_stanno":"2 frasi, una per squadra: come sta andando nelle ultime 5 partite fra campionato e coppa (vinte, pareggiate, perse) e quanti gol ha fatto e subito, con i numeri copiati dai dati","lettura":"3-4 frasi semplici: chi e' favorita, chi segna, chi prende gol, che partita aspettarsi"}`;
 
 const MERCATI_AMMESSI_PRO = "1, 2, 1X, X2, GG, O2.5, MG 2-4 totali, MG 3-6 totali, MG 2-4 casa, MG 2-4 ospite, GG + O2.5, DC 1X + O1.5, DC X2 + O1.5, DC 1X + O2.5, DC X2 + O2.5, DC 1X + U3.5, DC X2 + U3.5, DC 1X + GG, DC X2 + GG, 1 + U4.5";
 
@@ -172,7 +172,7 @@ export async function generaLetturaAI(
       const l: LetturaAI = {
         modello: opt.label, quando: new Date().toISOString(), quote: firmaQuote(x.match),
         direzione: str(j.direzione, 10), gol_casa: str(j.gol_casa, 10), gol_ospite: str(j.gol_ospite, 10), gol_totali: str(j.gol_totali, 10),
-        forma_e_quote: str(j.forma_e_quote, 30), notizia: str(j.notizia, 300),
+        forma_e_quote: str(j.forma_e_quote, 30), notizia: str(j.notizia, 300), come_stanno: str(j.come_stanno, 500),
         risultati_probabili: (Array.isArray(j.risultati_probabili) ? j.risultati_probabili : []).map((r: any) => str(r, 8)).filter(Boolean).slice(0, 4),
         lettura: str(j.lettura, 900),
       };
