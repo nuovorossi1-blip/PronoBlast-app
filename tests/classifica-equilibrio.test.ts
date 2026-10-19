@@ -55,3 +55,29 @@ describe("Pronostico prima del via nell'Equilibrio (passo 5)", () => {
     assert.ok(!d.ragioni.some((r) => /classifica/.test(r.t)));
   });
 });
+
+import { classificaGap } from "../frontend/src/api";
+
+// Tromso-KFUM Oslo 18/10/2026: Gap vero, favorita 1,42, Over 3,5 a 2,50.
+const tromso: any = { odd_1: 1.42, odd_X: 4.5, odd_2: 6.5, odd_1X: 1.09, odd_X2: 2.75, odd_GG: 1.75, odd_O25: 1.6, odd_O35: 2.5 };
+
+describe("classifica del Gap Tecnico", () => {
+  it("Tromso: fascia da 2,30 con favorita 1,40-1,59, MG casa 1-3 in testa", () => {
+    const c = classificaGap(tromso, { "MG 1-3 casa": { odd: 1.31 }, "MG 2-4 casa": { odd: 1.68 }, "DC 1X + GG": { odd: 2.11 } })!;
+    assert.equal(c.fascia, "da 2,30");
+    assert.equal(c.fasciaFavorita, "1,40-1,59");
+    assert.equal(c.voci[0].mercato, "MG casa 1-3");
+    assert.equal(c.voci[0].pagata, false);          // stimata 1,31, ne serve 1,37
+    assert.equal(c.voci[1].mercato, "1 fisso");    // 65% -> serve 1,54, pagato 1,42: no
+    assert.equal(c.scelta, null);                  // Over 57% serve 1,76 (qui 1,60): si lascia (fini' 1-1)
+  });
+  it("Gap falso e Progressione: niente classifica Gap", () => {
+    assert.equal(classificaGap({ ...tromso, odd_2: 3.5 }), null);
+    assert.equal(classificaGap({ ...tromso, odd_X: 3.8 }), null);
+  });
+  it("tutti i codici del Gap sono valutabili sul risultato", () => {
+    for (const m of ["1", "2", "DC 1X + GG", "DC X2 + GG", "MG 2-4 casa", "MG 1-3 ospite", "O2.5", "GG"]) {
+      assert.equal(typeof evaluateMarketOutcome(m, "2-1"), "boolean", m);
+    }
+  });
+});

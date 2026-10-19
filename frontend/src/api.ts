@@ -3175,9 +3175,10 @@ export function getScenarioNote(odds: Odds, profilo?: { offensive_profile?: stri
 // sotto 1,80 (non entrambi sotto 1,50). Percentuali misurate in archivio (matches + match_results_training,
 // 1.970 partite) per fascia della quota Over 3,5 e per chi e' avanti nelle quote 1-2 (quota piu' bassa
 // di almeno 0,50). Celle con meno di 40 partite -> media della fascia Over 3,5.
-// E' solo un'indicazione sulla scheda: non tocca mercati, consigliato, pronostico o prompt.
+// Dal 19/10/2026 (Rossi) decide anche consigliato e Pronostico prima del via (vedi analizzaGiocate e
+// regolePronostico); i mercati della nota dello scenario e i prompt restano come sono.
 // ============================================================================
-export type MercatoClassifica = "GG" | "Over 2,5" | "1X" | "X2" | "X oppure GG";
+export type MercatoClassifica = string;
 export type VoceClassifica = {
   mercato: MercatoClassifica;
   codice: string;           // nome del mercato per consigliato e regole (O2.5 per Over 2,5)
@@ -3186,10 +3187,15 @@ export type VoceClassifica = {
   quota: number | null;     // quota del bookmaker per questa partita, se c'e'
   pagata: boolean | null;   // quota >= minima (null = quota non disponibile)
   daEvitare: boolean;       // entra meno del 55%
+  stimata?: boolean;        // quota stimata dall'app (Multigol, combo): da controllare sul bookmaker
 };
 export type ClassificaScenario = {
+  tipo: "equilibrio" | "gap";
   fascia: string;
+  /** Equilibrio: chi e' avanti nelle quote 1-2. Gap: lato della favorita. */
   direzione: "casa" | "vicine" | "ospite";
+  /** Gap: fascia della quota della favorita. */
+  fasciaFavorita?: string;
   partite: number;
   voci: VoceClassifica[];
   /** Il primo della classifica pagato almeno la quota minima. */
@@ -3224,7 +3230,56 @@ export function classificaEquilibrio(odds: Odds): ClassificaScenario | null {
     return { mercato, codice: codici[i], pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55 };
   }).sort((a, b) => b.pct - a.pct);
   const scelta = voci.find((v) => !v.daEvitare && v.pagata === true)?.mercato ?? null;
-  return { fascia, direzione, partite, voci, scelta };
+  return { tipo: "equilibrio", fascia, direzione, partite, voci, scelta };
+}
+
+// ============================================================================
+// CLASSIFICA DEL GAP TECNICO (19/10/2026, Rossi: "la stessa cosa per lo scenario Gap"). Gap vero
+// (favorita sotto 2,00, X e avversario da 4,00). Archivio per fascia Over 3,5 x quota della favorita;
+// celle con meno di 40 partite -> media della fascia Over 3,5. Multigol e combo non hanno la quota del
+// bookmaker: si usa quella stimata dall'app (da controllare). Sotto 1,40 una giocata non si sceglie.
+// SOLO DA LEGGERE: non decide consigliato ne' Pronostico prima del via (misura 19/10: resa -6,2%).
+// ============================================================================
+// [partite, fisso, DC fav + GG, MG fav 2-4, MG fav 1-3, Over 2,5, GG]
+const TABELLA_GAP: Record<string, Record<"forte" | "media" | "leggera", number[]>> = {
+  "sotto 1,60": { forte: [129, 85, 53, 55, 51, 81, 60], media: [158, 80, 58, 55, 54, 80, 65], leggera: [158, 80, 58, 55, 54, 80, 65] },
+  "1,60-1,99": { forte: [508, 81, 48, 63, 61, 73, 53], media: [215, 62, 54, 63, 67, 73, 64], leggera: [61, 61, 56, 64, 61, 74, 66] },
+  "2,00-2,29": { forte: [411, 78, 40, 59, 66, 64, 45], media: [337, 64, 41, 50, 71, 59, 52], leggera: [124, 52, 44, 49, 73, 65, 59] },
+  "da 2,30": { forte: [660, 75, 41, 60, 73, 55, 45], media: [757, 65, 44, 54, 73, 57, 52], leggera: [156, 59, 43, 53, 73, 61, 56] },
+};
+
+/** stimate: quote del catalogo dell'app (quoteCatalogo / market_odds) per Multigol e combo. */
+export function classificaGap(odds: Odds, stimate?: Record<string, { odd: number }> | null): ClassificaScenario | null {
+  const o = odds as any;
+  const q1 = o.odd_1, qx = o.odd_X, q2 = o.odd_2, o35 = o.odd_O35 ?? o.odd_o35 ?? null;
+  if (q1 == null || qx == null || q2 == null || o35 == null) return null;
+  const fav: "1" | "2" | null = q1 < 2 && q1 <= q2 ? "1" : q2 < 2 && q2 < q1 ? "2" : null;
+  if (!fav) return null;
+  const qf = fav === "1" ? q1 : q2, qs = fav === "1" ? q2 : q1;
+  if (qx < 4 || qs < 4) return null;                       // Progressione o Gap falso
+  const fascia = o35 < 1.6 ? "sotto 1,60" : o35 < 2 ? "1,60-1,99" : o35 < 2.3 ? "2,00-2,29" : "da 2,30";
+  const forza = qf < 1.4 ? "forte" : qf < 1.6 ? "media" : "leggera";
+  const [partite, ...pcts] = TABELLA_GAP[fascia][forza];
+  const lato = fav === "1" ? "casa" : "ospite";
+  const mercati = [`${fav} fisso`, `${fav === "1" ? "1X" : "X2"} + GG`, `MG ${lato} 2-4`, `MG ${lato} 1-3`, "Over 2,5", "GG"];
+  const codici = [fav, `DC ${fav === "1" ? "1X" : "X2"} + GG`, `MG 2-4 ${lato}`, `MG 1-3 ${lato}`, "O2.5", "GG"];
+  const stima = (k: string) => stimate?.[k]?.odd ?? null;
+  const quote: (number | null)[] = [qf, stima(codici[1]), stima(codici[2]), stima(codici[3]), o.odd_O25 ?? null, o.odd_GG ?? null];
+  const voci = mercati.map((mercato, i): VoceClassifica => {
+    const pct = pcts[i];
+    const quotaMinima = Math.ceil((100 / pct) * 100) / 100;
+    const quota = quote[i];
+    return { mercato, codice: codici[i], pct, quotaMinima, quota, pagata: quota == null ? null : quota >= quotaMinima, daEvitare: pct < 55, stimata: i >= 1 && i <= 3 };
+  }).sort((a, b) => b.pct - a.pct);
+  const scelta = voci.find((v) => !v.daEvitare && v.pagata === true && (v.quota ?? 0) >= 1.4)?.mercato ?? null;
+  return { tipo: "gap", fascia, direzione: lato, fasciaFavorita: forza === "forte" ? "sotto 1,40" : forza === "media" ? "1,40-1,59" : "1,60-1,99", partite, voci, scelta };
+}
+
+/** La classifica dello scenario della partita (Equilibrio o Gap Tecnico), o null. */
+export function classificaScenario(odds: Odds, scenario: string | null | undefined, stimate?: Record<string, { odd: number }> | null): ClassificaScenario | null {
+  if (scenario === "Equilibrio") return classificaEquilibrio(odds);
+  if (scenario && scenario.startsWith("Gap Tecnico")) return classificaGap(odds, stimate);
+  return null;
 }
 
 /** La voce scelta dalla classifica, in parole per il "perche'" (consigliato e Pronostico prima del via). */
@@ -3232,7 +3287,7 @@ export function perchéClassifica(c: ClassificaScenario): string {
   const v = c.voci.find((x) => x.mercato === c.scelta);
   const qf = (x: number) => x.toFixed(2).replace(".", ",");
   return v
-    ? `classifica dello scenario: ${v.mercato} entra il ${v.pct}% (Over 3,5 ${c.fascia}), pagato ${qf(v.quota!)}, ne serve almeno ${qf(v.quotaMinima)}`
+    ? `classifica dello scenario: ${v.mercato} entra il ${v.pct}% (Over 3,5 ${c.fascia}${c.fasciaFavorita ? `, favorita ${c.fasciaFavorita}` : ""}), pagato ${v.stimata ? "circa " : ""}${qf(v.quota!)}, ne serve almeno ${qf(v.quotaMinima)}${v.stimata ? " (quota stimata: controllala)" : ""}`
     : "classifica dello scenario: nessun mercato è pagato il minimo, meglio lasciarla";
 }
 
@@ -3715,6 +3770,9 @@ export function analizzaGiocate(x: {
   // CLASSIFICA DELL'EQUILIBRIO (19/10/2026, Rossi: "mi trovo al bivio tra GG e Over 2,5, l'app mi deve
   // aiutare"): nell'Equilibrio con GG e Over sotto 1,80 decide la classifica dello scenario, il primo
   // mercato pagato almeno il minimo; se nessuno lo e', la partita si lascia.
+  // Solo l'Equilibrio decide (19/10/2026): nel Gap la regola "pagato il minimo" in archivio sceglieva il
+  // fisso quando la favorita era la piu' debole della fascia (644 giocate, 55%, resa -6,2%): li' la
+  // classifica resta solo da leggere sulla scheda.
   const classifica = x.scenario === "Equilibrio" ? classificaEquilibrio(x.odds) : null;
   const sceltaClassifica = classifica?.scelta
     ? righe.find((r) => normalizeMarket(r.market) === normalizeMarket(classifica.voci.find((v) => v.mercato === classifica.scelta)!.codice)) ?? null
@@ -3727,7 +3785,7 @@ export function analizzaGiocate(x: {
   const primo = gapFalso ? candidati.find((r) => normalizeMarket(r.market) === "U3.5") ?? null
     : classifica ? sceltaClassifica : primoElenco;
   const lascia = gapFalso && !primo ? "Gap falso (l'avversario sta sotto 4, nessun divario vero): meglio non giocarla, oppure solo Under 3,5"
-    : classifica && !primo ? "Equilibrio: nessun mercato della classifica dello scenario è pagato il minimo, meglio lasciarla" : daLasciare;
+    : classifica && !primo ? `${classifica.tipo === "gap" ? "Gap Tecnico" : "Equilibrio"}: nessun mercato della classifica dello scenario è pagato il minimo, meglio lasciarla` : daLasciare;
   const consigliato = lascia ? null : primo;
   if (consigliato) consigliato.consigliato = true;
   const piuSicura = candidati.slice().sort((a, b) => Math.min(b.misurata!.pA, b.misurata!.pB) - Math.min(a.misurata!.pA, a.misurata!.pB))[0];

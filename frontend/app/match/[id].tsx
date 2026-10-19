@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { daGiocare } from "@/src/api";
-import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaEquilibrio } from "@/src/api";
+import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
 import { colors } from "@/src/theme";
@@ -788,28 +788,32 @@ export default function MatchDetail() {
               })}
               {(() => {
                 // CLASSIFICA DELL'EQUILIBRIO (19/10/2026): sotto la nota, chi scegliere prima se e' pagato il minimo.
-                const cl = note.scenario === "Equilibrio" ? classificaEquilibrio(match.odds) : null;
+                const cl = classificaScenario(match.odds, note.scenario, structural?.market_odds as any);
                 if (!cl) return null;
-                const chi = cl.direzione === "casa" ? `${match.squadra1} avanti` : cl.direzione === "ospite" ? `${match.squadra2} avanti` : "quote 1-2 vicine";
+                const chi = cl.tipo === "gap"
+                  ? `favorita ${cl.direzione === "casa" ? match.squadra1 : match.squadra2} ${cl.fasciaFavorita}`
+                  : cl.direzione === "casa" ? `${match.squadra1} avanti` : cl.direzione === "ospite" ? `${match.squadra2} avanti` : "quote 1-2 vicine";
+                const nomeMk = (mk: string) => mk.replace(/casa/gi, match.squadra1).replace(/ospite/gi, match.squadra2);
                 const qf = (x: number) => x.toFixed(2).replace(".", ",");
                 return (
                   <View style={{ marginTop: 10 }}>
                     <Text style={styles.scenarioNoteTitle}>CLASSIFICA DELLO SCENARIO</Text>
                     <Text style={styles.scenarioNoteSub}>{`Over 3,5 ${cl.fascia} · ${chi} · ${cl.partite} partite in archivio${cl.partite < 60 ? " (poche)" : ""}`}</Text>
                     {cl.voci.map((v, i) => {
-                      const vinto = match.result ? evaluateMarketOutcome(v.mercato, match.result) === true : false;
+                      const vinto = match.result ? evaluateMarketOutcome(v.codice, match.result) === true : false;
                       const stato = v.daEvitare ? "da evitare"
                         : v.pagata === null ? `serve almeno ${qf(v.quotaMinima)}, controlla la quota`
-                        : `serve almeno ${qf(v.quotaMinima)}, qui ${qf(v.quota!)} ${v.pagata ? "✓" : "✗ pagata poco"}`;
+                        : `serve almeno ${qf(v.quotaMinima)}, qui ${v.stimata ? "≈" : ""}${qf(v.quota!)} ${v.pagata ? (v.quota! < 1.4 ? "ma sotto 1,40" : "✓") : "✗ pagata poco"}`;
                       return (
                         <Text key={v.mercato} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto, v.daEvitare && { opacity: 0.5 }]}>
-                          {`${i + 1}. ${v.mercato} ${v.pct}% · ${stato}${vinto ? " ✓" : ""}`}
+                          {`${i + 1}. ${nomeMk(v.mercato)} ${v.pct}% · ${stato}${vinto ? " ✓" : ""}`}
                         </Text>
                       );
                     })}
                     <Text style={[styles.scenarioNoteMarket, { marginTop: 4 }]}>
-                      {cl.scelta ? `Da scegliere: ${cl.scelta} (il primo pagato almeno il minimo)` : "Nessun mercato è pagato il minimo: meglio lasciarla, o X oppure GG se il bookmaker lo paga abbastanza."}
+                      {cl.tipo === "gap" ? `Solo da leggere: nel Gap la classifica non decide il pronostico (in archivio scegliere "il primo pagato il minimo" perdeva il 6%).` : cl.scelta ? `Da scegliere: ${nomeMk(cl.scelta)} (il primo pagato almeno il minimo)` : cl.tipo === "gap" ? "Nessun mercato è pagato il minimo: meglio lasciarla." : "Nessun mercato è pagato il minimo: meglio lasciarla, o X oppure GG se il bookmaker lo paga abbastanza."}
                     </Text>
+                    {cl.voci.some((v) => v.stimata) ? <Text style={styles.scenarioNoteSub}>≈ quota stimata dall'app: controllala sul bookmaker.</Text> : null}
                   </View>
                 );
               })()}
