@@ -1,4 +1,4 @@
-import { pgGet, jsonResponse } from "./lib/supabaseRest";
+import { pgGet, pgPatch, jsonResponse } from "./lib/supabaseRest";
 import { formaGol } from "./lib/formaGol";
 import { inizioPartitaMs } from "../../frontend/src/api";
 
@@ -15,15 +15,28 @@ export default async (req: Request): Promise<Response> => {
     const rows = await pgGet(`matches?id=eq.${encodeURIComponent(id)}&select=day,time,squadra1,squadra2`);
     if (!rows.length) return jsonResponse({ error: "Partita non trovata" }, 404);
     const m = rows[0];
+    // SALVATA NEL DOSSIER (19/10/2026, Rossi: "deve sempre caricare qualcosa, non e' fluido"): dopo un
+    // riavvio del server la forma si riscaricava da FotMob a ogni apertura (12 s). Ora si riusa quella
+    // salvata per 6 ore (per sempre a partita iniziata: le ultime partite di prima non cambiano piu').
     let fotmobId: string | null = null;
+    let salvata: { quando: number; dati: any } | null = null;
     try {
-      const d = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(id)}&select=numeri`);
-      fotmobId = d[0]?.numeri?.fotmob_id || null;
+      const d = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(id)}&select=fid:numeri->>fotmob_id,fg:numeri->forma_gol`);
+      fotmobId = d[0]?.fid || null;
+      salvata = d[0]?.fg || null;
     } catch { /* senza dossier si cerca nell'elenco del giorno */ }
-    const forma = await formaGol(
-      { giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizioPartitaMs(m.day, m.time) },
-      fotmobId,
-    );
+    const inizio = inizioPartitaMs(m.day, m.time);
+    const iniziata = inizio !== null && inizio <= Date.now();
+    if (salvata?.dati && (iniziata || Date.now() - Number(salvata.quando) < 6 * 3600_000)) {
+      return jsonResponse({ forma: salvata.dati });
+    }
+    const forma = await formaGol({ giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizio }, fotmobId);
+    if (forma) {
+      try {
+        const [r] = await pgGet(`dossier_web?match_id=eq.${encodeURIComponent(id)}&select=numeri`);
+        if (r?.numeri) await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(id)}`, { numeri: { ...r.numeri, forma_gol: { quando: Date.now(), dati: forma } } });
+      } catch { /* si riscarica la prossima volta */ }
+    }
     return jsonResponse({ forma });
   } catch (e: any) {
     return jsonResponse({ error: e.message }, 502);
