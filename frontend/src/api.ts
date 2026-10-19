@@ -3678,6 +3678,28 @@ const versoCasaM = (m: string) => /^(1|1X)(\s|$|\+)/.test(segnoBase(m)) || /^1 (
 const versoOspiteM = (m: string) => /^(2|X2)(\s|$|\+)/.test(segnoBase(m)) || /^2 (DNB|AH)/.test(segnoBase(m));
 const conSegnoM = (m: string) => versoCasaM(m) || versoOspiteM(m) || /^(X|12)(\s*\+|$)/.test(segnoBase(m));
 
+/**
+ * MULTIGOL DELLA FAVORITA NEL GAP TECNICO (19/10/2026, Rossi, Real-Siviglia 4-1 con MG casa 1-3): la
+ * sceglie la quota dell'Over 3,5. Archivio, favorita sotto 1,40: sotto 1,60 la favorita fa 5+ gol una
+ * volta su tre (MG strette 49-53%) -> nessuna; 1,60-1,99 fa 2,7-3,1 gol di media, 4+ il 31-37% -> MG 2-4
+ * (63-65% contro 60-65%); da 2,00 vince di misura -> MG 1-3 (70-74% contro 56-60%).
+ * Restituisce il motivo dell'esclusione, o null.
+ */
+export function mgFavoritaEsclusa(market: string, scenario: string | null | undefined, odds: Odds): string | null {
+  if (!scenario || !scenario.startsWith("Gap Tecnico")) return null;
+  const o35 = Number((odds as any).odd_O35 ?? (odds as any).odd_o35);
+  if (!(o35 > 1)) return null;
+  const lato = Number(odds.odd_1) <= Number(odds.odd_2) ? "CASA" : "OSPITE";
+  const k = normalizeMarket(market).replace(/^MG (CASA|OSPITE) (\d)-(\d)$/, "MG $2-$3 $1");
+  const m = /^MG (\d)-(\d) (CASA|OSPITE)$/.exec(k);
+  if (!m || m[3] !== lato || Number(m[2]) > 4) return null;
+  const da = Number(m[1]), a = Number(m[2]);
+  if (o35 < 1.6) return "rischio goleada (Over 3,5 sotto 1,60): niente Multigol stretta della favorita";
+  if (o35 < 2 && da < 2) return "Over 3,5 sotto 2,00: la favorita fa tanti gol, meglio la Multigol 2-4";
+  if (o35 >= 2 && a > 3) return "Over 3,5 da 2,00: pochi gol, meglio la Multigol 1-3 della favorita";
+  return null;
+}
+
 export function analizzaGiocate(x: {
   odds: Odds;
   marketOdds: Record<string, { odd: number; estimated: boolean }> | null | undefined;
@@ -3761,21 +3783,13 @@ export function analizzaGiocate(x: {
   const elenco = [...(x.manuali || []), ...(x.xoggAI ? ["X oppure GG"] : [])];
   const nelElenco = (m: string) => isMercatoAmmesso(m, elenco);
 
-  // RISCHIO GOLEADA (19/10/2026, Rossi): Gap Tecnico con Over 3,5 sotto 1,60 -> mai una Multigol stretta
-  // (fino a 4 gol) della favorita, anche se e' la piu' facile: e' quella che salta quando la favorita dilaga.
-  const qo35 = Number((x.odds as any).odd_O35 ?? (x.odds as any).odd_o35);
-  const goleada = x.scenario === "Gap Tecnico" && qo35 > 1 && qo35 < 1.6;
-  const favLato = Number(x.odds.odd_1) <= Number(x.odds.odd_2) ? "CASA" : "OSPITE";
-  const mgStrettaFav = (m: string) => {
-    const k = normalizeMarket(m).replace(/^MG (CASA|OSPITE) (\d)-(\d)$/, "MG $2-$3 $1");
-    const mm = /^MG \d-(\d) (CASA|OSPITE)$/.exec(k);
-    return !!mm && mm[2] === favLato && Number(mm[1]) <= 4;
-  };
+  // MULTIGOL DELLA FAVORITA NEL GAP (19/10/2026, Rossi): decide l'Over 3,5 (vedi mgFavoritaEsclusa).
+  const mgEsclusa = (m: string) => mgFavoritaEsclusa(m, x.scenario, x.odds);
   // Candidati e punteggio
   for (const r of righe) {
     if (isMercatoVietato(r.market)) continue;
     if (r.quota < 1.4 || !r.misurata || contraria(r.market) || !coerenteConGol(r.market, x.totAtteso)) continue;
-    if (goleada && mgStrettaFav(r.market)) continue;
+    if (mgEsclusa(r.market)) continue;
     const pm = Math.min(r.misurata.pA, r.misurata.pB);
     if (pm < 0.58) continue;
     const p = r.stima != null ? Math.min(pm, r.stima) : pm;
@@ -3826,7 +3840,7 @@ export function analizzaGiocate(x: {
     else if (comboVietata(r.market)) r.perche = "combinazione con il segno secco o con 12 + Over: non si gioca.";
     else if (r.punteggio != null && !nelElenco(r.market) && r.quota >= 1.4) r.perche = "non è fra le giocate dell'elenco o dello scenario.";
     else if (r.quota < 1.4) r.perche = "sotto 1,40: vince spesso ma il guadagno è troppo basso.";
-    else if (goleada && mgStrettaFav(r.market)) r.perche = "rischio goleada (Over 3,5 sotto 1,60): niente Multigol stretta della favorita.";
+    else if (mgEsclusa(r.market)) r.perche = `${mgEsclusa(r.market)}.`;
     else if (contraria(r.market)) r.perche = x.direzione ? `va contro la favorita (${x.direzione === "1" ? x.casa : x.ospite}).` : "nessuna favorita netta: meglio non giocare il segno.";
     else if (!coerenteConGol(r.market, x.totAtteso)) r.perche = `va contro i gol attesi (circa ${g1(x.totAtteso ?? 0)}).`;
     else if (/^GG\b/i.test(r.market.trim()) && deboleSegna && deboleSegna.f <= 1.1) r.perche = `serve un gol di ${deboleSegna.nome}, che contro squadre come ${deboleSegna.contro} fa ${g1(deboleSegna.f)} a partita: quasi testa o croce.`;

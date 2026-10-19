@@ -84,3 +84,23 @@ describe("alzata e goleada (19/10/2026)", () => {
     assert.equal(mgStrettaFavorita("MG 2-4 totali", "1"), false);
   });
 });
+
+import { mgFavoritaEsclusa } from "../frontend/src/api";
+
+describe("Multigol della favorita secondo l'Over 3,5 (19/10/2026)", () => {
+  const real: any = { odd_1: 1.24, odd_X: 6.5, odd_2: 11, odd_O35: 1.9 };
+  it("Real-Siviglia (Over 3,5 1,90): MG casa 1-3 esclusa, MG casa 2-4 ammessa", () => {
+    assert.ok(mgFavoritaEsclusa("MG 1-3 casa", "Gap Tecnico", real));
+    assert.equal(mgFavoritaEsclusa("MG casa 2-4", "Gap Tecnico", real), null);
+  });
+  it("Over 3,5 da 2,00: MG 2-4 esclusa; sotto 1,60: tutte e due", () => {
+    assert.ok(mgFavoritaEsclusa("MG 2-4 casa", "Gap Tecnico", { ...real, odd_O35: 2.4 }));
+    assert.equal(mgFavoritaEsclusa("MG 1-3 casa", "Gap Tecnico", { ...real, odd_O35: 2.4 }), null);
+    assert.ok(mgFavoritaEsclusa("MG 1-3 casa", "Gap Tecnico", { ...real, odd_O35: 1.5 }));
+    assert.ok(mgFavoritaEsclusa("MG 2-4 casa", "Gap Tecnico", { ...real, odd_O35: 1.5 }));
+  });
+  it("fuori dal Gap o Multigol dell'altra squadra: niente esclusione", () => {
+    assert.equal(mgFavoritaEsclusa("MG 1-3 casa", "Progressione", real), null);
+    assert.equal(mgFavoritaEsclusa("MG 1-3 ospite", "Gap Tecnico", real), null);
+  });
+});
