@@ -145,6 +145,16 @@ export default function MatchDetail() {
   });
   const [letturaInCorso, setLetturaInCorso] = useState(false);
   const [proInCorso, setProInCorso] = useState(false);
+  // Partita gia' giocata: "leggila con l'AI come prima del via" (19/10/2026, Rossi).
+  const [rifaiInCorso, setRifaiInCorso] = useState(false);
+  const leggiComePrima = () => {
+    if (!id || rifaiInCorso) return;
+    setRifaiInCorso(true);
+    api.lettura(id, { genera: true, rifai: true })
+      .then((r) => { memLettura.set(id, r); persistentLetturaCache.set(id, r, match?.odds); setLettura(r); })
+      .catch((e) => notify("Lettura non fatta", String(e?.message || e).replace(/^\d{3}\s+/, "")))
+      .finally(() => setRifaiInCorso(false));
+  };
   // Rossi (07/10/2026): "se e' automatica falla e basta, senza cliccarci".
   // Prima subito quello che c'e', poi (auto=1) il server fa la lettura gratis
   // se manca o se le quote sono cambiate.
@@ -764,6 +774,12 @@ export default function MatchDetail() {
                   {ai.lettura ? <Text style={styles.golTesto}>{ai.lettura}</Text> : null}
                 </>
               ) : <Text style={styles.golPic}>{letturaInCorso ? "La valutazione AI sta arrivando…" : "Non ancora disponibile."}</Text>}
+              {(match.result || (inizioRegole !== null && inizioRegole <= Date.now())) && !ai?.ragionamento ? (
+                <TouchableOpacity onPress={leggiComePrima} activeOpacity={0.7} disabled={rifaiInCorso}
+                  style={{ marginTop: 8, alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.primary }}>
+                  <Text style={{ color: "#000", fontWeight: "800" }}>{rifaiInCorso ? "L'AI sta leggendo (30-60 secondi)…" : "Leggila con l'AI come prima del via"}</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <Text style={[styles.scenarioNoteTitle, { marginTop: 12 }]}>{cs?.rifatto ? "SCELTA FINALE (RIFATTA CON LE REGOLE NUOVE)" : match.result ? "SCELTA FINALE (PRIMA DEL VIA)" : "SCELTA FINALE"}</Text>
               {scelta ? (

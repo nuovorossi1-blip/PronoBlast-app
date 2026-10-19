@@ -1,5 +1,5 @@
-import { jsonResponse, pgGet } from "./lib/supabaseRest";
-import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina, risultatiCampionato } from "./lib/letturaPartita";
+import { jsonResponse, pgGet, pgPatch } from "./lib/supabaseRest";
+import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuote, consigliatoDi, consigliatoValido, applicaCambioInSchedina, risultatiCampionato, giocataDelConsigliato } from "./lib/letturaPartita";
 import { inizioPartitaMs } from "../../frontend/src/api";
 import { decidi } from "./lib/regolePronostico";
 import { tabellaScenari } from "./lib/tabellaScenari";
@@ -108,11 +108,24 @@ export default async (req: Request): Promise<Response> => {
           await applicaCambioInSchedina(id, c);
         } catch { /* si rifa' col giro */ }
       } else {
+        // PARTITA GIA' GIOCATA, "leggila con l'AI come prima del via" (19/10/2026, Rossi): la lettura di
+        // prima del via si conserva, all'AI non arriva il risultato, la scelta rifatta diventa quella della
+        // partita (scheda e Schedina).
+        const rifai = !daGiocare && haDossier && url.searchParams.get("rifai") === "1";
+        if (rifai && dati.numeri?.lettura_ai && !dati.numeri.lettura_ai_prima_del_via) {
+          dati.numeri = { ...dati.numeri, lettura_ai_prima_del_via: dati.numeri.lettura_ai };
+          await pgPatch(`dossier_web?match_id=eq.${encodeURIComponent(id)}`, { numeri: dati.numeri }).catch(() => {});
+        }
         const nuova = await generaLetturaAI(id, dati);
         if (nuova) {
           ai = nuova;
           if (daGiocare && haDossier) {
             try { consigliato = await consigliatoDi(id, { ...dati, numeri: { ...dati.numeri, lettura_ai: ai } }); } catch { /* resta il salvato */ }
+          } else if (rifai) {
+            try {
+              consigliato = await consigliatoDi(id, undefined, true, { rifai: true });
+              await pgPatch(`matches?id=eq.${encodeURIComponent(id)}`, giocataDelConsigliato(consigliato) ?? { pick_finale: null, pick_finale_prob: null });
+            } catch { /* resta il salvato */ }
           }
         }
         if (!ai) return jsonResponse({ error: "I modelli gratis non hanno risposto (sovraccarichi o limite del giorno): riprova fra poco." }, 502);
