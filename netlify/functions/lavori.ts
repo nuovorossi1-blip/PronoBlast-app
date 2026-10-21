@@ -13,7 +13,7 @@ import syncResults from "./sync-results";
 import aiPredict from "./ai-predict";
 import { verdettoDiPartita } from "./lib/verdettoServer";
 import { readMinOdd } from "./odd-settings";
-import { aggiornaQuoteSisal, aggiornaQuoteSisalLotto } from "./lib/quoteSisal";
+import { aggiornaQuoteSisalLotto } from "./lib/quoteSisal";
 
 /**
  * LAVORI IN BACKGROUND (01/10/2026) — /lavori
@@ -177,8 +177,8 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
       // pronostico si ricalcola e salva il verdetto della partita.
       const ids: string[] = p.ids || [];
       l.totale = ids.length;
-      // Al primo giro le quote Sisal di tutte insieme (una sola apertura di Edge); poi ogni partita le trova fresche.
-      if (l.pos === 0 && !l.parziale.sisal) { await aggiornaQuoteSisalLotto(ids); l.parziale.sisal = true; }
+      // Al primo giro le quote Sisal di tutte insieme, rilette fresche (una sola apertura di Edge).
+      if (l.pos === 0 && !l.parziale.sisal) { await aggiornaQuoteSisalLotto(ids, true); l.parziale.sisal = true; }
       const id = ids[l.pos];
       if (id) {
         const esiti: { id: string; partita: string; esito: string }[] = l.parziale.esiti || [];
@@ -195,8 +195,6 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
             // partita"): la lettura col modello scelto in LLM & Budget, poi il
             // consigliato (confermato o cambiato da una notizia verificata).
             try {
-              // Prima le quote vere della scheda Sisal (21/10/2026): multigol, combo, risultati esatti.
-              await aggiornaQuoteSisal(id);
               const pro = await generaLetturaAI(id, undefined, { pro: true });
               if (!pro) esito = "errore: il modello non ha dato una lettura valida";
               else {

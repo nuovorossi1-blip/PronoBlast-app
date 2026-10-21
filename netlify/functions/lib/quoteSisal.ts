@@ -78,13 +78,13 @@ export function mappaScheda(mercati: MercatoScheda[]): { quote: Record<string, n
 }
 
 /** Chiede all'agente del PC le schede Sisal (una sola apertura di Edge per tutte). null = agente non configurato o spento. */
-async function chiediSchede(partite: { id: string; day: string; squadra1: string; squadra2: string }[]): Promise<Record<string, any> | null> {
+async function chiediSchede(partite: { id: string; day: string; squadra1: string; squadra2: string }[], fresca = false): Promise<Record<string, any> | null> {
   if (!AGENTE || !SEGRETO) return null;
   try {
     const r = await fetch(`${AGENTE}/scheda`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Segreto": SEGRETO },
-      body: JSON.stringify({ partite }),
+      body: JSON.stringify({ partite, fresca }),
       signal: AbortSignal.timeout(60_000 + partite.length * 5_000),
     });
     const j: any = await r.json().catch(() => null);
@@ -94,8 +94,6 @@ async function chiediSchede(partite: { id: string; day: string; squadra1: string
   }
 }
 
-/** Una lettura piu' recente di cosi' non si rifa' (21/10/2026: niente doppioni fra selezione e AI, meno letture a Sisal). */
-export const FRESCA_MS = 30 * 60_000;
 /** L'agente ne legge al massimo 20 per volta. */
 const LOTTO = 20;
 export type EsitoSisal = { ok: boolean; errore?: string; mercati?: number; cambiate?: number; fresca?: boolean };
@@ -120,11 +118,14 @@ async function salvaScheda(m: any, s: any): Promise<EsitoSisal> {
 }
 
 /**
- * Legge le schede Sisal di piu' partite insieme (selezione in Schedina, Pronostici AI) e aggiorna le quote.
- * Salta le partite iniziate e quelle lette da meno di 30 minuti. Non lancia mai: un problema (PC spento,
- * partita non trovata) lascia le quote com'erano e le stime restano stime.
+ * Legge le schede Sisal di piu' partite insieme e aggiorna le quote (21/10/2026, Rossi: "una volta scaricate
+ * vengono salvate e non si ricaricano, solo se decido io con l'analisi AI").
+ *  - forza = false (selezione in Schedina): solo le partite che le quote complete non le hanno ancora;
+ *  - forza = true (Pronostico AI, Pronostici AI della Schedina): rilettura fresca da Sisal, si aggiorna cio' che e' cambiato.
+ * Salta sempre le partite iniziate. Non lancia mai: un problema (PC spento, partita non trovata) lascia le
+ * quote com'erano e le stime restano stime.
  */
-export async function aggiornaQuoteSisalLotto(ids: string[]): Promise<Record<string, EsitoSisal>> {
+export async function aggiornaQuoteSisalLotto(ids: string[], forza = false): Promise<Record<string, EsitoSisal>> {
   const esito: Record<string, EsitoSisal> = {};
   const unici = [...new Set(ids.filter(Boolean))];
   if (!unici.length) return esito;
@@ -136,13 +137,12 @@ export async function aggiornaQuoteSisalLotto(ids: string[]): Promise<Record<str
       if (!m) { esito[id] = { ok: false, errore: "partita non trovata" }; continue; }
       const inizio = inizioPartitaMs(m.day, m.time);
       if (m.result || (inizio !== null && inizio <= Date.now())) { esito[id] = { ok: false, errore: "partita gia' iniziata" }; continue; }
-      const at = Date.parse(m.quote_sisal?.at || "");
-      if (Number.isFinite(at) && Date.now() - at < FRESCA_MS) { esito[id] = { ok: true, fresca: true, mercati: m.quote_sisal.mercati, cambiate: 0 }; continue; }
+      if (!forza && m.quote_sisal) { esito[id] = { ok: true, fresca: true, mercati: m.quote_sisal.mercati, cambiate: 0 }; continue; }
       daLeggere.push(m);
     }
     for (let k = 0; k < daLeggere.length; k += LOTTO) {
       const parte = daLeggere.slice(k, k + LOTTO);
-      const schede = await chiediSchede(parte.map((m) => ({ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 })));
+      const schede = await chiediSchede(parte.map((m) => ({ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 })), forza);
       for (const m of parte) {
         const s = schede?.[m.id];
         if (!schede) esito[m.id] = { ok: false, errore: "PC di casa non raggiungibile" };
@@ -159,7 +159,7 @@ export async function aggiornaQuoteSisalLotto(ids: string[]): Promise<Record<str
   return esito;
 }
 
-/** Una partita sola (Pronostico AI della scheda): stessa regola dei 30 minuti. */
+/** Una partita sola, col Pronostico AI della scheda: rilettura fresca. */
 export async function aggiornaQuoteSisal(matchId: string): Promise<EsitoSisal> {
-  return (await aggiornaQuoteSisalLotto([matchId]))[matchId] ?? { ok: false, errore: "partita non trovata" };
+  return (await aggiornaQuoteSisalLotto([matchId], true))[matchId] ?? { ok: false, errore: "partita non trovata" };
 }

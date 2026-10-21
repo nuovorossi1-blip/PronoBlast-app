@@ -224,7 +224,7 @@ class Ascolto(BaseHTTPRequestHandler):
             return self.rispondi(400, {"ok": False, "error": "richiesta non valida"})
         with SCHEDA:
             try:
-                esito = scheda.schede_partite(partite, CARTELLA_EXCEL, BASE / "edge-sisal")
+                esito = scheda.schede_partite(partite, CARTELLA_EXCEL, BASE / "edge-sisal", fresca=bool(dati.get("fresca")))
             except Exception as e:
                 log.error("Scheda Sisal fallita: %s\n%s", e, traceback.format_exc())
                 return self.rispondi(502, {"ok": False, "error": str(e)[:300]})

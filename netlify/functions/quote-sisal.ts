@@ -4,8 +4,8 @@ import { aggiornaQuoteSisalLotto } from "./lib/quoteSisal";
 /**
  * POST /quote-sisal  Body: { "ids": ["uuid", ...] }
  * Quote della scheda partita Sisal lette appena le partite vanno in Schedina (21/10/2026, Rossi), senza
- * aspettare il Pronostico AI. A lotti (una sola apertura di Edge sul PC), salta le partite iniziate e
- * quelle lette da meno di 30 minuti. Vedi lib/quoteSisal.ts.
+ * aspettare il Pronostico AI. A lotti (una sola apertura di Edge sul PC), solo le partite che le quote
+ * complete non le hanno ancora (si ricaricano solo col Pronostico AI). Vedi lib/quoteSisal.ts.
  */
 export default async (req: Request): Promise<Response> => {
   if (req.method !== "POST") return jsonResponse({ error: "Usa POST" }, 405);

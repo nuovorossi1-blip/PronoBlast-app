@@ -83,7 +83,7 @@ export type OddsKey =
 // lette al clic su Pronostico AI (21/10/2026). Quando c'e' un mercato, la sua quota e' vera.
 // QUOTE SISAL ALLA SELEZIONE (21/10/2026, Rossi): appena una partita va in Schedina il server legge la sua
 // scheda Sisal. Le selezioni fatte una dietro l'altra si mandano insieme dopo 3 secondi (una sola apertura
-// di Edge sul PC); il server salta quelle lette da meno di 30 minuti. In sottofondo: la selezione non aspetta.
+// di Edge sul PC); il server legge solo quelle che le quote complete non le hanno ancora. In sottofondo.
 const codaSisal = new Set<string>();
 let timerSisal: ReturnType<typeof setTimeout> | null = null;
 function quoteSisalInCoda(ids: string[]) {

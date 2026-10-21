@@ -33659,8 +33659,12 @@ async function handle(req) {
   } catch (e) {
     return jsonResponse({ error: `Errore parsing Excel: ${e?.message || String(e)}`, stack: e?.stack }, 400);
   }
-  const { matches: validMatches, skipped, rows_seen } = parsed;
+  const { matches: tutteValide, skipped, rows_seen } = parsed;
   let inserted = 0, updated = 0, unchanged = 0;
+  // 21/10/2026 (Rossi): le quote complete lette dalla scheda partita Sisal (quote_sisal) sono il riferimento:
+  // il file non le sovrascrive (e non cancella i pronostici, come farebbe bulk_upsert_matches a quote cambiate).
+  // Si ricaricano solo col Pronostico AI. Dal file si aggiorna soltanto l'orario, se Sisal l'ha spostato.
+  const { validMatches, protette } = await togliConQuoteSisal(tutteValide);
   if (validMatches.length) {
     const rows = await pgRpc("bulk_upsert_matches", { p_matches: validMatches });
     const r = Array.isArray(rows) ? rows[0] : rows;
@@ -33687,10 +33691,30 @@ async function handle(req) {
     inserted,
     updated,
     unchanged,
+    protette,
     skipped: skipped.length,
-    total_parsed: validMatches.length,
+    total_parsed: tutteValide.length,
     rows_seen
   });
+}
+async function togliConQuoteSisal(partite) {
+  if (!partite.length) return { validMatches: partite, protette: 0 };
+  const { url, key } = supabaseConfig();
+  const giorni = [...new Set(partite.map((m) => m.day))];
+  const res = await fetch(`${url}/rest/v1/matches?quote_sisal=not.is.null&day=in.(${giorni.join(",")})&select=id,day,time,squadra1,squadra2`, { headers: headers(key) });
+  if (!res.ok) throw new Error(`Supabase GET quote_sisal: ${res.status} ${await res.text()}`);
+  const conSisal = new Map((await res.json()).map((r) => [`${r.day}|${r.squadra1}|${r.squadra2}`, r]));
+  const validMatches = [];
+  let protette = 0;
+  for (const m of partite) {
+    const r = conSisal.get(`${m.day}|${m.squadra1}|${m.squadra2}`);
+    if (!r) { validMatches.push(m); continue; }
+    protette++;
+    if (r.time !== m.time) {
+      await fetch(`${url}/rest/v1/matches?id=eq.${r.id}`, { method: "PATCH", headers: headers(key, { Prefer: "return=minimal" }), body: JSON.stringify({ time: m.time, updated_at: new Date().toISOString() }) });
+    }
+  }
+  return { validMatches, protette };
 }
 export {
   upload_excel_default as default

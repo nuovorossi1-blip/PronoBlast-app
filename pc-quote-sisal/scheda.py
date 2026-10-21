@@ -121,11 +121,11 @@ def _normalizza(d: dict) -> list:
     return mercati
 
 
-def leggi_schede(codici: list[str], profilo: pathlib.Path) -> dict:
+def leggi_schede(codici: list[str], profilo: pathlib.Path, fresca: bool = False) -> dict:
     """{codice: {ok, at, evento, mercati}}"""
-    # Prima le schede gia' lette da PronoBlast o Jupiter negli ultimi 30 minuti: Edge solo per le altre.
+    # Prima le schede gia' lette da PronoBlast o Jupiter negli ultimi 30 minuti (salvo fresca, Pronostico AI).
     out = {}
-    for c in codici:
+    for c in ([] if fresca else codici):
         s = _scheda_condivisa(c)
         if s:
             out[c] = {**s, "condivisa": True}
@@ -170,12 +170,12 @@ def leggi_schede(codici: list[str], profilo: pathlib.Path) -> dict:
     return out
 
 
-def schede_partite(partite: list[dict], cartella_excel: pathlib.Path, profilo: pathlib.Path) -> dict:
+def schede_partite(partite: list[dict], cartella_excel: pathlib.Path, profilo: pathlib.Path, fresca: bool = False) -> dict:
     """{id: {ok, codice, at, evento, mercati} | {ok: False, errore}}"""
     codici = codici_da_excel(cartella_excel, partite)
     esito = {p["id"]: {"ok": False, "errore": "partita non trovata negli Excel Sisal scaricati"} for p in partite if p["id"] not in codici}
     if codici:
-        lette = leggi_schede(sorted(set(codici.values())), profilo)
+        lette = leggi_schede(sorted(set(codici.values())), profilo, fresca)
         for pid, c in codici.items():
             esito[pid] = {**lette.get(c, {"ok": False, "errore": "scheda non letta"}), "codice": c}
     return esito
