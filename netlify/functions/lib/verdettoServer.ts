@@ -98,6 +98,7 @@ export async function verdettoDiPartita(
     odd_U25: match.odd_u25, odd_O25: match.odd_o25,
     odd_U35: match.odd_u35, odd_O35: match.odd_o35,
     odd_GG: match.odd_gg, odd_NG: match.odd_ng,
+    ...(match.quote_sisal?.quote ? { sisal: match.quote_sisal.quote } : {}),
   };
   if (!odds.odd_1 || !odds.odd_X || !odds.odd_2) {
     return { ...base, motivo: "quote 1X2 incomplete" };

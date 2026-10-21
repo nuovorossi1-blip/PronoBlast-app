@@ -13,7 +13,7 @@
  * L'elenco delle opzioni lo prepara il programma: l'AI sceglie, non inventa mercati.
  */
 import { rowToOdds } from "./supabaseRest";
-import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis } from "./clusterEngine";
+import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis, quotaSisal } from "./clusterEngine";
 import { getScenarioNote, mercatiDelloScenario, MERCATI_RIPIEGO, chiavePronostico, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
 export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean; soloCopertura?: boolean };
@@ -26,6 +26,8 @@ export function quotaMercato(m: any, codice: string): { quota: number; stimata: 
   const odds: any = rowToOdds(m);
   const reale = REALI[codice] ? Number(m[REALI[codice]]) : null;
   if (reale && reale > 1) return { quota: reale, stimata: false };
+  const sisal = quotaSisal(codice, odds);
+  if (sisal) return { quota: sisal, stimata: false };
   const cat: any = quoteCatalogo(odds);
   const q = codice === "X oppure GG" ? quotaXoppureGG(odds) : cat[codice]?.odd ?? estimateMarketOdd(codice, odds);
   return q && q > 1 ? { quota: q, stimata: true } : null;

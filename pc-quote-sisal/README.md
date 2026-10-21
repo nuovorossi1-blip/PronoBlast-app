@@ -59,3 +59,6 @@ python agente.py --una-volta   # scarica, converte e carica subito, senza app
 
 `converti.py` e `parseExcelBytes` (in `netlify/functions/upload-excel.mjs` e
 `lib/excelParser.ts`) devono restare d'accordo sul layout delle colonne.
+
+## Scheda partita (21/10/2026)
+`POST /scheda {partite:[{id,day,squadra1,squadra2}]}`: trova il codice Sisal (Pal.-Avv.) negli ultimi Excel scaricati e legge la pagina della partita su sisal.it (multigol, combo, Under 4,5, risultati esatti). Sisal blocca Edge pilotato da Playwright: `scheda.py` apre un Edge normale con profilo `Documenti\Quote Sisal\edge-sisal` (porta 9335) e ci si collega dopo. Lo chiama il server al clic su Pronostico AI (`netlify/functions/lib/quoteSisal.ts`). Prova a mano: `python scheda.py 2026-10-24 Napoli Roma`.

@@ -188,6 +188,12 @@ export default function MatchDetail() {
       .finally(() => { if (vivo) setLetturaInCorso(false); });
     return () => { vivo = false; };
   }, [id, match?.odds]);
+  // Risultati attesi con accanto la quota Sisal del risultato esatto, quando la scheda e' stata letta.
+  const conQuotaSisal = (rs: string[]) => rs.map((r) => {
+    const q = match?.quote_sisal?.esatti?.[String(r).replace(/\s/g, "")];
+    return q ? `${r} @${q.toFixed(2)}` : r;
+  }).join(" · ");
+
   // "Pronostico AI": la stessa lettura col modello scelto in LLM & Budget,
   // con il controllo della notizia che puo' cambiare "Punta su questo".
   const faiPro = () => {
@@ -198,6 +204,10 @@ export default function MatchDetail() {
         memLettura.set(id, r);
         persistentLetturaCache.set(id, r, match?.odds);
         setLettura(r);
+        // Quote della scheda Sisal (21/10/2026): lette dal server prima del pronostico.
+        const sx = (r as any)?.sisal;
+        if (sx?.ok) load(true);
+        else if (sx && !sx.ok) notify("Quote Sisal non lette", `${sx.errore || "scheda non disponibile"}: multigol e combo restano stimate (*).`);
         // Una volta sola (11/10/2026): il server rida' il primo, finche' le quote non cambiano.
         if ((r as any)?.pro_gia_fatto) {
           notify("Pronostico AI già fatto", "Vale il primo pronostico: ripremendo il modello risponderebbe un po' diverso ogni volta. Si potrà rifare solo se cambiano le quote (Excel nuovo).");
@@ -770,7 +780,8 @@ export default function MatchDetail() {
               {titolo(ai ? `DOSSIER AI · ${aiPro ? "Pronostico AI" : "gratis"} (${nomeModello(ai.modello)})` : "DOSSIER AI")}
               {ai ? (
                 <>
-                  <Text style={styles.golTesto}>{`Risultati previsti: ${(ai.risultati_probabili || []).join(" · ") || "n/d"}`}</Text>
+                  <Text style={styles.golTesto}>{`Risultati previsti: ${conQuotaSisal(ai.risultati_probabili || []) || "n/d"}`}</Text>
+                  {match?.quote_sisal ? <Text style={styles.golPic}>{`Quote Sisal lette il ${new Date(match.quote_sisal.at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} (${match.quote_sisal.mercati} mercati): multigol, combo e risultati esatti sono quote vere. * = stimata.`}</Text> : null}
                   <Text style={styles.golTesto}>{`Pronostico dell'AI: ${proposta || "nessuno"}`}</Text>
                   <Text style={styles.golTesto}>{`Direzione: ${ai.direzione === "1" ? match.squadra1 : ai.direzione === "2" ? match.squadra2 : "nessun vincitore chiaro"}`}</Text>
                   {ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${ai.notizia}`}</Text> : null}
@@ -928,7 +939,7 @@ export default function MatchDetail() {
                       const vinto = match.result ? evaluateMarketOutcome(v.codice, match.result) === true : false;
                       const stato = v.daEvitare ? "da evitare"
                         : v.pagata === null ? `serve almeno ${qf(v.quotaMinima)}, controlla la quota`
-                        : `serve almeno ${qf(v.quotaMinima)}, qui ${v.stimata ? "≈" : ""}${qf(v.quota!)} ${v.pagata ? (v.quota! < 1.4 ? "ma sotto 1,40" : "✓") : "✗ pagata poco"}`;
+                        : `serve almeno ${qf(v.quotaMinima)}, qui ${v.stimata ? "*" : ""}${qf(v.quota!)} ${v.pagata ? (v.quota! < 1.4 ? "ma sotto 1,40" : "✓") : "✗ pagata poco"}`;
                       return (
                         <Text key={v.mercato} style={[styles.scenarioNoteMarket, vinto && styles.scenarioNoteMarketVinto, v.daEvitare && { opacity: 0.5 }]}>
                           {`${i + 1}. ${nomeMk(v.mercato)} ${v.pct}% · ${stato}${vinto ? " ✓" : ""}`}
@@ -938,7 +949,7 @@ export default function MatchDetail() {
                     <Text style={[styles.scenarioNoteMarket, { marginTop: 4 }]}>
                       {cl.tipo === "gap" ? `Solo da leggere: nel Gap la classifica non decide il pronostico (in archivio scegliere "il primo pagato il minimo" perdeva il 6%).` : cl.scelta ? `Da scegliere: ${nomeMk(cl.scelta)} (il primo pagato almeno il minimo)` : "Nessun mercato è pagato il minimo: meglio lasciarla, o X oppure GG se il bookmaker lo paga abbastanza."}
                     </Text>
-                    {cl.voci.some((v) => v.stimata) ? <Text style={styles.scenarioNoteSub}>≈ quota stimata dall'app: controllala sul bookmaker.</Text> : null}
+                    {cl.voci.some((v) => v.stimata) ? <Text style={styles.scenarioNoteSub}>* quota stimata dall'app: controllala sul bookmaker.</Text> : null}
                   </View>
                 );
               })()}
@@ -955,7 +966,7 @@ export default function MatchDetail() {
             <>
               <Text style={styles.golTitolo}>{titolo}</Text>
               {l.risultati_probabili?.length ? (
-                <Text style={styles.golTesto}>Risultati probabili: <Text style={{ fontWeight: "900" }}>{l.risultati_probabili.join(" · ")}</Text></Text>
+                <Text style={styles.golTesto}>Risultati probabili: <Text style={{ fontWeight: "900" }}>{conQuotaSisal(l.risultati_probabili)}</Text></Text>
               ) : null}
               <Text style={styles.golTesto}>
                 {`Direzione: ${l.direzione === "1" ? match.squadra1 : l.direzione === "2" ? match.squadra2 : l.direzione ? "nessun vincitore" : "–"} · gol: ${match.squadra1} ${l.gol_casa} · ${match.squadra2} ${l.gol_ospite} · totale ${l.gol_totali}`}
@@ -1113,7 +1124,7 @@ export default function MatchDetail() {
                     <Text style={{ color: colors.success, fontWeight: "900", fontSize: 12, letterSpacing: 1 }}>▶ DA GIOCARE</Text>
                     <Text style={styles.consVal}>
                       {nome}
-                      {g.quota != null ? <Text style={{ fontSize: 15, color: colors.textMuted }}>{` ${g.stimata ? "≈" : "@"}${g.quota.toFixed(2)}`}</Text> : null}
+                      {g.quota != null ? <Text style={{ fontSize: 15, color: colors.textMuted }}>{` ${g.stimata ? "*" : "@"}${g.quota.toFixed(2)}`}</Text> : null}
                       {esito(g.market)}
                     </Text>
                     <Text style={styles.consMeta}>{`Perché: ${g.perche}.`}</Text>
@@ -1125,7 +1136,7 @@ export default function MatchDetail() {
                   <Text style={styles.consVal}>{mercatoCambiato.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)}{esito(mercatoCambiato)}</Text>
                   {quotaCambiato != null && (
                     <Text style={styles.consMeta}>
-                      {`${stimataCambiato ? "≈" : "@"} ${quotaCambiato.toFixed(2)} · proposta AI`}
+                      {`${stimataCambiato ? "*" : "@"} ${quotaCambiato.toFixed(2)} · proposta AI`}
                     </Text>
                   )}
                   <Text style={styles.consAvviso}>{`Cambiato dal Pronostico AI per: ${notiziaCambiato || "notizia verificata"}`}</Text>
@@ -1143,7 +1154,7 @@ export default function MatchDetail() {
                 <>
                   <Text style={styles.consVal}>{c.nome}{esito(c.market)}</Text>
                   <Text style={styles.consMeta}>
-                    {`${c.stimata ? "≈" : "@"} ${c.quota.toFixed(2)}${c.misurata ? ` · ${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? ` · ~${pc(c.stima)} stima` : ""}`}
+                    {`${c.stimata ? "*" : "@"} ${c.quota.toFixed(2)}${c.misurata ? ` · ${pc(c.misurata.pA)} / ${pc(c.misurata.pB)} in archivio (${c.misurata.n} partite)` : c.stima != null ? ` · ~${pc(c.stima)} stima` : ""}`}
                   </Text>
                   {frase ? <Text style={styles.consTesto}>{`Tutti i dati d'accordo. ${frase}`}</Text> : null}
                   {scartata ? (
@@ -1280,7 +1291,7 @@ export default function MatchDetail() {
                     {`Gol: ${match.squadra1} ${lettura.pro.gol_casa} · ${match.squadra2} ${lettura.pro.gol_ospite} · totale ${lettura.pro.gol_totali}`}
                   </Text>
                   {lettura.pro.risultati_probabili?.length ? (
-                    <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.pro.risultati_probabili.join(" · ")}`}</Text>
+                    <Text style={styles.golTesto}>{`Risultati più vicini: ${conQuotaSisal(lettura.pro.risultati_probabili)}`}</Text>
                   ) : null}
                   {lettura.pro.notizia ? (
                     <Text style={[styles.golTesto, styles.golAvviso]}>
@@ -1297,7 +1308,7 @@ export default function MatchDetail() {
                     {`Gol: ${match.squadra1} ${lettura.ai.gol_casa} · ${match.squadra2} ${lettura.ai.gol_ospite} · totale ${lettura.ai.gol_totali}`}
                   </Text>
                   {lettura.ai.risultati_probabili?.length ? (
-                    <Text style={styles.golTesto}>{`Risultati più vicini: ${lettura.ai.risultati_probabili.join(" · ")}`}</Text>
+                    <Text style={styles.golTesto}>{`Risultati più vicini: ${conQuotaSisal(lettura.ai.risultati_probabili)}`}</Text>
                   ) : null}
                   {lettura.ai_vecchia ? <Text style={styles.golPic}>{"Fatta con le quote di prima: si rifà da sola."}</Text> : null}
                   {lettura.ai.notizia ? <Text style={[styles.golTesto, styles.golAvviso]}>{`Notizia: ${lettura.ai.notizia}`}</Text> : null}
@@ -1491,7 +1502,7 @@ export default function MatchDetail() {
             <>
               {alternativeT.map((a) => (
                 <Text key={a.market} style={styles.puntaMeta}>
-                  {`Anche: ${nomeM(a.market)} ${a.stimata ? "≈" : "@"} ${a.odd?.toFixed(2)} · ${pcT(a.tab!.pA)} / ${pcT(a.tab!.pB)}`}
+                  {`Anche: ${nomeM(a.market)} ${a.stimata ? "*" : "@"} ${a.odd?.toFixed(2)} · ${pcT(a.tab!.pA)} / ${pcT(a.tab!.pB)}`}
                 </Text>
               ))}
               {deboleQui && migliorePartita ? (
@@ -1501,7 +1512,7 @@ export default function MatchDetail() {
                       ? `vince solo il ${pcT(deboleQui.tab.pA)} / ${pcT(deboleQui.tab.pB)} in archivio`
                       : `è la più probabile del motore in questa fascia (${deboleQui.prob != null ? pcT(deboleQui.prob) : "?"} Poisson), senza misura in archivio`) +
                     `${coerenteConGol(deboleQui.market, totAtteso) ? "" : " e va contro i gol della lettura"}. Da evitare. ` +
-                    `La più sicura della partita: ${nomeM(migliorePartita.market)} ${migliorePartita.stimata ? "≈" : "@"} ${migliorePartita.odd?.toFixed(2)} (fascia ${migliorePartita.soglia.toFixed(2)}). Decidi tu.`}
+                    `La più sicura della partita: ${nomeM(migliorePartita.market)} ${migliorePartita.stimata ? "*" : "@"} ${migliorePartita.odd?.toFixed(2)} (fascia ${migliorePartita.soglia.toFixed(2)}). Decidi tu.`}
                   {esitoP(migliorePartita.market)}
                 </Text>
               ) : null}
@@ -1533,7 +1544,7 @@ export default function MatchDetail() {
           const numeriSotto = motAI ? (
             <Text style={styles.puntaMeta}>
               {motNumeri
-                ? `Prima era (numeri a ${minOdd.toFixed(2)}): ${nomeM(motNumeri.market)} ${motNumeri.odd !== null ? `${motNumeri.stimata ? "≈" : "@"} ${motNumeri.odd.toFixed(2)}` : "quota n/d"}${misuraDi(motNumeri)}`
+                ? `Prima era (numeri a ${minOdd.toFixed(2)}): ${nomeM(motNumeri.market)} ${motNumeri.odd !== null ? `${motNumeri.stimata ? "*" : "@"} ${motNumeri.odd.toFixed(2)}` : "quota n/d"}${misuraDi(motNumeri)}`
                 : `Prima era (numeri a ${minOdd.toFixed(2)}): nessuna giocata coerente.`}
               {motNumeri ? esitoP(motNumeri.market) : null}
             </Text>
@@ -1541,7 +1552,7 @@ export default function MatchDetail() {
           // UNA RIGA (11/10/2026, Rossi): prima la giocata dei numeri con il suo
           // esito, poi "/" e la giocata corretta dall'AI con il suo; se l'AI
           // propone la stessa, "confermato".
-          const quotaDi = (x: PickMotore) => (x.odd !== null ? ` ${x.stimata ? "≈" : "@"}${x.odd.toFixed(2)}` : "");
+          const quotaDi = (x: PickMotore) => (x.odd !== null ? ` ${x.stimata ? "*" : "@"}${x.odd.toFixed(2)}` : "");
           const corretto = !!motAI && (!motNumeri || normalizeMarket(motAI.market) !== normalizeMarket(motNumeri.market));
           const stileQuota = { fontSize: 14, fontWeight: "700" as const, color: colors.textMuted };
           const rigaPronostico = (
@@ -1624,7 +1635,7 @@ export default function MatchDetail() {
                   <TouchableOpacity onPress={() => setParereAperto((x) => !x)} activeOpacity={0.7}>
                     <Text style={styles.puntaParere}>
                       {"Parere AI: "}<Text style={{ fontWeight: "900" }}>{c.market}</Text>
-                      {c.odd !== null ? ` ${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : ""}
+                      {c.odd !== null ? ` ${c.stimata ? "*" : "@"} ${c.odd.toFixed(2)}` : ""}
                       {parereAperto ? "  ▾ chiudi" : "  ▸ tocca per i dettagli"}
                     </Text>
                   </TouchableOpacity>
@@ -1638,7 +1649,7 @@ export default function MatchDetail() {
                   <Text style={styles.puntaLbl}>{"PUNTA SU QUESTO · SCELTO DALL'AI PER UNA NOTIZIA"}</Text>
                   <Text style={styles.puntaVal}>{c.market}</Text>
                   <Text style={styles.puntaMeta}>
-                    {c.odd !== null ? `${c.stimata ? "≈" : "@"} ${c.odd.toFixed(2)}` : "quota n/d"}
+                    {c.odd !== null ? `${c.stimata ? "*" : "@"} ${c.odd.toFixed(2)}` : "quota n/d"}
                     {c.prob !== null ? ` · ${pctProb(c.prob)} Poisson` : ""}
                     {c.fascia !== null ? ` · fascia ${etichettaFascia(c.fascia)}` : ""}
                   </Text>
@@ -1670,7 +1681,7 @@ export default function MatchDetail() {
                       <Text style={styles.altNome}>
                         {a.market}
                         <Text style={styles.altMeta}>
-                          {a.odd !== null ? `  ${a.stimata ? "≈" : "@"} ${a.odd.toFixed(2)}` : ""}
+                          {a.odd !== null ? `  ${a.stimata ? "*" : "@"} ${a.odd.toFixed(2)}` : ""}
                           {a.prob !== null ? ` · ${pctProb(a.prob)} Poisson` : ""}
                           {a.pctManuale !== null ? ` · ${a.pctManuale.toFixed(1).replace(".", ",")}% in archivio` : ""}
                           {a.rankMotore !== null ? ` · motore #${a.rankMotore}` : ""}
@@ -1970,7 +1981,7 @@ export default function MatchDetail() {
                     <Text style={styles.verdictMarket}>{top.market}</Text>
                     {top.odd && top.odd > 0 ? (
                       <Text style={styles.verdictOdd}>
-                        {top.oddEstimated ? "≈ " : "@ "}{top.odd.toFixed(2)}
+                        {top.oddEstimated ? "* " : "@ "}{top.odd.toFixed(2)}
                         {top.oddEstimated ? " (stimata)" : ""}
                       </Text>
                     ) : null}
@@ -2011,7 +2022,7 @@ export default function MatchDetail() {
                   <Text style={styles.ricLbl}>CON LE REGOLE DI OGGI · {chiaveFascia(minOdd)}</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <Text style={styles.ricMarket}>{ricQui.market}</Text>
-                    {ricQui.odd ? <Text style={styles.ricOdd}>{ricQui.stimata ? "≈" : "@"} {ricQui.odd.toFixed(2)}</Text> : null}
+                    {ricQui.odd ? <Text style={styles.ricOdd}>{ricQui.stimata ? "*" : "@"} {ricQui.odd.toFixed(2)}</Text> : null}
                     {esitoRic === "won" && <Text style={[styles.ricEsito, { color: colors.success }]}>✓ VINTO</Text>}
                     {esitoRic === "lost" && <Text style={[styles.ricEsito, { color: colors.danger }]}>✗ PERSO</Text>}
                   </View>
@@ -2167,7 +2178,7 @@ export default function MatchDetail() {
                 {analisi.righe.slice(0, 30).map((r) => (
                   <View key={r.market} style={[styles.tabRiga, r.consigliato && styles.tabRigaCons]}>
                     <Text style={[styles.tabC1, r.consigliato && { fontWeight: "900" }]}>{r.nome}</Text>
-                    <Text style={styles.tabC2}>{`${r.stimata ? "≈" : ""}${r.quota.toFixed(2)}`}</Text>
+                    <Text style={styles.tabC2}>{`${r.stimata ? "*" : ""}${r.quota.toFixed(2)}`}</Text>
                     <Text style={styles.tabC3}>
                       {r.misurata ? `${Math.round(r.misurata.pA * 100)}/${Math.round(r.misurata.pB * 100)}%` : r.stima != null ? `~${Math.round(r.stima * 100)}%` : "–"}
                     </Text>
@@ -2360,7 +2371,7 @@ export default function MatchDetail() {
             <View style={styles.structHeader}>
               <Ionicons name="ribbon" size={14} color={colors.aiText} />
               <Text style={styles.structTitle}>RANKING STRUTTURALE</Text>
-              <Text style={styles.clusterHint}>posizione nel motore · solo quote ≥ 1,40 (≈ stimate)</Text>
+              <Text style={styles.clusterHint}>posizione nel motore · solo quote ≥ 1,40 (* stimate)</Text>
             </View>
             {visibili.map((r, i) => {
               const cov = Math.round(r.coverage * 100);
@@ -2379,7 +2390,7 @@ export default function MatchDetail() {
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <Text style={[styles.srMarket, i === 0 && { color: colors.aiText }]}>{r.market}</Text>
                       {odd != null && (
-                        <Text style={[styles.srOdd, i === 0 && { color: colors.aiText }]}>{oddStimata ? "≈" : "@"} {odd.toFixed(2)}</Text>
+                        <Text style={[styles.srOdd, i === 0 && { color: colors.aiText }]}>{oddStimata ? "*" : "@"} {odd.toFixed(2)}</Text>
                       )}
                       <View style={[styles.srTag, { backgroundColor: "rgba(16,185,129,0.15)", borderColor: colors.success }]}>
                         <Text style={[styles.srTagTxt, { color: colors.success }]}>COV {cov}% Poisson</Text>

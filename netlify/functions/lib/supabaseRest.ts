@@ -131,6 +131,8 @@ export function rowToOdds(row: any) {
     odd_U35: row.odd_u35,
     odd_GG: row.odd_gg,
     odd_NG: row.odd_ng,
+    // Quote della scheda partita Sisal (multigol, combo), lette al clic su Pronostico AI.
+    ...(row.quote_sisal?.quote ? { sisal: row.quote_sisal.quote } : {}),
   };
 }
 
@@ -156,6 +158,7 @@ export function rowToMatch(row: any) {
     pick_finale: row.pick_finale,
     // Ricalcolo storico con le regole di oggi (colonna facoltativa).
     ricalcolo: row.ricalcolo ?? null,
+    quote_sisal: row.quote_sisal ?? null,
     selected: row.selected,
     created_at: row.created_at,
     updated_at: row.updated_at,

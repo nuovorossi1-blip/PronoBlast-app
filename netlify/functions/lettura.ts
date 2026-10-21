@@ -3,6 +3,7 @@ import { datiLettura, generaLetturaAI, letturaDaRifare, quoteCambiate, firmaQuot
 import { inizioPartitaMs } from "../../frontend/src/api";
 import { decidi } from "./lib/regolePronostico";
 import { tabellaScenari } from "./lib/tabellaScenari";
+import { aggiornaQuoteSisal } from "./lib/quoteSisal";
 
 // Tabella scenari per la percentuale d'archivio del Pronostico regole (v5): in memoria, aggiornata in sottofondo.
 let tabRegole: any = null;
@@ -68,6 +69,9 @@ export default async (req: Request): Promise<Response> => {
     if (url.searchParams.get("savedOnly") === "1") {
       return jsonResponse({ programma: null, ai: null, pro: null, salvata: false });
     }
+    // PRONOSTICO AI (21/10/2026): prima le quote vere della scheda Sisal di questa partita
+    // (multigol, combo, Under 4,5, risultati esatti). Se il PC non risponde restano le stime.
+    const sisal = req.method === "POST" && url.searchParams.get("genera") === "1" ? await aggiornaQuoteSisal(id) : null;
     const dati = await datiLettura(id);
     if (!dati) return jsonResponse({ programma: null, ai: null, pro: null });
     let ai = dati.numeri?.lettura_ai ?? null;
@@ -98,7 +102,7 @@ export default async (req: Request): Promise<Response> => {
         const oraQ = firmaQuote(dati.match);
         if (pro?.quote && !quoteCambiate(pro.quote, oraQ)) {
           const { testo: _tt, ...prog } = dati.programma;
-          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: haDossier, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true, regole: regoleDi(dati.match, dati.numeri, prog) });
+          return jsonResponse({ programma: prog, ai, pro, consigliato, dossier: haDossier, ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, oraQ), pro_vecchia: false, pro_gia_fatto: true, sisal, regole: regoleDi(dati.match, dati.numeri, prog) });
         }
         pro = await generaLetturaAI(id, dati, { pro: true });
         if (!pro) return jsonResponse({ error: "Il modello scelto non ha dato una lettura valida: riprova o cambia modello in LLM & Budget." }, 502);
@@ -136,7 +140,7 @@ export default async (req: Request): Promise<Response> => {
     const { testo: _t, ...programma } = dati.programma;
     const ora = firmaQuote(dati.match);
     return jsonResponse({
-      programma, ai, pro, consigliato, dossier: haDossier,
+      programma, ai, pro, consigliato, dossier: haDossier, sisal,
       // Le letture fatte prima del 07/10 non hanno le quote salvate: non si sa.
       ai_vecchia: !!ai?.quote && quoteCambiate(ai.quote, ora),
       pro_vecchia: !!pro?.quote && quoteCambiate(pro.quote, ora),

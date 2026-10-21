@@ -19,7 +19,7 @@
  * Il contrasto forma/quote NON esclude (la favorita va meglio, +4,8). Mai mercati larghi di ripiego.
  */
 import { rowToOdds } from "./supabaseRest";
-import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis, estimateMarketOdd } from "./clusterEngine";
+import { fullDistribution, deriveLambdas, quoteCatalogo, quotaXoppureGG, structuralAnalysis, estimateMarketOdd, quotaSisal } from "./clusterEngine";
 import { evaluateMarket } from "./marketEval";
 import { getScenarioNote, chiaveScenario, fasciaDellaQuota, normalizeMarket, misureCoppaPer, classificaScenario, perchéClassifica, type VoceRegole } from "../../../frontend/src/api";
 
@@ -66,11 +66,12 @@ export function decidi(m: any, d: any) {
   let vociTab: Record<string, any[]> | null = null;
   try { vociTab = d?.tab && nota ? d.tab.scenari?.[chiaveScenario(nota)] ?? null : null; } catch { vociTab = null; }
   const voce = (mk: string): VoceRegole | null => {
-    const reale = REALI[mk] ? Number(m[REALI[mk]]) || null : null;
-    const quota = mk === "X oppure GG" ? quotaXoppureGG(odds) : reale ?? cat[mk]?.odd ?? estimateMarketOdd(mk, odds) ?? null;
+    // Vera: dal file o dalla scheda Sisal della partita (21/10/2026); altrimenti stimata.
+    const reale = (REALI[mk] ? Number(m[REALI[mk]]) || null : null) ?? quotaSisal(mk, odds);
+    const quota = reale ?? (mk === "X oppure GG" ? quotaXoppureGG(odds) : cat[mk]?.odd ?? estimateMarketOdd(mk, odds) ?? null);
     if (!quota) return null;
     const modello = +g.reduce((s: number, c: any) => s + (vinceRegole(mk, c.home, c.away) ? c.p : 0), 0).toFixed(4);
-    const base = { mk, quota, stimata: mk === "X oppure GG" || !reale, modello };
+    const base = { mk, quota, stimata: !reale, modello };
     const k = normalizeMarket(mk);
     const mc = coppa[k.toUpperCase()];
     if (mc) return { ...base, p: mc[0], fonte: "coppe", n: mc[1] };

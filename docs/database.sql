@@ -48,6 +48,9 @@ ALTER TABLE matches ADD COLUMN IF NOT EXISTS scenario text;
 -- Ricalcolo storico con le regole di oggi, in ordine di data (PR #7, 2026-09-30).
 -- Scritto SOLO da netlify/functions/ricalcolo.ts; pick_finale resta intatto.
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS ricalcolo jsonb;
+-- Quote della scheda partita Sisal (21/10/2026): multigol, combo, Under 4,5, risultati esatti,
+-- lette dall'agente del PC al clic su Pronostico AI. {at, codice, quote:{mercato:quota}, esatti:{"1-0":quota}, mercati}
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS quote_sisal jsonb;
 
 
 -- -----------------------------------------------------------------------------

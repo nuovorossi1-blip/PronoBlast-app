@@ -6,6 +6,8 @@ battito (06/10/2026: il battito ogni 15 s esauriva la CPU gratuita di Vercel):
 e' il server di PronoBlast a chiamare qui, e SOLO quando si preme il tasto.
   GET  /ping   -> {ok, versione}       (l'app chiede "il PC e' acceso?")
   POST /avvia  {richiesta, ritorno}    (il tasto "Aggiorna Quote")
+  POST /scheda {partite:[{id,day,squadra1,squadra2}]}  (21/10/2026: tutte le quote della
+               pagina della partita su Sisal, al clic su Pronostico AI; vedi scheda.py)
 Entrambe vogliono l'intestazione X-Segreto = contenuto di segreto.txt.
 Se il PC e' spento la chiamata fallisce e l'app dice "Server spento".
 
@@ -25,8 +27,9 @@ import urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import converti
+import scheda
 
-VERSIONE = "2026-10-06b"
+VERSIONE = "2026-10-21"
 SITO = "https://pronoblast.vercel.app"   # di riserva: di solito l'indirizzo arriva con /avvia
 URL_PDF = "https://landing.sisal.it/volantini/Scommesse_Sport/Quote/calcio%20base%20per%20data.pdf"
 PORTA = 47815   # una sola: impedisce anche di avere due agenti accesi insieme
@@ -160,6 +163,7 @@ def gestisci(richiesta: dict):
 
 
 OCCUPATO = threading.Lock()
+SCHEDA = threading.Lock()   # un Edge per volta: le altre richieste aspettano il loro turno
 
 
 class Ascolto(BaseHTTPRequestHandler):
@@ -184,6 +188,8 @@ class Ascolto(BaseHTTPRequestHandler):
             self.rispondi(200, {"ok": True, "versione": VERSIONE, "occupato": OCCUPATO.locked()})
 
     def do_POST(self):
+        if self.path == "/scheda":
+            return self.scheda()
         if self.path != "/avvia":
             return self.rispondi(404, {"ok": False})
         if not self.autorizzato():
@@ -206,6 +212,24 @@ class Ascolto(BaseHTTPRequestHandler):
                 OCCUPATO.release()
         threading.Thread(target=lavora, daemon=True).start()
         self.rispondi(200, {"ok": True})
+
+    def scheda(self):
+        if not self.autorizzato():
+            return
+        try:
+            dati = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            partite = [{"id": str(p["id"]), "day": str(p["day"]), "squadra1": str(p["squadra1"]), "squadra2": str(p["squadra2"])}
+                       for p in dati["partite"]][:20]
+        except Exception:
+            return self.rispondi(400, {"ok": False, "error": "richiesta non valida"})
+        with SCHEDA:
+            try:
+                esito = scheda.schede_partite(partite, CARTELLA_EXCEL, BASE / "edge-sisal")
+            except Exception as e:
+                log.error("Scheda Sisal fallita: %s\n%s", e, traceback.format_exc())
+                return self.rispondi(502, {"ok": False, "error": str(e)[:300]})
+        log.info("Scheda Sisal: %s", {k: v.get("codice") or v.get("errore") for k, v in esito.items()})
+        self.rispondi(200, {"ok": True, "partite": esito})
 
     def log_message(self, formato, *args):
         log.info("richiesta %s", formato % args)

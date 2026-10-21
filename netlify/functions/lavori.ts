@@ -13,6 +13,7 @@ import syncResults from "./sync-results";
 import aiPredict from "./ai-predict";
 import { verdettoDiPartita } from "./lib/verdettoServer";
 import { readMinOdd } from "./odd-settings";
+import { aggiornaQuoteSisal } from "./lib/quoteSisal";
 
 /**
  * LAVORI IN BACKGROUND (01/10/2026) — /lavori
@@ -192,6 +193,8 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
             // partita"): la lettura col modello scelto in LLM & Budget, poi il
             // consigliato (confermato o cambiato da una notizia verificata).
             try {
+              // Prima le quote vere della scheda Sisal (21/10/2026): multigol, combo, risultati esatti.
+              await aggiornaQuoteSisal(id);
               const pro = await generaLetturaAI(id, undefined, { pro: true });
               if (!pro) esito = "errore: il modello non ha dato una lettura valida";
               else {

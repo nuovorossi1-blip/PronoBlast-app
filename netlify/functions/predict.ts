@@ -58,6 +58,7 @@ export default async (req: Request): Promise<Response> => {
     odd_U35: row.odd_u35,
     odd_GG: row.odd_gg,
     odd_NG: row.odd_ng,
+    ...(row.quote_sisal?.quote ? { sisal: row.quote_sisal.quote } : {}),
   };
 
   // FASE 3 — lo storico che alimenta il motore non e' piu' quello per FAMIGLIA

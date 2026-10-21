@@ -8,7 +8,8 @@
  */
 import { underAmmessiATettoAperto, inFascia } from "../../../frontend/src/api";
 
-export type Odds = Record<string, number | string[] | undefined>;
+// sisal: quote della scheda partita Sisal per nome di mercato (lib/quoteSisal.ts), quando lette.
+export type Odds = Record<string, number | string[] | Record<string, number> | undefined>;
 
 // ============================================================
 // Poisson helpers
@@ -586,8 +587,22 @@ export const CANDIDATE_MARKETS: string[] = [
 /** Quota di "X oppure GG": il bookmaker non la da' nel palinsesto; regola di
  *  Rossi (01/10/2026) = quota GG meno il 10%. null senza quota GG. */
 export function quotaXoppureGG(odds: Odds): number | null {
+  const s = quotaSisal("X oppure GG", odds);
+  if (s) return s;
   const gg = num(odds, "odd_GG");
   return gg ? Math.round(gg * 0.9 * 100) / 100 : null;
+}
+
+/** Nome di un mercato nella forma con cui si confronta: "DC 1X + O1.5" e "1X + O1.5" sono lo stesso. */
+export function chiaveMercato(m: string): string {
+  return String(m || "").toUpperCase().replace(/\bDC\s+/g, "").replace(/\bX\s+O(PPURE)?\s+GG\b/, "X OPPURE GG").replace(/\s+/g, " ").trim();
+}
+
+/** Quota VERA di Sisal per questo mercato, se la scheda della partita e' stata letta (21/10/2026). */
+export function quotaSisal(market: string, odds: Odds): number | null {
+  const s = odds?.sisal as Record<string, number> | undefined;
+  const q = s ? s[chiaveMercato(market)] : undefined;
+  return typeof q === "number" && q > 1 ? q : null;
 }
 
 export function estimateMarketOdd(market: string, odds: Odds): number | null {
@@ -706,12 +721,16 @@ export function quoteCatalogo(odds: Odds): Record<string, { odd: number; estimat
   for (const m of CANDIDATE_MARKETS) {
     const reale = comboOdd(m, odds);
     const q = reale ?? estimateMarketOdd(m, odds);
-    if (q && q > 1) out[m] = { odd: Math.round(q * 100) / 100, estimated: reale === null };
+    // Vera solo se c'e' nel file o nella scheda Sisal: le combo calcolate restano stime (21/10/2026).
+    if (q && q > 1) out[m] = { odd: Math.round(q * 100) / 100, estimated: !(ODD_MAP_HAS(m) || quotaSisal(m, odds)) };
   }
   return out;
 }
 
 export function comboOdd(market: string, odds: Odds): number | null {
+  // Prima la quota della scheda Sisal (multigol, combo): e' un prezzo vero, non una stima.
+  const sisal = quotaSisal(market, odds);
+  if (sisal) return sisal;
   const m = market.trim().toUpperCase().replace(/DC /g, "").replace(/ {2}/g, " ");
   if (ODD_MAP[m]) {
     const v = num(odds, ODD_MAP[m]);
@@ -1066,7 +1085,7 @@ export function structuralAnalysis(
     // Una quota e' "reale" solo se il bookmaker la fornisce per quel mercato
     // esatto: le combo non ci sono nel file, quindi vanno sempre marcate come
     // stimate anche quando comboOdd restituisce un numero.
-    const soloReale = ODD_MAP_HAS(m);
+    const soloReale = ODD_MAP_HAS(m) || !!quotaSisal(m, odds);
     const estimated = comboOddVal === null ? estimateMarketOdd(m, odds) : null;
 
     ranked.push({
@@ -1186,7 +1205,7 @@ function buildExplanation(structure: FamilyStructure, ranking: RankedMarket[]): 
   // quota non giocabile, non un consiglio.
   const p = ranking[0];
   const cov = Math.round(p.coverage * 100);
-  const quota = p.odd != null ? `${p.odd_estimated ? "≈" : "@"}${p.odd.toFixed(2)}` : "quota n/d";
+  const quota = p.odd != null ? `@${p.odd.toFixed(2)}${p.odd_estimated ? "*" : ""}` : "quota n/d";
   const sotto = p.odd != null && p.odd < 1.4 ? ": sotto 1,40, non giocabile" : "";
   return (
     `Famiglia ${structure.family} · il cluster centrale e' coperto meglio da ${p.market} ` +

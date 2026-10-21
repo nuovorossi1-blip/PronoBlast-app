@@ -79,7 +79,9 @@ export type OddsKey =
   | "odd_U35" | "odd_O35"
   | "odd_GG" | "odd_NG";
 
-export type Odds = Partial<Record<OddsKey, number>> & { estimated?: OddsKey[] };
+// sisal: quote della scheda partita Sisal per nome di mercato (MG 2-4 TOTALI, 1X + O1.5, X OPPURE GG...),
+// lette al clic su Pronostico AI (21/10/2026). Quando c'e' un mercato, la sua quota e' vera.
+export type Odds = Partial<Record<OddsKey, number>> & { estimated?: OddsKey[]; sisal?: Record<string, number> };
 
 export type Match = {
   id: string;
@@ -100,6 +102,8 @@ export type Match = {
   /** Ricalcolo storico con le regole di oggi (tasto in Strumenti): solo per
    *  le partite concluse, accanto al congelato che NON viene toccato. */
   ricalcolo?: RicalcoloPartita | null;
+  /** Quote della scheda partita Sisal (21/10/2026): esatti = quote dei risultati esatti. */
+  quote_sisal?: { at: string; codice: string; quote: Record<string, number>; esatti: Record<string, number>; mercati: number } | null;
   /** Primo mercato del PRE del server (lo stesso della scheda): anteprima della
    *  card finche' non c'e' un verdetto. */
   anteprima_pre?: string | null;
@@ -2437,6 +2441,8 @@ export function quotaManuale(
   const m = market.trim();
   const numero = (v: any) => (typeof v === "number" && v > 1 ? v : null);
   if (/^X\s+(oppure|o)\s+GG$/i.test(m)) {
+    const vera = (odds as any)?.sisal?.["X OPPURE GG"];
+    if (typeof vera === "number" && vera > 1) return { odd: vera, stimata: false };
     const gg = numero((odds as any)?.odd_GG ?? (odds as any)?.odd_gg ?? (odds as any)?.GG);
     return gg ? { odd: Math.round(gg * 0.9 * 100) / 100, stimata: true } : null;
   }
