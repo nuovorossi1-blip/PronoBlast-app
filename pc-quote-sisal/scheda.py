@@ -8,7 +8,7 @@ profilo tutto suo e ci si collega dopo (CDP). Una sola apertura per tutte le par
 
 Prova:  python scheda.py "2026-10-24" "Napoli" "Roma"
 """
-import datetime, json, pathlib, re, shutil, socket, subprocess, sys, time
+import datetime, json, os, pathlib, re, shutil, socket, subprocess, sys, time
 
 from openpyxl import load_workbook
 
@@ -18,6 +18,39 @@ API = "https://betting.sisal.it/api/lettura-palinsesto-sport/palinsesto/prematch
 # Mercati dei giocatori: centinaia di righe che il motore non usa.
 SALTA = ("MARCATORE", "SEGNA O SUO SOSTITUTO", "GIOCATORE", "ASSIST", "TIRI ", "CARTELLIN", "AMMONIT")
 MESI = {m: i + 1 for i, m in enumerate("gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre dicembre".split())}
+
+
+# ---------------------------------------------------------------- schede condivise (21/10/2026)
+# Rossi: "le quote scaricate da Sisal non serve riscaricarle se le ha gia' prese PronoBlast o Jupiter;
+# si condividono solo le quote Sisal, il resto no". Cartella sul PC fuori da entrambi i progetti e dai
+# loro database: una scheda per codice Sisal (pal-avv), valida 30 minuti. Stesso formato nelle due app.
+CONDIVISE = pathlib.Path(os.environ.get("LOCALAPPDATA") or pathlib.Path.home()) / "sisal-schede"
+FRESCA_S = 30 * 60
+
+
+def _scheda_condivisa(codice):
+    f = CONDIVISE / f"{codice}.json"
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        at = datetime.datetime.fromisoformat(d["at"])
+        if d.get("ok") and (datetime.datetime.now(datetime.timezone.utc) - at).total_seconds() < FRESCA_S:
+            return d
+    except Exception:
+        pass
+    return None
+
+
+def _salva_condivisa(codice, scheda):
+    try:
+        CONDIVISE.mkdir(parents=True, exist_ok=True)
+        tmp = CONDIVISE / f"{codice}.tmp"
+        tmp.write_text(json.dumps(scheda, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(CONDIVISE / f"{codice}.json")
+        limite = time.time() - 2 * 86400   # pulizia: via le schede di oltre 2 giorni
+        for v in CONDIVISE.glob("*.json"):
+            if v.stat().st_mtime < limite: v.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _norm(s) -> str:
@@ -90,11 +123,19 @@ def _normalizza(d: dict) -> list:
 
 def leggi_schede(codici: list[str], profilo: pathlib.Path) -> dict:
     """{codice: {ok, at, evento, mercati}}"""
+    # Prima le schede gia' lette da PronoBlast o Jupiter negli ultimi 30 minuti: Edge solo per le altre.
+    out = {}
+    for c in codici:
+        s = _scheda_condivisa(c)
+        if s:
+            out[c] = {**s, "condivisa": True}
+    codici = [c for c in codici if c not in out]
+    if not codici:
+        return out
     from playwright.sync_api import sync_playwright
     profilo.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen([_edge(), f"--remote-debugging-port={PORTA}", f"--user-data-dir={profilo}", "--no-first-run",
                              "--no-default-browser-check", "--window-position=-32000,-32000", "--window-size=1280,900", "about:blank"])
-    out = {}
     try:
         if not _attendi_porta():
             raise RuntimeError("Edge non si e' aperto")
@@ -117,6 +158,8 @@ def leggi_schede(codici: list[str], profilo: pathlib.Path) -> dict:
                 except Exception as e:
                     out[c] = {"ok": False, "errore": f"risposta non leggibile: {e}"}
                 out[c]["at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                if out[c].get("ok"):
+                    _salva_condivisa(c, out[c])
             b.close()
     finally:
         proc.terminate()

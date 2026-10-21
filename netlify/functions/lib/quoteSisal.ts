@@ -77,7 +77,7 @@ export function mappaScheda(mercati: MercatoScheda[]): { quote: Record<string, n
   return { quote, esatti, esatti_aggio, esatti_altro };
 }
 
-/** Chiede all'agente del PC le schede Sisal. null = agente non configurato o spento. */
+/** Chiede all'agente del PC le schede Sisal (una sola apertura di Edge per tutte). null = agente non configurato o spento. */
 async function chiediSchede(partite: { id: string; day: string; squadra1: string; squadra2: string }[]): Promise<Record<string, any> | null> {
   if (!AGENTE || !SEGRETO) return null;
   try {
@@ -85,7 +85,7 @@ async function chiediSchede(partite: { id: string; day: string; squadra1: string
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Segreto": SEGRETO },
       body: JSON.stringify({ partite }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(60_000 + partite.length * 5_000),
     });
     const j: any = await r.json().catch(() => null);
     return r.ok && j?.ok ? j.partite : null;
@@ -94,36 +94,72 @@ async function chiediSchede(partite: { id: string; day: string; squadra1: string
   }
 }
 
-/**
- * Legge la scheda Sisal della partita e aggiorna le sue quote. Non lancia mai: un problema
- * (PC spento, partita non trovata) lascia le quote com'erano e le stime restano stime.
- */
-export async function aggiornaQuoteSisal(matchId: string): Promise<{ ok: boolean; errore?: string; mercati?: number; cambiate?: number }> {
-  try {
-    const m = (await pgGet(`matches?id=eq.${encodeURIComponent(matchId)}&select=*`))[0];
-    if (!m) return { ok: false, errore: "partita non trovata" };
-    const inizio = inizioPartitaMs(m.day, m.time);
-    if (m.result || (inizio !== null && inizio <= Date.now())) return { ok: false, errore: "partita gia' iniziata" };
-    const schede = await chiediSchede([{ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 }]);
-    if (!schede) return { ok: false, errore: "PC di casa non raggiungibile" };
-    const s = schede[m.id];
-    if (!s?.ok) return { ok: false, errore: s?.errore || "scheda Sisal non disponibile" };
-    const { quote, esatti, esatti_aggio, esatti_altro } = mappaScheda(s.mercati);
-    const patch: Record<string, unknown> = {
-      quote_sisal: { at: s.at, codice: s.codice, quote, esatti, esatti_aggio, esatti_altro, mercati: s.mercati.length } satisfies QuoteSisal,
-    };
-    let cambiate = 0;
-    let est: string[] = Array.isArray(m.estimated) ? [...m.estimated] : [];
-    for (const [mk, col] of Object.entries(BASE_COL)) {
-      const q = quote[chiaveMercato(mk)];
-      if (!q) continue;
-      if (Number(m[col]) !== q) { patch[col] = q; cambiate++; }
-      est = est.filter((k) => k !== EST_KEY[col]);
-    }
-    if (est.length !== (m.estimated || []).length) patch.estimated = est;
-    await pgPatch(`matches?id=eq.${encodeURIComponent(m.id)}`, patch);
-    return { ok: true, mercati: s.mercati.length, cambiate };
-  } catch (e: any) {
-    return { ok: false, errore: String(e?.message || e).slice(0, 200) };
+/** Una lettura piu' recente di cosi' non si rifa' (21/10/2026: niente doppioni fra selezione e AI, meno letture a Sisal). */
+export const FRESCA_MS = 30 * 60_000;
+/** L'agente ne legge al massimo 20 per volta. */
+const LOTTO = 20;
+export type EsitoSisal = { ok: boolean; errore?: string; mercati?: number; cambiate?: number; fresca?: boolean };
+
+/** Applica una scheda letta alla riga: sovrascrive le 14 quote del file e salva gli altri mercati. */
+async function salvaScheda(m: any, s: any): Promise<EsitoSisal> {
+  const { quote, esatti, esatti_aggio, esatti_altro } = mappaScheda(s.mercati);
+  const patch: Record<string, unknown> = {
+    quote_sisal: { at: s.at, codice: s.codice, quote, esatti, esatti_aggio, esatti_altro, mercati: s.mercati.length } satisfies QuoteSisal,
+  };
+  let cambiate = 0;
+  let est: string[] = Array.isArray(m.estimated) ? [...m.estimated] : [];
+  for (const [mk, col] of Object.entries(BASE_COL)) {
+    const q = quote[chiaveMercato(mk)];
+    if (!q) continue;
+    if (Number(m[col]) !== q) { patch[col] = q; cambiate++; }
+    est = est.filter((k) => k !== EST_KEY[col]);
   }
+  if (est.length !== (m.estimated || []).length) patch.estimated = est;
+  await pgPatch(`matches?id=eq.${encodeURIComponent(m.id)}`, patch);
+  return { ok: true, mercati: s.mercati.length, cambiate };
+}
+
+/**
+ * Legge le schede Sisal di piu' partite insieme (selezione in Schedina, Pronostici AI) e aggiorna le quote.
+ * Salta le partite iniziate e quelle lette da meno di 30 minuti. Non lancia mai: un problema (PC spento,
+ * partita non trovata) lascia le quote com'erano e le stime restano stime.
+ */
+export async function aggiornaQuoteSisalLotto(ids: string[]): Promise<Record<string, EsitoSisal>> {
+  const esito: Record<string, EsitoSisal> = {};
+  const unici = [...new Set(ids.filter(Boolean))];
+  if (!unici.length) return esito;
+  try {
+    const righe: any[] = await pgGet(`matches?id=in.(${unici.map((x) => `"${encodeURIComponent(x)}"`).join(",")})&select=*`);
+    const daLeggere: any[] = [];
+    for (const id of unici) {
+      const m = righe.find((r) => r.id === id);
+      if (!m) { esito[id] = { ok: false, errore: "partita non trovata" }; continue; }
+      const inizio = inizioPartitaMs(m.day, m.time);
+      if (m.result || (inizio !== null && inizio <= Date.now())) { esito[id] = { ok: false, errore: "partita gia' iniziata" }; continue; }
+      const at = Date.parse(m.quote_sisal?.at || "");
+      if (Number.isFinite(at) && Date.now() - at < FRESCA_MS) { esito[id] = { ok: true, fresca: true, mercati: m.quote_sisal.mercati, cambiate: 0 }; continue; }
+      daLeggere.push(m);
+    }
+    for (let k = 0; k < daLeggere.length; k += LOTTO) {
+      const parte = daLeggere.slice(k, k + LOTTO);
+      const schede = await chiediSchede(parte.map((m) => ({ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 })));
+      for (const m of parte) {
+        const s = schede?.[m.id];
+        if (!schede) esito[m.id] = { ok: false, errore: "PC di casa non raggiungibile" };
+        else if (!s?.ok) esito[m.id] = { ok: false, errore: s?.errore || "scheda Sisal non disponibile" };
+        else {
+          try { esito[m.id] = await salvaScheda(m, s); }
+          catch (e: any) { esito[m.id] = { ok: false, errore: String(e?.message || e).slice(0, 200) }; }
+        }
+      }
+    }
+  } catch (e: any) {
+    for (const id of unici) esito[id] ??= { ok: false, errore: String(e?.message || e).slice(0, 200) };
+  }
+  return esito;
+}
+
+/** Una partita sola (Pronostico AI della scheda): stessa regola dei 30 minuti. */
+export async function aggiornaQuoteSisal(matchId: string): Promise<EsitoSisal> {
+  return (await aggiornaQuoteSisalLotto([matchId]))[matchId] ?? { ok: false, errore: "partita non trovata" };
 }

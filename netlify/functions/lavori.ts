@@ -13,7 +13,7 @@ import syncResults from "./sync-results";
 import aiPredict from "./ai-predict";
 import { verdettoDiPartita } from "./lib/verdettoServer";
 import { readMinOdd } from "./odd-settings";
-import { aggiornaQuoteSisal } from "./lib/quoteSisal";
+import { aggiornaQuoteSisal, aggiornaQuoteSisalLotto } from "./lib/quoteSisal";
 
 /**
  * LAVORI IN BACKGROUND (01/10/2026) — /lavori
@@ -177,6 +177,8 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
       // pronostico si ricalcola e salva il verdetto della partita.
       const ids: string[] = p.ids || [];
       l.totale = ids.length;
+      // Al primo giro le quote Sisal di tutte insieme (una sola apertura di Edge); poi ogni partita le trova fresche.
+      if (l.pos === 0 && !l.parziale.sisal) { await aggiornaQuoteSisalLotto(ids); l.parziale.sisal = true; }
       const id = ids[l.pos];
       if (id) {
         const esiti: { id: string; partita: string; esito: string }[] = l.parziale.esiti || [];

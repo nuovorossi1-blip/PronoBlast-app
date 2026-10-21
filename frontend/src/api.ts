@@ -81,6 +81,20 @@ export type OddsKey =
 
 // sisal: quote della scheda partita Sisal per nome di mercato (MG 2-4 TOTALI, 1X + O1.5, X OPPURE GG...),
 // lette al clic su Pronostico AI (21/10/2026). Quando c'e' un mercato, la sua quota e' vera.
+// QUOTE SISAL ALLA SELEZIONE (21/10/2026, Rossi): appena una partita va in Schedina il server legge la sua
+// scheda Sisal. Le selezioni fatte una dietro l'altra si mandano insieme dopo 3 secondi (una sola apertura
+// di Edge sul PC); il server salta quelle lette da meno di 30 minuti. In sottofondo: la selezione non aspetta.
+const codaSisal = new Set<string>();
+let timerSisal: ReturnType<typeof setTimeout> | null = null;
+function quoteSisalInCoda(ids: string[]) {
+  ids.forEach((id) => codaSisal.add(id));
+  if (timerSisal) clearTimeout(timerSisal);
+  timerSisal = setTimeout(() => {
+    const lotto = [...codaSisal]; codaSisal.clear(); timerSisal = null;
+    if (lotto.length) api.quoteSisal(lotto).catch(() => { /* PC spento: restano le stime, si rilegge al Pronostico AI */ });
+  }, 3000);
+}
+
 export type Odds = Partial<Record<OddsKey, number>> & { estimated?: OddsKey[]; sisal?: Record<string, number> };
 
 export type Match = {
@@ -558,6 +572,12 @@ export const api = {
     netlifyReq<{ ok: boolean }>(`/selection-update`, {
       method: "POST",
       body: JSON.stringify({ ids, selected }),
+    }).then((r) => { if (selected) quoteSisalInCoda(ids); return r; }),
+  /** Quote della scheda Sisal (multigol, combo, risultati esatti) delle partite indicate. */
+  quoteSisal: (ids: string[]) =>
+    netlifyReq<{ ok: boolean; partite: Record<string, { ok: boolean; errore?: string; fresca?: boolean }> }>(`/quote-sisal`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
     }),
   selectedList: () => netlifyReq<Match[]>("/selected-list"),
   clearSelection: () => netlifyReq<{ ok: boolean }>(`/selection-clear`, { method: "POST" }),

@@ -66,6 +66,7 @@ import analisi_partita from "../netlify/functions/analisi-partita";
 import domanda_bot from "../netlify/functions/domanda-bot";
 import selection_clear from "../netlify/functions/selection-clear";
 import selection_update from "../netlify/functions/selection-update";
+import quote_sisal from "../netlify/functions/quote-sisal";
 import stats_reset from "../netlify/functions/stats-reset";
 import stats_scores from "../netlify/functions/stats-scores";
 import upload_skipped from "../netlify/functions/upload-skipped";
@@ -124,6 +125,7 @@ const ROUTES: Record<string, Handler> = {
   "domanda-bot": domanda_bot,
   "selection-clear": selection_clear,
   "selection-update": selection_update,
+  "quote-sisal": quote_sisal,
   "stats-reset": stats_reset,
   "stats-scores": stats_scores,
   "upload-skipped": upload_skipped,
