@@ -54,7 +54,8 @@ export function significato(codice: string, stato: StatoQuota): { tipo: "conferm
   if (!e) return { tipo: "da_verificare", testo: "effetto non ancora misurato in archivio" };
   const f1 = (x: number) => x.toFixed(1).replace(".", ",");
   const testo = `in archivio ${e.punti >= 0 ? "vince" : "perde"} ${f1(Math.abs(e.punti))} punti ${e.punti >= 0 ? "più" : "più spesso"} di quanto dice il book (resa ${e.resa > 0 ? "+" : ""}${f1(e.resa)}%, ${e.n} partite)`;
-  return { tipo: e.punti >= 2 ? "conferma" : e.punti <= -2 ? "trappola" : "neutra", testo };
+  // Trappola da -1,5 punti (Over 2,5 lasciato alto -1,6, NG -1,9/-2,1, X2 -3,7, Under 2,5 e Over 3,5 protetti -7,6/-8,3).
+  return { tipo: e.punti >= 2 ? "conferma" : e.punti <= -1.5 ? "trappola" : "neutra", testo };
 }
 /** Chiave della soglia: per segno nell'1X2 e nella doppia chance, per linea negli Under/Over e in GG/NG
  *  (Over e Under, GG e NG sono speculari: lo scarto dell'uno e' quello dell'altro cambiato di segno). */
@@ -312,4 +313,24 @@ function chiSegna(mercati: MercatoPaletti[]): string {
 /** Il book conferma il mercato? In zona d'oro e allineato alle altre quote. null = non verificabile (stima). */
 export function logicaDi(p: Paletti | null, codice: string): boolean | null {
   return p?.mercati.find((x) => x.codice === codice)?.logica ?? null;
+}
+
+/**
+ * IL BOOK CONFERMA (passo 4, 21/10/2026, Rossi: "solo PronoBlast adesso"). Giudica solo l'allineamento:
+ * la fascia la controlla il percorso, la direzione e le soglie di lettura restano in bookConferma (sceltaAI):
+ * il percorso vuole entrambe.
+ *  - allineata -> conferma;
+ *  - protetta o lasciata alta -> conferma, salvo le TRAPPOLE misurate in archivio (Under 2,5 e Over 3,5
+ *    protetti; Over 2,5, X2 e NG lasciati alti; NG protetto). Dove l'archivio non ha quote (multigol,
+ *    combo, X o GG) l'anomalia si segnala ma non scarta, finche' non ci sono abbastanza letture Sisal.
+ *  - stima non verificabile -> null: decide la regola di prima (bookConferma).
+ */
+export function confermaBook(p: Paletti | null, codice: string): { ok: boolean | null; motivo: string | null; avviso: string | null } {
+  const x = p?.mercati.find((y) => y.codice === codice);
+  if (!x || x.stato === "non_verificabile") return { ok: null, motivo: null, avviso: null };
+  if (x.stato === "in_linea") return { ok: true, motivo: null, avviso: null };
+  const s = significato(codice, x.stato);
+  const come = x.stato === "protetta" ? `il book l'ha abbassata a ${q2(x.quota!)} (con le altre quote ~${q2(x.quotaCoerente!)})` : `il book la lascia alta a ${q2(x.quota!)} (con le altre quote ~${q2(x.quotaCoerente!)})`;
+  if (s.tipo === "trappola") return { ok: false, motivo: `trappola: ${come}, ${s.testo}`, avviso: null };
+  return { ok: true, motivo: null, avviso: `${come}${s.testo ? `; ${s.testo}` : ""}` };
 }

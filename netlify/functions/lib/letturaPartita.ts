@@ -422,13 +422,15 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   // Le ultime 5 delle due squadre: quella appena scaricata, o quella salvata dalla scheda (forma_gol), o FotMob.
   const forma = x.forma ?? x.numeri?.forma_gol?.dati
     ?? await formaGol({ giorno: m.day, casa: m.squadra1, ospite: m.squadra2, inizioMs: inizioPartitaMs(m.day, m.time) }, x.numeri?.fotmob_id).catch(() => null);
-  const per = percorsoScelta({ m, scenario: nota?.scenario ?? "senza scenario", righe: a.righe, ai: lAI, campionato: camp, forma });
+  let pal: ReturnType<typeof calcolaPaletti> | null = null;
+  try { pal = calcolaPaletti(m, [...mercatiDelloScenario(nota?.scenario, m), ...MERCATI_RIPIEGO]); } catch { pal = null; }
+  const per = percorsoScelta({ m, scenario: nota?.scenario ?? "senza scenario", righe: a.righe, ai: lAI, campionato: camp, forma, paletti: pal });
   const v = per.scelta ? per.voci.find((o) => o.codice === per.scelta) ?? null : null;
   out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
   out.percorso = per; out.copertura = null; out.avvisi = [];
   // Paletti delle quote (21/10/2026): partono dalle quote, prima di dossier e AI. Mai bloccano il consigliato.
   try {
-    const pal = calcolaPaletti(m, [...mercatiDelloScenario(nota?.scenario, m), ...MERCATI_RIPIEGO]);
+    if (!pal) throw new Error("paletti non calcolati");
     out.paletti = { ...pal, esatti: pal.esatti.slice(0, 12).map(({ ris, quota, quotaCoerente, stato }) => ({ ris, quota, quotaCoerente, stato })),
       mercati: pal.mercati.map(({ pBook: _b, pCoerente: _c, ...r }) => r) };
   } catch { out.paletti = null; }
@@ -481,7 +483,7 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
 // Salisburgo-Milan scheda MG 2-4 totali, elenco GG). Fino a quando puo' cambiare: consigliatoDi.
 /** Versione delle regole del consigliato: se cambia, i salvati delle partite non iniziate si rifanno
  *  (19/10/2026: classifica dell'Equilibrio; prima restavano finche' non cambiavano le quote). */
-export const VERSIONE_CONSIGLIATO = "2026-10-19-percorso-5";
+export const VERSIONE_CONSIGLIATO = "2026-10-21-paletti-1";   // passo 4: book = paletti, zona d'oro 1,40-1,70
 
 export function consigliatoValido(numeri: any, match?: any, _versioneAttesa?: string | null): ConsigliatoSalvato | null {
   const c = numeri?.consigliato;

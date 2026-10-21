@@ -14,7 +14,7 @@
  */
 import { rowToOdds } from "./supabaseRest";
 import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis, quotaSisal } from "./clusterEngine";
-import { paletti } from "./paletti";
+import { paletti, confermaBook } from "./paletti";
 import { getScenarioNote, mercatiDelloScenario, MERCATI_RIPIEGO, chiavePronostico, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
 export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean; soloCopertura?: boolean };
@@ -36,7 +36,7 @@ export function quotaMercato(m: any, codice: string): { quota: number; stimata: 
 
 /**
  * Le opzioni da mostrare all'AI (19/10/2026 sera, percorso nuovo): A = i mercati dello scenario, B = quelli
- * del ripiego (soloIncertezza), per quando AI e book non sono allineati. Da 1,40 a 1,60; X o GG da 1,40 a 1,90
+ * del ripiego (soloIncertezza), per quando AI e book non sono allineati. Da 1,40 a 1,70 (Under 3,5 fino a 1,45); X o GG da 1,40 a 1,90
  * con la quota vera Sisal, da 1,62 se e' stimata (21/10/2026).
  */
 export function opzioniGiocabili(m: any, _direzioneAI?: string | null, _perIlPrompt = false, _assenti?: { casa?: number | null; ospite?: number | null } | null): { scenario: string; opzioni: OpzioneGiocabile[] } {
@@ -53,7 +53,7 @@ export function opzioniGiocabili(m: any, _direzioneAI?: string | null, _perIlPro
     if (isMercatoVietato(c)) continue;
     const q = quotaMercato(m, c);
     const xogg = c === "X oppure GG";
-    if (!q || (xogg ? q.quota < (q.stimata ? 1.62 : 1.4) || q.quota > 1.9 : q.quota < 1.4 || q.quota > 1.6 + 1e-9)) continue;
+    if (!q || (xogg ? q.quota < (q.stimata ? 1.62 : 1.4) || q.quota > 1.9 : q.quota < 1.4 || q.quota > (c === "U3.5" ? 1.45 : 1.7) + 1e-9)) continue;
     const soloIncertezza = !delloScenario.includes(c);
     opzioni.push({ codice: c, nome: nomeDi(c), quota: q.quota, stimata: q.stimata, ...(soloIncertezza ? { soloIncertezza } : {}) });
   }
@@ -103,7 +103,7 @@ LETTURA DEL BOOK (quote dei gol):
   Over 1,5 ${q2(m.odd_o15)} · Under 2,5 ${q2(m.odd_u25)} / Over 2,5 ${q2(m.odd_o25)} · Under 3,5 ${q2(m.odd_u35)} / Over 3,5 ${q2(m.odd_o35)} · GG ${q2(m.odd_gg)} / NG ${q2(m.odd_ng)}
   1X2: 1 ${q2(m.odd_1)} · X ${q2(m.odd_x)} · 2 ${q2(m.odd_2)} · 1X ${q2(m.odd_1x)} · X2 ${q2(m.odd_x2)}
 SCENARIO DEL PROGRAMMA: ${scenario}
-OPZIONI GIOCABILI (pagate da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il codice esatto):
+OPZIONI GIOCABILI (pagate da 1,40 a 1,70; scegli SOLO fra queste, scrivendo il codice esatto):
   A) PRONOSTICI DELLO SCENARIO:
 ${riga(opzioni.filter((o) => !o.soloIncertezza))}
   B) RIPIEGO, SOLO SE NESSUNO DI A E' CONFERMATO DAL BOOK O LA PARTITA NON E' CHIARA:
@@ -200,7 +200,10 @@ export function bookConferma(codice: string, m: any): boolean {
 }
 export function coerenza(codice: string, m: any, risultatiAI: unknown, pStorico: number | null): Coerenza {
   const ris = (Array.isArray(risultatiAI) ? risultatiAI : []).map((r) => String(r).replace(/\s/g, "")).filter((r) => /^\d+-\d+$/.test(r));
-  const book = bookConferma(codice, m);
+  // Stessa regola del percorso (paletti, 21/10/2026): Schedina e multipla restano allineate alla scheda.
+  let book: boolean;
+  book = bookConferma(codice, m);
+  try { if (book && confermaBook(paletti(m, [codice]), codice).ok === false) book = false; } catch { /* resta la regola di prima */ }
   const ai = ris.length >= 3 ? ris.filter((r) => evaluateMarketOutcome(codice, r) === true).length >= 2 : null;
   const storico = pStorico == null ? null : pStorico >= 0.6;
   const voci = [book, ai, storico].filter((v) => v !== null) as boolean[];

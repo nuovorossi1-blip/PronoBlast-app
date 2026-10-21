@@ -2,7 +2,7 @@
  * IL PERCORSO DELLA SCELTA (19/10/2026 sera, Rossi; prova a mano su Monza-Cagliari 4-0, Degerfors-Kalmar
  * 1-2 e Viborg-Midtjylland 1-2, tutte prese). Sostituisce la scelta di stamattina (coerenza 2 su 3,
  * mercati dell'incertezza, copertura).
- *  1. SCENARIO -> si valutano solo i suoi mercati, pagati da 1,40 a 1,60:
+ *  1. SCENARIO -> si valutano solo i suoi mercati, pagati da 1,40 a 1,70 (zona d'oro, 21/10/2026; prima 1,60):
  *       Gap Tecnico: fisso della favorita, MG favorita 2-4, GG;
  *       Progressione: combo MG favorita 1-3 + MG sfavorita 0-2, MG favorita 1-3;
  *       Equilibrio: MG totali 3-6, GG + Over 2,5, Over 2,5, GG;
@@ -11,7 +11,7 @@
  *     proposta.
  *  3. AI e BOOK allineati? Un mercato regge se il book lo conferma, vince in almeno 2 dei 3 risultati attesi
  *     dell'AI e lo storico lo da' almeno al 58% (come il vecchio "buona"). Se nessun mercato dello scenario regge -> RIPIEGO.
- *  4. RIPIEGO: MG totali 2-4, Under 3,5, 1X, X2 (1,40-1,60) e X o GG (1,40-1,90 con la quota vera Sisal,
+ *  4. RIPIEGO: MG totali 2-4, Under 3,5, 1X, X2 (1,40-1,70) e X o GG (1,40-1,90 con la quota vera Sisal,
  *     1,62-1,90 se e' la stima GG -10%: 21/10/2026), con le stesse prove.
  *  5. Fra quelli che reggono vince il piu' probabile: media di storico, campionato e ultime 5 delle due
  *     squadre (Rossi: "quante volte quel campionato va under, le due squadre nelle ultime cinque quante
@@ -20,6 +20,9 @@
  *     Nessuno regge -> partita da lasciare.
  */
 import { bookConferma, quotaMercato } from "./sceltaAI";
+import { paletti as calcolaPaletti, confermaBook, type Paletti } from "./paletti";
+// PALETTI (passo 4, 21/10/2026): "il book conferma" = quota allineata alle altre quote, senza le trappole
+// misurate in archivio (lib/paletti.ts). Dove la quota e' solo stimata decide la regola di prima.
 import { mercatiDelloScenario, MERCATI_RIPIEGO, evaluateMarketOutcome, normalizeMarket, type RigaGiocata, type VocePercorso, type Percorso } from "../../../frontend/src/api";
 
 export type { VocePercorso, Percorso };
@@ -35,8 +38,12 @@ export function percorsoScelta(x: {
   campionato: { n: number; ris: string[] } | null;
   /** Ultime partite delle due squadre (formaGol: totale.partite con fatti/subiti). */
   forma?: { casa?: { totale?: { partite?: { fatti: number; subiti: number }[] } }; ospite?: { totale?: { partite?: { fatti: number; subiti: number }[] } } } | null;
+  /** Paletti gia' calcolati (consigliatoDi); altrimenti si calcolano qui. */
+  paletti?: Paletti | null;
 }): Percorso {
   const { m, scenario } = x;
+  let pal: Paletti | null = x.paletti ?? null;
+  if (!pal) { try { pal = calcolaPaletti(m, [...mercatiDelloScenario(scenario, m), ...MERCATI_RIPIEGO]); } catch { pal = null; } }
   const favCasa = Number(m.odd_1) <= Number(m.odd_2);
   const casa = m.squadra1, ospite = m.squadra2;
   const nomeDi = (c: string) => c.replace(/\bcasa\b/gi, casa).replace(/\bospite\b/gi, ospite)
@@ -69,8 +76,12 @@ export function percorsoScelta(x: {
     const u35 = codice === "U3.5";
     // X o GG: da 1,40 con la quota vera della scheda Sisal (Rossi, 21/10/2026), da 1,62 se stimata.
     const minXogg = q?.stimata ? 1.62 : 1.4;
-    const nelRange = !!q && (xogg ? q.quota >= minXogg && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= (u35 ? 1.45 : 1.6) + 1e-9);
-    const book = bookConferma(codice, m);
+    const nelRange = !!q && (xogg ? q.quota >= minXogg && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= (u35 ? 1.45 : 1.7) + 1e-9);
+    // Il book conferma = le regole di lettura del proprietario (direzione, soglie: bookConferma) E nessuna
+    // trappola dei paletti. I paletti aggiungono il filtro, non tolgono le regole di prima (21/10/2026).
+    const cb = confermaBook(pal, codice);
+    const regola = bookConferma(codice, m);
+    const book = regola && cb.ok !== false;
     let viteAI: number | null = ris.length === 3 ? ris.filter((r) => evaluateMarketOutcome(codice, r) === true).length : null;
     let ai: boolean | null = viteAI == null ? null : viteAI >= 2;
     // Il segno fisso solo se l'AI dice quel vincitore (Juve-Lazio: "se avesse detto 1 fisso allora si'").
@@ -90,8 +101,8 @@ export function percorsoScelta(x: {
     // pronostici; qui ci sta GG + Over e MG 3-6"): si vedono e contano nella scelta della migliore (pMedia).
     const regge = nelRange && book && ai !== false && storico === true;
     const manca = !q ? "nessuna quota"
-      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da ${q2(minXogg)} a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
-      : [!book ? "il book non lo conferma" : null, ai === false ? (viteAI != null && viteAI < 2 ? `l'AI: vince solo in ${viteAI} dei 3 risultati attesi` : "l'AI non vede questo vincitore") : null,
+      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da ${q2(minXogg)} a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,70`)
+      : [!book ? (regola && cb.motivo ? `il book non lo conferma (${cb.motivo})` : "il book non lo conferma") : null, ai === false ? (viteAI != null && viteAI < 2 ? `l'AI: vince solo in ${viteAI} dei 3 risultati attesi` : "l'AI non vede questo vincitore") : null,
         storico === false ? `lo storico lo da' solo al ${pc(pRif!)}` : storico == null ? "nessun dato di storico" : null].filter(Boolean).join("; ");
     const perche = (r?.perche || "").replace(/^★ consigliato:\s*/, "");
     return { codice, nome: nomeDi(codice), quota: q?.quota ?? null, stimata: !!q?.stimata, gruppo, nelRange, book, viteAI, ai, pStorico, nStorico: r?.misurata?.n ?? null, pCampionato, squadre, pMedia, storico, regge, perche, manca };
@@ -114,10 +125,24 @@ export function percorsoScelta(x: {
     testo: gapFalso
       ? `${quote1x2}. Non è un gap vero (anche l'avversario sta sotto 4): si va direttamente al ripiego.`
       : `${quote1x2}. Si valutano solo ${scen.map((v) => v.nome).join(", ") || "nessun mercato"}. ` +
-        (inRange.length ? `Pagati da 1,40 a 1,60: ${inRange.map((v) => `${v.nome} ${q2(v.quota)}`).join(", ")}.` : "Nessuno è pagato da 1,40 a 1,60.") +
+        (inRange.length ? `Pagati da 1,40 a 1,70: ${inRange.map((v) => `${v.nome} ${q2(v.quota)}`).join(", ")}.` : "Nessuno è pagato da 1,40 a 1,70.") +
         // Le ultime 5 sui mercati dello scenario (Rossi 19/10: "soprattutto quelli dello scenario").
         (scen.some((v) => v.squadre) ? ` Ultime 5: ${scen.filter((v) => v.squadre).map((v) => `${v.nome} ${casa} ${v.squadre!.casa ? `${v.squadre!.casa.vinte}/${v.squadre!.casa.su}` : "–"}, ${ospite} ${v.squadre!.ospite ? `${v.squadre!.ospite.vinte}/${v.squadre!.ospite.su}` : "–"}`).join("; ")}.` : ""),
   });
+  // 2. LETTURA DELLE QUOTE (paletti): prima delle conferme di dossier e AI.
+  if (pal) {
+    const giudizio = (v: VocePercorso) => {
+      const c = confermaBook(pal, v.codice);
+      return c.ok === false ? `${v.nome} ✗ (${c.motivo})` : c.ok === true ? `${v.nome} ${c.avviso ? `⚠ ${c.avviso}` : "allineata"}` : `${v.nome}: quota stimata, allineamento non verificabile`;
+    };
+    const valutati = [...scen].filter((v) => v.nelRange);
+    passi.push({
+      titolo: "Lettura delle quote",
+      testo: `${pal.righe[1] ?? ""} ${pal.righe[2] ?? ""} ` +
+        (valutati.length ? `In zona d'oro: ${valutati.map(giudizio).join("; ")}.` : "Nessun mercato dello scenario in zona d'oro.") +
+        (pal.incroci.length ? ` ${pal.incroci.join(" ")}` : ""),
+    });
+  }
   const proposta = String(x.ai?.giocata || x.ai?.mercato || "").trim();
   const dirNome = dirAI === "1" ? casa : dirAI === "2" ? ospite : dirAI === "x" ? "pareggio" : "nessun vincitore chiaro";
   passi.push({
@@ -143,7 +168,7 @@ export function percorsoScelta(x: {
         .map((v) => `l'AI dice ${v.nome} (vince ${v.viteAI} dei 3 risultati attesi), il book lo paga ${q2(v.quota)} e non lo conferma`);
       const motivi = inRange.filter((v) => !v.regge).map((v) => `${v.nome}: ${v.manca}`);
       const testo = [
-        inRange.length ? null : "Nessun pronostico dello scenario è pagato da 1,40 a 1,60.",
+        inRange.length ? null : "Nessun pronostico dello scenario è pagato da 1,40 a 1,70.",
         ...motivi, ...aiSiBookNo,
       ].filter(Boolean).map((t) => t!.charAt(0).toUpperCase() + t!.slice(1).replace(/\.$/, "")).join(". ") + "." + contro;
       passi.push({ titolo: aiSiBookNo.length || contro ? "AI e book non sono allineati: ripiego" : "Nessun pronostico dello scenario regge: ripiego", testo });
