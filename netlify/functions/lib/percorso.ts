@@ -11,7 +11,8 @@
  *     proposta.
  *  3. AI e BOOK allineati? Un mercato regge se il book lo conferma, vince in almeno 2 dei 3 risultati attesi
  *     dell'AI e lo storico lo da' almeno al 58% (come il vecchio "buona"). Se nessun mercato dello scenario regge -> RIPIEGO.
- *  4. RIPIEGO: MG totali 2-4, Under 3,5, 1X, X2 (1,40-1,60) e X o GG (1,62-1,90), con le stesse prove.
+ *  4. RIPIEGO: MG totali 2-4, Under 3,5, 1X, X2 (1,40-1,60) e X o GG (1,40-1,90 con la quota vera Sisal,
+ *     1,62-1,90 se e' la stima GG -10%: 21/10/2026), con le stesse prove.
  *  5. Fra quelli che reggono vince il piu' probabile: media di storico, campionato e ultime 5 delle due
  *     squadre (Rossi: "quante volte quel campionato va under, le due squadre nelle ultime cinque quante
  *     volte sono andate under o MG 2-4: da li' si capisce qual e' la migliore"). Under 3,5 solo fino a 1,45
@@ -66,7 +67,9 @@ export function percorsoScelta(x: {
     const q = quotaMercato(m, codice);
     const xogg = codice === "X oppure GG";
     const u35 = codice === "U3.5";
-    const nelRange = !!q && (xogg ? q.quota >= 1.62 && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= (u35 ? 1.45 : 1.6) + 1e-9);
+    // X o GG: da 1,40 con la quota vera della scheda Sisal (Rossi, 21/10/2026), da 1,62 se stimata.
+    const minXogg = q?.stimata ? 1.62 : 1.4;
+    const nelRange = !!q && (xogg ? q.quota >= minXogg && q.quota <= 1.9 : q.quota >= 1.4 && q.quota <= (u35 ? 1.45 : 1.6) + 1e-9);
     const book = bookConferma(codice, m);
     let viteAI: number | null = ris.length === 3 ? ris.filter((r) => evaluateMarketOutcome(codice, r) === true).length : null;
     let ai: boolean | null = viteAI == null ? null : viteAI >= 2;
@@ -87,7 +90,7 @@ export function percorsoScelta(x: {
     // pronostici; qui ci sta GG + Over e MG 3-6"): si vedono e contano nella scelta della migliore (pMedia).
     const regge = nelRange && book && ai !== false && storico === true;
     const manca = !q ? "nessuna quota"
-      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da 1,62 a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
+      : !nelRange ? (xogg ? `pagato ${q2(q.quota)}, serve da ${q2(minXogg)} a 1,90` : u35 && q.quota > 1.45 ? `pagato ${q2(q.quota)}: l'Under 3,5 solo fino a 1,45 (sopra e' troppo rischioso)` : `pagato ${q2(q.quota)}, fuori da 1,40-1,60`)
       : [!book ? "il book non lo conferma" : null, ai === false ? (viteAI != null && viteAI < 2 ? `l'AI: vince solo in ${viteAI} dei 3 risultati attesi` : "l'AI non vede questo vincitore") : null,
         storico === false ? `lo storico lo da' solo al ${pc(pRif!)}` : storico == null ? "nessun dato di storico" : null].filter(Boolean).join("; ");
     const perche = (r?.perche || "").replace(/^★ consigliato:\s*/, "");

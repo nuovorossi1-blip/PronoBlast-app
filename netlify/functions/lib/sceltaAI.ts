@@ -35,7 +35,8 @@ export function quotaMercato(m: any, codice: string): { quota: number; stimata: 
 
 /**
  * Le opzioni da mostrare all'AI (19/10/2026 sera, percorso nuovo): A = i mercati dello scenario, B = quelli
- * del ripiego (soloIncertezza), per quando AI e book non sono allineati. Da 1,40 a 1,60; X o GG da 1,62 a 1,90.
+ * del ripiego (soloIncertezza), per quando AI e book non sono allineati. Da 1,40 a 1,60; X o GG da 1,40 a 1,90
+ * con la quota vera Sisal, da 1,62 se e' stimata (21/10/2026).
  */
 export function opzioniGiocabili(m: any, _direzioneAI?: string | null, _perIlPrompt = false, _assenti?: { casa?: number | null; ospite?: number | null } | null): { scenario: string; opzioni: OpzioneGiocabile[] } {
   const odds: any = rowToOdds(m);
@@ -51,7 +52,7 @@ export function opzioniGiocabili(m: any, _direzioneAI?: string | null, _perIlPro
     if (isMercatoVietato(c)) continue;
     const q = quotaMercato(m, c);
     const xogg = c === "X oppure GG";
-    if (!q || (xogg ? q.quota < 1.62 || q.quota > 1.9 : q.quota < 1.4 || q.quota > 1.6 + 1e-9)) continue;
+    if (!q || (xogg ? q.quota < (q.stimata ? 1.62 : 1.4) || q.quota > 1.9 : q.quota < 1.4 || q.quota > 1.6 + 1e-9)) continue;
     const soloIncertezza = !delloScenario.includes(c);
     opzioni.push({ codice: c, nome: nomeDi(c), quota: q.quota, stimata: q.stimata, ...(soloIncertezza ? { soloIncertezza } : {}) });
   }
@@ -113,7 +114,7 @@ COME SI LEGGONO LE QUOTE (regole del proprietario):
 - GG basso (sotto 1,60) e AI/numeri che dicono "segnano entrambe" = GG. GG a 1,70 o piu' = il book non e' sicuro; GG a 1,80 o piu' = il book dice NO al GG: anche se le notizie o la tua impressione dicono GG, vale il book.
 - Partita complicata (notizie contro la favorita, direzione non precisa, gol nella fascia 2-4): si ripiega sulla giocata che copre piu' risultati, di solito MG 2-4 totali.
 - Partita a ritmi bassi (il book dice che non segnano entrambe: GG alto e NG basso; e anche i numeri/l'AI dicono che la sfavorita segna poco): MG favorita 1-3.
-- X oppure GG e' la scelta di sicurezza (copre pareggio e GG): compare tra le opzioni solo quando e' pagata almeno 1,62; altrimenti si ripiega sul GG.
+- X oppure GG e' la scelta di sicurezza (copre pareggio e GG): compare tra le opzioni solo quando e' pagata almeno 1,40 (quota vera Sisal) o 1,62 (stimata); altrimenti si ripiega sul GG.
 - LASCIARE ("nessuna") e' una scelta giusta quando: la quantita' di gol non si legge, il GG non e' sicuro e la direzione non ha valore (quota troppo bassa). Meglio lasciare che giocare senza valore.
 ESEMPI DI RAGIONAMENTO:
 - Paris FC-Rennes (Equilibrio; 1X 1,33, X2 1,67; Over 1,5 1,18; Over 2,5 1,65; Under 3,5 1,45; GG 1,52): 1X piu' basso = pende per il Paris FC, ma 1,33 e' troppo bassa. Over 1,5 basso e Under 3,5 sotto 1,50 = da 2 a 4-5 gol. GG basso e segnano entrambe = GG. X o GG solo se pagato 1,62, altrimenti GG. GIOCATA: GG.
