@@ -3531,6 +3531,8 @@ export type ConsigliatoSalvato = {
   copertura?: { market: string; nome: string; quota: number; perche: string } | null;
   /** Il percorso della scelta (19/10/2026 sera): scenario, AI, allineamento, ripiego, scelta. */
   percorso?: Percorso | null;
+  /** Paletti delle quote: cosa e' logico e cosa no secondo le altre quote (21/10/2026). */
+  paletti?: PalettiSalvati | null;
   /** Book, AI e storico d'accordo sulla giocata (19/10/2026): n su su. */
   coerenza?: { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number } | null;
 };
@@ -3600,6 +3602,17 @@ export type VocePercorso = {
   perche: string;
   /** Cosa manca, in parole (vuoto se regge). */
   manca: string;
+};
+/** Paletti delle quote salvati col consigliato (netlify/functions/lib/paletti.ts, 21/10/2026). */
+export type PalettiSalvati = {
+  aggio: { nome: string; pct: number }[];
+  gol: { attesiCasa: number; attesiOspite: number; distribuzione: { gol: string; p: number }[]; almeno2: number; massimo3: number; massimo4: number | null; fonte: "sisal" | "file" };
+  mercati: { codice: string; quota: number | null; stimata: boolean; inZona: boolean; quotaCoerente: number | null; scarto: number | null;
+    stato: "in_linea" | "protetta" | "lasciata_alta" | "non_verificabile"; logica: boolean | null; perdeCon: { ris: string; protetto: boolean | null }[] }[];
+  esatti: { ris: string; quota: number; quotaCoerente: number; stato: "in_linea" | "protetta" | "lasciata_alta" | "non_verificabile" }[];
+  anomalie: string[];
+  incroci: string[];
+  righe: string[];
 };
 export type Percorso = {
   scenario: string;

@@ -19,7 +19,7 @@ const mercati: any[] = [
 ];
 
 describe("quote della scheda Sisal (21/10/2026)", () => {
-  const { quote, esatti } = mappaScheda(mercati);
+  const { quote, esatti, esatti_altro } = mappaScheda(mercati);
   it("traduce i mercati nei nomi del catalogo", () => {
     assert.equal(quote["MG 2-4 TOTALI"], 1.52);
     assert.equal(quote["MG 1-3 CASA"], 1.33);
@@ -31,6 +31,7 @@ describe("quote della scheda Sisal (21/10/2026)", () => {
     assert.equal(quote["GG + O2.5"], 2.1);
     assert.equal(quote["X OPPURE GG"], 1.4);
     assert.deepEqual(esatti, { "1-0": 10, "1-1": 6.5 });
+    assert.equal(esatti_altro, 33);
   });
   it("il motore usa la quota Sisal al posto della stima", () => {
     const odds: any = { odd_1: 2.75, odd_X: 3.25, odd_2: 2.5, odd_1X: 1.5, odd_X2: 1.4, odd_12: 1.3, odd_U15: 3.5, odd_O15: 1.25, odd_U25: 1.9, odd_O25: 1.8, odd_U35: 1.33, odd_O35: 3, odd_GG: 1.6, odd_NG: 2.2 };

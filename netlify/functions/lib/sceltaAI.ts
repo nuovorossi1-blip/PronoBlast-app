@@ -14,6 +14,7 @@
  */
 import { rowToOdds } from "./supabaseRest";
 import { quoteCatalogo, quotaXoppureGG, estimateMarketOdd, structuralAnalysis, quotaSisal } from "./clusterEngine";
+import { paletti } from "./paletti";
 import { getScenarioNote, mercatiDelloScenario, MERCATI_RIPIEGO, chiavePronostico, isMercatoVietato, evaluateMarketOutcome } from "../../../frontend/src/api";
 
 export type OpzioneGiocabile = { codice: string; nome: string; quota: number; stimata: boolean; soloIncertezza?: boolean; soloCopertura?: boolean };
@@ -83,6 +84,17 @@ export function testoFatti(forma: any, nomi: { casa: string; ospite: string }): 
 /** Il blocco da aggiungere al testo della partita: lettura del book e opzioni giocabili. */
 export function testoScelta(m: any, direzioneAI?: string | null, assenti?: { casa?: number | null; ospite?: number | null } | null): { testo: string; opzioni: OpzioneGiocabile[]; scenario: string } {
   const { scenario, opzioni } = opzioniGiocabili(m, direzioneAI, true, assenti);
+  // Paletti (21/10/2026): cosa e' logico e cosa no secondo le altre quote, per l'AI.
+  let pal = "";
+  try {
+    const p = paletti(m, [...mercatiDelloScenario(scenario, m), ...MERCATI_RIPIEGO]);
+    const es = p.esatti.slice(0, 6).map((e) => `${e.ris} @${q2(e.quota)} (con le altre quote ~${q2(e.quotaCoerente)}${e.stato === "protetta" ? ", protetto" : e.stato === "lasciata_alta" ? ", lasciato alto" : ""})`);
+    pal = `\nPALETTI DEL BOOK (quote confrontate fra loro; "coerente" = la quota che dovrebbe avere secondo le altre):\n` +
+      p.righe.map((r) => `  - ${r}`).join("\n") +
+      (p.anomalie.length ? `\n  ANOMALIE:\n${p.anomalie.map((a) => `  - ${a}`).join("\n")}` : "\n  Nessuna quota fuori posto.") +
+      (es.length ? `\n  RISULTATI ESATTI SISAL: ${es.join(" · ")}` : "") +
+      (p.incroci.length ? `\n  STESSO EVENTO, PREZZI DIVERSI: ${p.incroci.join(" ")}` : "");
+  } catch { /* senza paletti il prompt resta quello di prima */ }
   const riga = (l: OpzioneGiocabile[]) => l.length
     ? l.map((o) => `     - ${o.codice} = ${o.nome} @${q2(o.quota)}${o.stimata ? " (quota stimata)" : ""}`).join("\n")
     : "     (nessuna)";
@@ -95,7 +107,7 @@ OPZIONI GIOCABILI (pagate da 1,40 a 1,60; scegli SOLO fra queste, scrivendo il c
   A) PRONOSTICI DELLO SCENARIO:
 ${riga(opzioni.filter((o) => !o.soloIncertezza))}
   B) RIPIEGO, SOLO SE NESSUNO DI A E' CONFERMATO DAL BOOK O LA PARTITA NON E' CHIARA:
-${riga(opzioni.filter((o) => o.soloIncertezza))}`;
+${riga(opzioni.filter((o) => o.soloIncertezza))}${pal}`;
   return { testo, opzioni, scenario };
 }
 
@@ -107,6 +119,7 @@ Ragiona in questi 5 passi, nell'ordine:
 3. DIREZIONE: chi non perde secondo quote, ultime partite e notizie. Se non e' chiara, dillo.
 4. CHI SEGNA E CHI PRENDE GOL, usando i FATTI GIA' CONTATI DAL PROGRAMMA (se la favorita ha assenti pesanti in ATTACCO, il pareggio diventa piu' probabile: se fra le opzioni c'e' la doppia chance + Over 1,5, preferiscila al segno secco): per OGNUNA delle due squadre, dalle ultime partite DELLO STESSO TIPO (campionato, coppa...) scrivi in quante ha segnato, in quante ha preso gol, e i gol fatti/subiti, copiando i numeri dai dati. Assenti in attacco = segna meno; assenti in difesa = prende di piu'. Se un'impressione va contro i numeri o contro il book, valgono i numeri e il book.
 5. SCELTA: fra le OPZIONI GIOCABILI tieni quelle coerenti con i passi 2, 3 e 4, e scegli quella che COPRE PIU' RISULTATI realistici (esempi: "1" copre anche l'1-0, il GG no; "X2 + Over 1,5" copre lo 0-2 che il GG perde; senza direzione si gioca la fascia di gol del book). Se nessuna e' coerente rispondi "nessuna".
+PALETTI DEL BOOK (se ci sono): una quota in zona d'oro deve essere ALLINEATA alle altre. Se una opzione e' segnata "TRAPPOLA" non sceglierla; "CONFERMA" la rafforza; una quota "lasciata alta" vuol dire che il book non ci crede. Spiega in ragionamento.book cosa sta dicendo il book con le anomalie, usando solo i numeri scritti.
 COME SI LEGGONO LE QUOTE (regole del proprietario):
 - Doppia chance: quella piu' bassa (1X o X2) indica da che parte pende la partita; se e' sotto 1,40 non ha valore, non rischiarla.
 - Over 1,5 basso = almeno 2 gol. Over 2,5 = via di mezzo. Under 3,5 sotto 1,50 = partita non troppo esplosiva, da 2 a 4 (forse 5) gol.

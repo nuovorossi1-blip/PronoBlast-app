@@ -18,7 +18,7 @@ import { chiaveMercato } from "./clusterEngine";
 const AGENTE = (process.env.PC_AGENTE_URL || "").replace(/\/$/, "");
 const SEGRETO = process.env.PC_AGENTE_SEGRETO || "";
 
-export type QuoteSisal = { at: string; codice: string; quote: Record<string, number>; esatti: Record<string, number>; mercati: number };
+export type QuoteSisal = { at: string; codice: string; quote: Record<string, number>; esatti: Record<string, number>; esatti_aggio?: number | null; esatti_altro?: number | null; mercati: number };
 type MercatoScheda = { cs: number; nome: string; desc: string; soglia: string; esiti: [string, number][] };
 
 const BASE_COL: Record<string, string> = {
@@ -34,8 +34,9 @@ const EST_KEY: Record<string, string> = {
 };
 
 /** Mercati della scheda -> quote con i nomi del catalogo (MG 2-4 totali, DC 1X + O1.5, 1 + U4.5, ...). */
-export function mappaScheda(mercati: MercatoScheda[]): { quote: Record<string, number>; esatti: Record<string, number> } {
+export function mappaScheda(mercati: MercatoScheda[]): { quote: Record<string, number>; esatti: Record<string, number>; esatti_aggio: number | null; esatti_altro: number | null } {
   const quote: Record<string, number> = {}, esatti: Record<string, number> = {};
+  let esatti_aggio: number | null = null, esatti_altro: number | null = null;
   const metti = (nome: string, q: unknown) => { if (typeof q === "number" && q > 1) quote[chiaveMercato(nome)] = q; };
   const sp = (s: string) => s.replace(/\s/g, "");
   for (const m of mercati || []) {
@@ -63,12 +64,17 @@ export function mappaScheda(mercati: MercatoScheda[]): { quote: Record<string, n
       case 30394:
         for (const [d, q] of m.esiti) { const k = sp(d).match(/^(\d-\d)\/(\d-\d)$/); if (k) metti(`MG ${k[1]} casa + MG ${k[2]} ospite`, q); }
         break;
+      // Risultato esatto: prima il mercato a 26 esiti (con ALTRO: da qui l'aggio vero), il 75 esiti completa.
       case 21605: case 7:
-        for (const [d, q] of m.esiti) { const k = sp(d); if (/^\d+-\d+$/.test(k) && q > 1 && (m.cs === 21605 || !esatti[k])) esatti[k] = q; }
+        for (const [d, q] of m.esiti) { const k = sp(d); if (/^\d+-\d+$/.test(k) && q > 1 && (m.cs === 7 || !esatti[k])) esatti[k] = q; }
+        if (m.cs === 7) {
+          esatti_aggio = m.esiti.reduce((t, [, q]) => t + (q > 1 ? 1 / q : 0), 0);
+          esatti_altro = m.esiti.find(([d]) => /ALTRO/i.test(d))?.[1] ?? null;   // tutti i risultati non elencati
+        }
         break;
     }
   }
-  return { quote, esatti };
+  return { quote, esatti, esatti_aggio, esatti_altro };
 }
 
 /** Chiede all'agente del PC le schede Sisal. null = agente non configurato o spento. */
@@ -102,9 +108,9 @@ export async function aggiornaQuoteSisal(matchId: string): Promise<{ ok: boolean
     if (!schede) return { ok: false, errore: "PC di casa non raggiungibile" };
     const s = schede[m.id];
     if (!s?.ok) return { ok: false, errore: s?.errore || "scheda Sisal non disponibile" };
-    const { quote, esatti } = mappaScheda(s.mercati);
+    const { quote, esatti, esatti_aggio, esatti_altro } = mappaScheda(s.mercati);
     const patch: Record<string, unknown> = {
-      quote_sisal: { at: s.at, codice: s.codice, quote, esatti, mercati: s.mercati.length } satisfies QuoteSisal,
+      quote_sisal: { at: s.at, codice: s.codice, quote, esatti, esatti_aggio, esatti_altro, mercati: s.mercati.length } satisfies QuoteSisal,
     };
     let cambiate = 0;
     let est: string[] = Array.isArray(m.estimated) ? [...m.estimated] : [];

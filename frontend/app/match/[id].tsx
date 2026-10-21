@@ -742,6 +742,35 @@ export default function MatchDetail() {
                 {note ? `Scenario: ${note.scenario.toUpperCase()}${note.favorita ? ` · favorita ${note.favorita === "1" ? match.squadra1 : match.squadra2} a ${q2(Number(note.favorita === "1" ? match.odds.odd_1 : match.odds.odd_2))}` : ""}${per?.ripiego ? " · RIPIEGO" : ""}` : "Scenario: quote 1X2 mancanti"}
               </Text>
 
+              {/* PALETTI DELLE QUOTE (21/10/2026, Rossi): prima le quote, cosa e' logico e cosa no
+                  (zona d'oro 1,40-1,70 e allineamento con le altre quote), poi dossier e AI nel PERCHÉ. */}
+              {cs?.paletti ? (() => {
+                const pl = cs.paletti!;
+                const codici = new Set((per?.voci || []).map((v) => v.codice));
+                const lista = pl.mercati.filter((x) => !codici.size || codici.has(x.codice));
+                const nomeP = (c: string) => c.replace(/\bcasa\b/gi, match.squadra1).replace(/\bospite\b/gi, match.squadra2)
+                  .replace(/^O(\d)\.5$/, "Over $1,5").replace(/^U(\d)\.5$/, "Under $1,5").replace("GG + O2.5", "GG + Over 2,5").replace("X oppure GG", "X o GG");
+                const statoTxt = (s: string) => s === "in_linea" ? "allineata" : s === "protetta" ? "protetta (il book l'ha abbassata)" : s === "lasciata_alta" ? "lasciata alta (il book non ci crede)" : "stimata: non verificabile";
+                return (
+                  <>
+                    {titolo("PALETTI DELLE QUOTE")}
+                    {pl.righe.slice(0, 3).map((r, i) => <Text key={`pr${i}`} style={styles.golTesto}>{r}</Text>)}
+                    <Text style={styles.golTesto}>{`Gol totali (${pl.gol.fonte === "sisal" ? "scala Sisal" : "dalle quote del file"}): ${pl.gol.distribuzione.map((d) => `${d.gol} ${pc(d.p)}`).join(" · ")}`}</Text>
+                    {lista.map((x, i) => (
+                      <Text key={`pm${i}`} style={[styles.golTesto, { color: x.logica ? colors.success : x.stato === "lasciata_alta" ? colors.danger : x.stato === "protetta" ? colors.primary : colors.textMuted }]}>
+                        {`${x.logica ? "✓" : x.inZona ? "⚠" : "·"} ${nomeP(x.codice)} @${q2(x.quota!)}${x.stimata ? "*" : ""} · ${x.inZona ? "zona d'oro" : "fuori zona"} · ${statoTxt(x.stato)}${x.quotaCoerente ? ` · coerente ~${q2(x.quotaCoerente)}` : ""}`}
+                      </Text>
+                    ))}
+                    {pl.anomalie.map((a, i) => <Text key={`pa${i}`} style={[styles.golTesto, styles.golAvviso]}>{`⚠ ${a}`}</Text>)}
+                    {pl.esatti.length ? (
+                      <Text style={styles.golTesto}>{`Risultati esatti Sisal: ${pl.esatti.slice(0, 6).map((e) => `${e.ris} @${q2(e.quota)}${e.stato === "protetta" ? " (protetto)" : e.stato === "lasciata_alta" ? " (alto)" : ""}`).join(" · ")}`}</Text>
+                    ) : null}
+                    {pl.incroci.map((s, i) => <Text key={`pi${i}`} style={[styles.golTesto, styles.golAvviso]}>{`↔ ${s}`}</Text>)}
+                    <Text style={styles.golPic}>{"✓ in zona e allineata · ⚠ in zona ma fuori linea · coerente = la quota che avrebbe secondo le altre quote · * = stimata"}</Text>
+                  </>
+                );
+              })() : null}
+
               {titolo("PERCHÉ")}
               {per ? per.passi.map((p, i) => (
                 <Text key={i} style={styles.golTesto}><Text style={{ fontWeight: "800" }}>{`${i + 1}. ${p.titolo}. `}</Text>{p.testo}</Text>

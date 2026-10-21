@@ -25,6 +25,8 @@ import { opzioneDaId, modelloScelto } from "./llmScelta";
 import { notiziaVerificata } from "./predictionPrompt";
 import { testoScelta, testoFatti, SISTEMA_SCELTA, giocataValida } from "./sceltaAI";
 import { percorsoScelta } from "./percorso";
+import { paletti as calcolaPaletti } from "./paletti";
+import { mercatiDelloScenario, MERCATI_RIPIEGO } from "../../../frontend/src/api";
 
 export { QuoteFirma, firmaQuote, quoteCambiate };
 
@@ -250,6 +252,7 @@ export type ConsigliatoSalvato = {
   /** Book, AI e storico d'accordo sulla giocata (19/10/2026): n su su. */
   coerenza?: { book: boolean; ai: boolean | null; storico: boolean | null; n: number; su: number } | null;
   percorso?: import("../../../frontend/src/api").Percorso | null;
+  paletti?: import("../../../frontend/src/api").PalettiSalvati | null;
 };
 
 /** Cosa va in pick_finale per questo consigliato: il mercato, oppure (partita
@@ -423,6 +426,12 @@ export async function consigliatoDi(matchId: string, dati?: Awaited<ReturnType<t
   const v = per.scelta ? per.voci.find((o) => o.codice === per.scelta) ?? null : null;
   out.numeri_market = out.market; out.numeri_nome = out.nome; out.numeri_quota = out.quota;
   out.percorso = per; out.copertura = null; out.avvisi = [];
+  // Paletti delle quote (21/10/2026): partono dalle quote, prima di dossier e AI. Mai bloccano il consigliato.
+  try {
+    const pal = calcolaPaletti(m, [...mercatiDelloScenario(nota?.scenario, m), ...MERCATI_RIPIEGO]);
+    out.paletti = { ...pal, esatti: pal.esatti.slice(0, 12).map(({ ris, quota, quotaCoerente, stato }) => ({ ris, quota, quotaCoerente, stato })),
+      mercati: pal.mercati.map(({ pBook: _b, pCoerente: _c, ...r }) => r) };
+  } catch { out.paletti = null; }
   out.ai = lAI ? "scelta" : null; out.notizia = lAI?.notizia || null;
   if (v) {
     const r = a.righe.find((rr) => normalizeMarket(rr.market) === normalizeMarket(v.codice));
