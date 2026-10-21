@@ -177,7 +177,7 @@ async function blocco(l: LavoroInterno): Promise<boolean> {
       // pronostico si ricalcola e salva il verdetto della partita.
       const ids: string[] = p.ids || [];
       l.totale = ids.length;
-      // Al primo giro le quote Sisal di tutte insieme, rilette fresche (una sola apertura di Edge).
+      // Al primo giro le quote Sisal di tutte insieme (una sola apertura di Edge): riscaricate solo quelle di 3 ore o piu'.
       if (l.pos === 0 && !l.parziale.sisal) { await aggiornaQuoteSisalLotto(ids, true); l.parziale.sisal = true; }
       const id = ids[l.pos];
       if (id) {

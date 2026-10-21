@@ -96,7 +96,9 @@ async function chiediSchede(partite: { id: string; day: string; squadra1: string
 
 /** L'agente ne legge al massimo 20 per volta. */
 const LOTTO = 20;
-export type EsitoSisal = { ok: boolean; errore?: string; mercati?: number; cambiate?: number; fresca?: boolean };
+export type EsitoSisal = { ok: boolean; errore?: string; mercati?: number; cambiate?: number; fresca?: boolean; at?: string };
+/** Quote scaricate da meno di cosi' (da PronoBlast o da Jupiter) non si riscaricano col Pronostico AI (21/10/2026). */
+export const VALIDA_MS = 3 * 3600_000;
 
 /** Applica una scheda letta alla riga: sovrascrive le 14 quote del file e salva gli altri mercati. */
 async function salvaScheda(m: any, s: any): Promise<EsitoSisal> {
@@ -121,7 +123,8 @@ async function salvaScheda(m: any, s: any): Promise<EsitoSisal> {
  * Legge le schede Sisal di piu' partite insieme e aggiorna le quote (21/10/2026, Rossi: "una volta scaricate
  * vengono salvate e non si ricaricano, solo se decido io con l'analisi AI").
  *  - forza = false (selezione in Schedina): solo le partite che le quote complete non le hanno ancora;
- *  - forza = true (Pronostico AI, Pronostici AI della Schedina): rilettura fresca da Sisal, si aggiorna cio' che e' cambiato.
+ *  - forza = true (Pronostico AI, Pronostici AI della Schedina): se l'ultima lettura (di PronoBlast o di Jupiter,
+ *    cartella condivisa dell'agente) ha meno di 3 ore si usa quella, altrimenti si riscarica e si aggiorna.
  * Salta sempre le partite iniziate. Non lancia mai: un problema (PC spento, partita non trovata) lascia le
  * quote com'erano e le stime restano stime.
  */
@@ -137,12 +140,15 @@ export async function aggiornaQuoteSisalLotto(ids: string[], forza = false): Pro
       if (!m) { esito[id] = { ok: false, errore: "partita non trovata" }; continue; }
       const inizio = inizioPartitaMs(m.day, m.time);
       if (m.result || (inizio !== null && inizio <= Date.now())) { esito[id] = { ok: false, errore: "partita gia' iniziata" }; continue; }
-      if (!forza && m.quote_sisal) { esito[id] = { ok: true, fresca: true, mercati: m.quote_sisal.mercati, cambiate: 0 }; continue; }
+      const at = Date.parse(m.quote_sisal?.at || "");
+      if (m.quote_sisal && (!forza || (Number.isFinite(at) && Date.now() - at < VALIDA_MS))) {
+        esito[id] = { ok: true, fresca: true, mercati: m.quote_sisal.mercati, cambiate: 0, at: m.quote_sisal.at }; continue;
+      }
       daLeggere.push(m);
     }
     for (let k = 0; k < daLeggere.length; k += LOTTO) {
       const parte = daLeggere.slice(k, k + LOTTO);
-      const schede = await chiediSchede(parte.map((m) => ({ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 })), forza);
+      const schede = await chiediSchede(parte.map((m) => ({ id: m.id, day: m.day, squadra1: m.squadra1, squadra2: m.squadra2 })));
       for (const m of parte) {
         const s = schede?.[m.id];
         if (!schede) esito[m.id] = { ok: false, errore: "PC di casa non raggiungibile" };
@@ -159,7 +165,7 @@ export async function aggiornaQuoteSisalLotto(ids: string[], forza = false): Pro
   return esito;
 }
 
-/** Una partita sola, col Pronostico AI della scheda: rilettura fresca. */
+/** Una partita sola, col Pronostico AI della scheda: riscarica se l'ultima lettura ha 3 ore o piu'. */
 export async function aggiornaQuoteSisal(matchId: string): Promise<EsitoSisal> {
   return (await aggiornaQuoteSisalLotto([matchId], true))[matchId] ?? { ok: false, errore: "partita non trovata" };
 }

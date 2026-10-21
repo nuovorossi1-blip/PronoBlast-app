@@ -23,9 +23,9 @@ MESI = {m: i + 1 for i, m in enumerate("gennaio febbraio marzo aprile maggio giu
 # ---------------------------------------------------------------- schede condivise (21/10/2026)
 # Rossi: "le quote scaricate da Sisal non serve riscaricarle se le ha gia' prese PronoBlast o Jupiter;
 # si condividono solo le quote Sisal, il resto no". Cartella sul PC fuori da entrambi i progetti e dai
-# loro database: una scheda per codice Sisal (pal-avv), valida 30 minuti. Stesso formato nelle due app.
+# loro database: una scheda per codice Sisal (pal-avv), valida 3 ore. Stesso formato nelle due app.
 CONDIVISE = pathlib.Path(os.environ.get("LOCALAPPDATA") or pathlib.Path.home()) / "sisal-schede"
-FRESCA_S = 30 * 60
+FRESCA_S = 3 * 3600   # 21/10/2026, Rossi: dopo 3 ore le quote possono essere cambiate, si riscaricano
 
 
 def _scheda_condivisa(codice):
