@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -137,15 +137,15 @@ export default function BottomNav() {
             activeOpacity={0.6}
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
-            <View>
-              <Ionicons name={t.icon} size={22} color={active ? colors.primary : colors.textMuted} />
+            <View style={active ? styles.iconGlow : undefined}>
+              <Ionicons name={t.icon} size={21} color={active ? colors.primary : colors.textDim} />
               {isSchedina && selCount > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeTxt}>{selCount > 99 ? "99+" : selCount}</Text>
                 </View>
               )}
             </View>
-            <Text style={[styles.label, { color: active ? colors.primary : colors.textMuted }]}>
+            <Text style={[styles.label, { color: active ? colors.primary : colors.textDim }]}>
               {t.label}{isSchedina && selCount > 0 ? ` (${selCount})` : ""}
             </Text>
           </TouchableOpacity>
@@ -156,20 +156,27 @@ export default function BottomNav() {
 }
 
 const styles = StyleSheet.create({
+  // Barra a vetro (29/10/2026): sfondo semitrasparente sfocato, attivo in oro con alone.
   wrap: {
     flexDirection: "row",
-    backgroundColor: "rgba(10,10,10,0.96)",
+    backgroundColor: colors.glass,
+    // @ts-ignore: solo web
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingTop: 6,
+    paddingTop: 8,
     paddingHorizontal: 4,
   },
-  tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
-  label: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" },
+  tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
+  iconGlow: Platform.OS === "web"
+    ? ({ filter: "drop-shadow(0 0 8px rgba(245,166,35,0.5))" } as any)
+    : { shadowColor: colors.primary, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+  label: { fontSize: 10, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" },
   badge: {
-    position: "absolute", top: -4, right: -8,
-    minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8,
-    backgroundColor: colors.primary, alignItems: "center", justifyContent: "center",
+    position: "absolute", top: -6, right: -9,
+    minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9,
+    backgroundColor: colors.danger, alignItems: "center", justifyContent: "center",
     borderWidth: 1.5, borderColor: colors.bg,
   },
   badgeTxt: { color: "#FFF", fontSize: 9, fontWeight: "900" },

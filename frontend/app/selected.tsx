@@ -8,7 +8,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 
 import { api, Match, evaluateMarketOutcome, Lavoro, inizioPartitaMs } from "@/src/api";
 import { useLavoro, LavoroBox, riepilogoLavoro } from "@/src/components/LavoroBox";
-import { colors } from "@/src/theme";
+import { colors, fonts } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
 import { apriConPrompt, confirmAction, notify } from "@/src/utils/platform";
 import { useBottomNav } from "@/src/components/BottomNavContext";
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
   iconBtn: { padding: 8 },
-  title: { flex: 1, color: colors.text, fontSize: 16, fontWeight: "800", textAlign: "center" },
+  title: { flex: 1, fontFamily: fonts.heading, color: colors.text, fontSize: 20, fontWeight: "900", textAlign: "center", letterSpacing: 1, textTransform: "uppercase" },
   azioniWrap: { flexGrow: 0, flexShrink: 0 },
   azioni: {
     flexDirection: "row", alignItems: "center", gap: 8,

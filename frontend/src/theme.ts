@@ -1,19 +1,22 @@
+// Grafica ispirata a RVincente (29/10/2026): grafite, oro con riflesso corallo,
+// riquadri "a vetro", testi Manrope e titoli Barlow Condensed. I colori con un
+// significato (success/warning/danger, AI, cluster) restano quelli di prima.
 export const colors = {
-  bg: "#0A0A0A",
-  surface: "#1A1A1A",
+  bg: "#1A1A1A",
+  surface: "#242424",
   // Alias usati in alcune schermate (quote, risultato, match): stessi valori di bg/surface
-  background: "#0A0A0A",
-  card: "#1A1A1A",
-  surfaceHi: "#242424",
-  // Soft gradient: warm yellow → orange → coral pink-red (NOT aggressive orange)
-  primary: "#FF8C42",       // mid warm
-  primaryLight: "#FFC857",  // top of gradient (warm yellow)
-  primaryDark: "#FF6B7A",   // bottom of gradient (coral pink-red)
+  background: "#1A1A1A",
+  card: "#242424",
+  surfaceHi: "#2D2D2D",
+  // Gradiente: oro → arancio → corallo
+  primary: "#F5A623",
+  primaryLight: "#FFC15E",
+  primaryDark: "#FF6B6B",
   text: "#FFFFFF",
   textMuted: "#A1A1AA",
   textDim: "#71717A",
-  border: "#27272A",
-  borderLight: "#3F3F46",
+  border: "rgba(255,255,255,0.08)",
+  borderLight: "rgba(255,255,255,0.16)",
   success: "#10B981",
   warning: "#F59E0B",
   danger: "#EF4444",
@@ -21,13 +24,22 @@ export const colors = {
   aiText: "#60A5FA",
   clusterBg: "rgba(192, 132, 252, 0.12)",
   clusterText: "#C084FC",
+  // Riquadri a vetro (barra in basso, intestazioni)
+  glass: "rgba(36,36,36,0.72)",
+};
+
+// File in public/fonts, dichiarati nella pagina da scripts/inject-pwa-head.js.
+// Il testo normale prende Manrope da solo; heading va messo sui titoli.
+export const fonts = {
+  body: "Manrope",
+  heading: "Barlow Condensed",
 };
 
 export const radii = {
-  sm: 6,
-  md: 10,
-  lg: 14,
-  xl: 18,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 22,
   full: 999,
 };
 

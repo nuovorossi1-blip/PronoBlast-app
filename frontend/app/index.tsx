@@ -10,7 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 
 import { api, Match, quickPredictionFamily, evaluateMarketOutcome, FASCE_AI, chiaveFascia } from "@/src/api";
-import { colors } from "@/src/theme";
+import { colors, fonts } from "@/src/theme";
 import BottomNav from "@/src/components/BottomNav";
 import { useBottomNav } from "@/src/components/BottomNavContext";
 import { useToast } from "@/src/components/Toast";
@@ -915,7 +915,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  title: { color: colors.text, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  title: { fontFamily: fonts.heading, color: colors.text, fontSize: 26, fontWeight: "900", letterSpacing: 0.8, textTransform: "uppercase" },
   resetBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceHi, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   resetBtnTxt: { color: colors.text, fontSize: 11, fontWeight: "900", letterSpacing: 0.5 },
   menuBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surfaceHi, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
@@ -924,11 +924,11 @@ const styles = StyleSheet.create({
   dayStrip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12, justifyContent: "space-between" },
   dayInactive: { alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   dayLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
-  dayNum: { color: colors.text, fontSize: 22, fontWeight: "900", marginTop: 2 },
+  dayNum: { fontFamily: fonts.heading, color: colors.text, fontSize: 24, fontWeight: "900", marginTop: 2 },
   dayActive: { borderRadius: 14, overflow: "hidden" },
   dayActiveGrad: { paddingHorizontal: 14, paddingVertical: 8, alignItems: "center", borderRadius: 14 },
   dayLabelActive: { color: "#FFF", fontSize: 11, fontWeight: "900", letterSpacing: 0.5 },
-  dayNumActive: { color: "#FFF", fontSize: 22, fontWeight: "900" },
+  dayNumActive: { fontFamily: fonts.heading, color: "#FFF", fontSize: 24, fontWeight: "900" },
   calBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   calMain: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
   calSub: { color: colors.primary, fontSize: 12, fontWeight: "800" },
@@ -964,7 +964,7 @@ const styles = StyleSheet.create({
   leagueCount: { color: colors.textMuted, fontSize: 12, fontWeight: "800" },
   cardsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   card: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.surface, borderRadius: 14, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: colors.border },
-  cardSelected: { borderColor: colors.primary, backgroundColor: "rgba(255,140,66,0.06)" },
+  cardSelected: { borderColor: colors.primary, backgroundColor: "rgba(245,166,35,0.06)" },
   check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.borderLight, alignItems: "center", justifyContent: "center" },
   checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   teams: { flex: 1, gap: 2 },
@@ -977,7 +977,7 @@ const styles = StyleSheet.create({
   predCol: { alignItems: "flex-end", gap: 4 },
   aiBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.aiBg, borderWidth: 1, borderColor: "rgba(96,165,250,0.35)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, maxWidth: 120 },
   aiBadgeTxt: { color: colors.aiText, fontSize: 9, fontWeight: "900", letterSpacing: 0.3 },
-  predTxt: { color: "#FFF", fontSize: 16, fontWeight: "900" },
+  predTxt: { fontFamily: fonts.heading, color: "#FFF", fontSize: 19, fontWeight: "800", letterSpacing: 0.3 },
   predSep: { width: 1, height: 32, backgroundColor: "rgba(255,255,255,0.4)" },
   resNum: { color: "#FFF", fontSize: 14, fontWeight: "900", lineHeight: 16 },
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 24 },
@@ -1000,7 +1000,7 @@ const styles = StyleSheet.create({
   clearFiltersTxt: { color: colors.textMuted, fontSize: 12, fontWeight: "900", letterSpacing: 1 },
   compList: { gap: 6 },
   compRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceHi, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
-  compRowActive: { borderColor: colors.primary, backgroundColor: "rgba(255,140,66,0.08)" },
+  compRowActive: { borderColor: colors.primary, backgroundColor: "rgba(245,166,35,0.08)" },
   compTxt: { color: colors.text, fontSize: 14, fontWeight: "800" },
   compCode: { color: colors.textDim, fontSize: 11, fontWeight: "700", marginTop: 2, letterSpacing: 0.5 },
   compCount: { color: colors.textMuted, fontSize: 13, fontWeight: "900" },

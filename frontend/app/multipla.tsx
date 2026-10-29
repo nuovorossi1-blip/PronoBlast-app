@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
   section: { color: colors.textDim, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   chips: { gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  chipOn: { borderColor: colors.primary, backgroundColor: "rgba(255,140,66,0.15)" },
+  chipOn: { borderColor: colors.primary, backgroundColor: "rgba(245,166,35,0.15)" },
   chipTxt: { color: colors.textMuted, fontWeight: "700", fontSize: 13 },
   chipTxtOn: { color: colors.primary },
   row: { flexDirection: "row", gap: 12 },

@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as NavigationBar from "expo-navigation-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { colors } from "@/src/theme";
 import { BottomNavProvider } from "@/src/components/BottomNavContext";
 import { ToastProvider } from "@/src/components/Toast";
 import NativeUpdater from "@/src/components/NativeUpdater";
@@ -29,6 +30,14 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded || error) {
       SplashScreen.hideAsync();
+      // Schermata d'avvio della pagina web (scripts/inject-pwa-head.js): sfuma
+      // appena l'app e' pronta (29/10/2026).
+      if (Platform.OS === "web" && typeof document !== "undefined") {
+        const s = document.getElementById("pb-splash");
+        // Resta almeno 0,8 s, cosi' il logo si vede anche quando l'app e' gia' in cache.
+        const attesa = Math.max(0, 800 - (Date.now() - ((window as any).__pbSplashT || 0)));
+        if (s) setTimeout(() => { s.classList.add("pb-splash-via"); setTimeout(() => s.remove(), 400); }, attesa);
+      }
     }
   }, [loaded, error]);
 
@@ -47,7 +56,7 @@ export default function RootLayout() {
         // - setBackgroundColorAsync → match con tema scuro app
         await NavigationBar.setBehaviorAsync("inset-swipe");
         await NavigationBar.setVisibilityAsync("visible");
-        await NavigationBar.setBackgroundColorAsync("#0A0A0A");
+        await NavigationBar.setBackgroundColorAsync(colors.bg);
         await NavigationBar.setButtonStyleAsync("light");
       } catch (e) {}
     })();
@@ -60,7 +69,7 @@ export default function RootLayout() {
       <BottomNavProvider>
         <ToastProvider>
           <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" }, animation: "slide_from_right", animationDuration: 160 }} />
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: "slide_from_right", animationDuration: 160 }} />
           {/* Avviso aggiornamento APK: attivo solo dentro il guscio Android (18/09/2026) */}
           <NativeUpdater />
         </ToastProvider>

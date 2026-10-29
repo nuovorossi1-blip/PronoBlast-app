@@ -14,7 +14,7 @@ export default function Root({ children }: PropsWithChildren) {
         />
         <title>PronoBlast</title>
         <meta name="description" content="Analisi partite e pronostici: motore statistico, IA e quote del bookmaker" />
-        <meta name="theme-color" content="#0A0A0A" />
+        <meta name="theme-color" content="#1A1A1A" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
         <meta name="apple-mobile-web-app-title" content="PronoBlast" />

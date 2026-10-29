@@ -11,7 +11,7 @@ import { daGiocare } from "@/src/api";
 import { api, Match, Prediction, MARKET_FAMILIES, ODD_LABELS, OddsKey, quickPredictionFamily, rankPicks, StructuralAnalysis, buildFinalVerdict, VerdictPick, getMarketOdd, filterCoherentAlternatives, ammessoDallaStruttura, fusioneInIngresso, conLetturaGol, NOTA_LETTURA_GOL, getMatchCautionWarning, MatchHistory, getScenarioNote, chiaveScenario, evaluateMarketOutcome, ManualeStatsResponse, isVerdictMarket, normalizeMarket, SimilarOddsResponse, RIGHE_STATISTICHE, pctProb, candidatiManuale, FASCE_AI, dividiAnalisi, pronosticoPostPartita, inizioPartitaMs, verdettoDaAI, validaFasce, sogliaMassimaAffidabile, chiaveFascia, PROB_AFFIDABILE, FasciaValidata, etichettaFascia, valutaPuntaSu, consiglioDi, alternativeDelConsiglio, consiglioDaCautela, aiDecide, letturaGol, FormaGol, TabellaScenari, VoceTabella, quotaManuale, fasciaDellaQuota, RispostaLettura, intervalloGol, coerenteConGol, analizzaGiocate, AnalisiGiocate, mercatoAIValido, EsitoMercatoAI, PronosticoRegole, classificaScenario, isMercatoVietato, pronosticiDelloScenario, chiavePronostico } from "@/src/api";
 import { marketStatsCache, mlStatsCache, matchDetailCache, oddSettingsCache, selectedListCache, persistentLetturaCache, persistentTabellaCache } from "@/src/utils/cache";
 import { useScrollMemory } from "@/src/utils/scrollMemory";
-import { colors } from "@/src/theme";
+import { colors, fonts } from "@/src/theme";
 import { ScoreInput } from "@/src/components/ScoreInput";
 import { predictionQueue } from "@/src/utils/predictionQueue";
 import BottomNav, { useNavMetrics } from "@/src/components/BottomNav";
@@ -2655,7 +2655,7 @@ const styles = StyleSheet.create({
     position: "absolute", left: 0, right: 0,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     gap: 6, paddingHorizontal: 10, paddingVertical: 7,
-    backgroundColor: "rgba(10,10,10,0.96)",
+    backgroundColor: "rgba(26,26,26,0.96)",
     borderTopWidth: 1, borderTopColor: colors.border,
   },
   selNavHint: { flex: 1, textAlign: "right", color: colors.textDim, fontSize: 11, fontWeight: "700" },
@@ -2676,11 +2676,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   iconBtn: { padding: 8 },
-  headerTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: "800", textAlign: "center", textTransform: "uppercase", letterSpacing: 0.5 },
+  headerTitle: { flex: 1, fontFamily: fonts.heading, color: colors.text, fontSize: 17, fontWeight: "800", textAlign: "center", textTransform: "uppercase", letterSpacing: 0.5 },
   content: { padding: 16, gap: 16 },
   hero: { alignItems: "center", paddingVertical: 16, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border },
   heroDay: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: 12 },
-  team: { color: colors.text, fontSize: 18, fontWeight: "900", textTransform: "uppercase" },
+  team: { fontFamily: fonts.heading, color: colors.text, fontSize: 22, fontWeight: "900", textTransform: "uppercase" },
   vs: { color: colors.textDim, fontSize: 12, fontWeight: "700", marginVertical: 4 },
   resultBox: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.surfaceHi, borderRadius: 10, alignItems: "center" },
   resultLbl: { color: colors.textMuted, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
@@ -3030,7 +3030,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
   },
   minOddChipOn: {
-    backgroundColor: "rgba(255,140,66,0.20)",
+    backgroundColor: "rgba(245,166,35,0.20)",
     borderColor: colors.primary,
   },
   minOddChipTxt: { color: colors.textDim, fontSize: 12, fontWeight: "700" },
